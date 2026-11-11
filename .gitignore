@@ -1,0 +1,25 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+*.tsbuildinfo
+playwright-report/
+test-results/
+.local/
+*.log
+public/pdf-assets/
+
+# Personal library files and annotation exports never belong in public source.
+*.pdf
+*.epub
+*.docx
+leafmark-notes-*.json
+leafmark-notes-*.csv
+leafmark-notes-*.md
+books/
+backups/
+# Explicit, credited interoperability fixtures only.
+!tests/fixtures/tracemonkey.pdf
+!tests/fixtures/alice.epub
+!tests/fixtures/jbig2-symbol-offset.pdf
