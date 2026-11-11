@@ -29,6 +29,7 @@ test("metadata, covers, collections, library filters and download protection per
   await page.getByRole("button", { name: "New collection" }).click();
   await page.getByRole("textbox", { name: "Name", exact: true }).fill("Research shelf");
   await page.getByRole("button", { name: "Create collection" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.getByRole("combobox", { name: "Collection", exact: true }).selectOption("");
   await page.getByRole("button", { name: /^Details for/ }).click();
   const dialog = page.getByRole("dialog");
@@ -39,14 +40,18 @@ test("metadata, covers, collections, library filters and download protection per
   await dialog.getByRole("combobox", { name: "Reading status" }).selectOption("finished");
   await dialog.getByRole("checkbox", { name: "Research shelf" }).click();
   await expect(dialog.getByRole("checkbox", { name: "Research shelf" })).toBeChecked();
+  const originalCover = await dialog.locator(".cover img").getAttribute("src");
   await dialog.locator("input[type=file]").setInputFiles(path.resolve("public/icon-192.png"));
+  await expect(dialog.locator(".cover img")).not.toHaveAttribute("src", originalCover!);
   await expect(dialog.locator(".cover img")).toHaveAttribute("src", /^data:image\/webp/);
+  const replacementCover = await dialog.locator(".cover img").getAttribute("src");
   await dialog.getByRole("button", { name: "Remove download" }).click();
   await expect(dialog.getByRole("alert")).toContainText("only local copy");
   await dialog.getByRole("button", { name: "Save changes" }).click();
   await expect(dialog).toHaveCount(0);
   await page.reload();
   await expect(page.locator(".book-card h3")).toHaveText("Research reference");
+  await expect(page.locator(".book-card .cover img")).toHaveAttribute("src", replacementCover!);
   await page.getByRole("textbox", { name: "Search library" }).fill("language");
   await expect(page.locator(".book-card")).toHaveCount(1);
   await page.getByRole("textbox", { name: "Search library" }).fill("absent keyword");
@@ -64,6 +69,7 @@ test("metadata, covers, collections, library filters and download protection per
   await page.getByRole("button", { name: "Grid view" }).click();
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "Delete collection" }).click();
+  await expect(page.getByRole("combobox", { name: "Collection", exact: true })).not.toContainText("Research shelf");
   await expect(page.locator(".book-card")).toHaveCount(1);
   await page.getByRole("button", { name: "All books", exact: true }).click();
   await page.locator("input[type=file]").setInputFiles(path.resolve("tests/fixtures/jbig2-symbol-offset.pdf"));
@@ -127,6 +133,7 @@ test("book trash, restore and permanent file deletion operate on disposable impo
   await expect(page.locator(".book-card")).toHaveCount(0);
   await page.goto("/#/settings");
   await page.locator(".trash-row").getByRole("button", { name: "Restore", exact: true }).click();
+  await expect(page.locator(".trash-row")).toHaveCount(0);
   await page.goto("/");
   await expect(page.locator(".book-card")).toHaveCount(1);
   await page.getByRole("button", { name: /^Details for/ }).click();
