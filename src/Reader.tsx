@@ -16,6 +16,8 @@ import {
   RotateCw,
   Scan,
   Download,
+  NotebookPen,
+  BookA,
 } from "lucide-react";
 import { db, get, list, save } from "./db";
 import {
@@ -29,6 +31,8 @@ import {
   deviceId,
   now,
   uid,
+  defaultPdfLayout,
+  type PdfLayout,
 } from "./model";
 import { downloadBook } from "./sync";
 import type {
@@ -44,6 +48,11 @@ import {
   messageOf,
 } from "./components";
 import { exportAnnotations } from "./export";
+import { PageNotebook, type NotebookHandle } from "./PageNotebook";
+import { Meaning } from "./Meaning";
+import { pageNoteId, savePageNote } from "./pageNotes";
+import { emptyDocument, paragraph } from "./richText";
+import "./notebooks.css";
 
 export function Reader({ notify }: { notify: (message: string) => void }) {
   const { id = "" } = useParams(),
@@ -60,7 +69,30 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
       [id],
     ) || [];
   const savedPrefs = useLiveQuery(() => get("preferences", "reader"), []);
-  const prefs = savedPrefs || defaults;
+  const pdfPrefs = useLiveQuery(() => get("preferences", `pdf:${id}`), [id]);
+  const pdfLayout = pdfPrefs?.pdfLayout || defaultPdfLayout;
+  const prefs = { ...(savedPrefs || defaults), pdfLayout };
+  const notebook = useRef<NotebookHandle | null>(null);
+  const [notebookPage, setNotebookPage] = useState(1),
+    [pinned, setPinned] = useState(false),
+    [notebookQuery, setNotebookQuery] = useState("");
+  const [meaningTerm, setMeaningTerm] = useState(""),
+    [meaningPage, setMeaningPage] = useState(1),
+    [layoutFallback, setLayoutFallback] = useState(false);
+  const openNotebookRef = useRef<(page: number) => void>(() => {});
+  async function flushNotebook() {
+    return (await notebook.current?.flush()) ?? true;
+  }
+  async function changePanel(name: string) {
+    if (await flushNotebook()) setPanel(name);
+  }
+  async function openNotebook(page: number, hold = false) {
+    if (!(await flushNotebook())) return;
+    setNotebookPage(page);
+    setPinned(hold);
+    setPanel("page-notes");
+  }
+  openNotebookRef.current = (page) => void openNotebook(page, true);
   const host = useRef<HTMLDivElement>(null),
     adapter = useRef<ReaderAdapter | null>(null),
     position = useRef<Position | null>(null),
@@ -145,6 +177,9 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
             : (await import("./reader/docx")).DocxReader;
       if (cancelled) return;
       reader = new ctor(host.current!, book, {
+        onPageNote: (page) => openNotebookRef.current(page),
+        onRegionMode: setRegion,
+        onLayoutFallback: setLayoutFallback,
         onLocation: (locator, percentage) => {
           if (cancelled) return;
           setCurrent(locator);
@@ -181,8 +216,11 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
         target = params.get("annotation");
       const mark = target ? await get("annotation", target) : undefined;
       try {
-        if (mark && mark.bookId === id) await reader.goTo(mark.locator);
-        else if (stored) await reader.goTo(stored.locator);
+        if (mark && mark.bookId === id) {
+          await reader.goTo(mark.locator);
+          if (mark.type === "page-note" && mark.locator.type === "pdf")
+            openNotebookRef.current(mark.locator.page);
+        } else if (stored) await reader.goTo(stored.locator);
       } catch (e) {
         setError(messageOf(e));
       }
@@ -225,7 +263,27 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   }, [annotations, ready]);
   useEffect(() => {
     adapter.current?.configure(prefs);
-  }, [savedPrefs, ready]);
+  }, [savedPrefs, pdfPrefs, ready]);
+  useEffect(() => {
+    if (
+      panel === "page-notes" &&
+      !pinned &&
+      current?.type === "pdf" &&
+      current.page !== notebookPage
+    )
+      void openNotebook(current.page);
+  }, [current?.type === "pdf" ? current.page : 0, pinned, panel]);
+  async function configurePdf(patch: Partial<PdfLayout>) {
+    try {
+      await save("preferences", {
+        ...defaults,
+        id: `pdf:${id}`,
+        pdfLayout: { ...pdfLayout, ...patch },
+      });
+    } catch (e) {
+      notify(messageOf(e));
+    }
+  }
   async function configure(patch: Partial<Preferences>) {
     try {
       await save("preferences", { ...prefs, ...patch });
@@ -235,6 +293,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   }
   async function goTo(locator: Locator | string) {
     try {
+      if (!(await flushNotebook())) return;
       await adapter.current?.goTo(locator);
       setJumped(true);
       setTimeout(() => setJumped(false), 1400);
@@ -307,7 +366,21 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
     ["settings", Settings2, "Reading settings"],
   ] as const;
   return (
-    <main className={`reader-shell theme-${prefs.theme}`}>
+    <main
+      className={`reader-shell theme-${prefs.theme}`}
+      onClickCapture={(event) => {
+        const anchor = (event.target as HTMLElement).closest<HTMLAnchorElement>(
+          'a[href^="#/"]',
+        );
+        if (anchor && notebook.current) {
+          event.preventDefault();
+          const href = anchor.getAttribute("href")!;
+          void flushNotebook().then((ok) => {
+            if (ok) location.hash = href;
+          });
+        }
+      }}
+    >
       <header className="reader-header">
         <Link to="/" className="icon-button" aria-label="Back to library">
           <ArrowLeft size={21} />
@@ -323,11 +396,35 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
               key={name}
               aria-label={label}
               aria-pressed={panel === name}
-              onClick={() => setPanel(panel === name ? "" : name)}
+              onClick={() => void changePanel(panel === name ? "" : name)}
             >
               <Icon size={20} />
             </button>
           ))}
+          {book.format === "pdf" && (
+            <button
+              className={`icon-button ${panel === "page-notes" ? "active" : ""}`}
+              aria-label="Page notes"
+              aria-pressed={panel === "page-notes"}
+              onClick={() =>
+                void (panel === "page-notes"
+                  ? changePanel("")
+                  : openNotebook(current?.type === "pdf" ? current.page : 1))
+              }
+            >
+              <NotebookPen size={20} />
+            </button>
+          )}
+          <button
+            className="icon-button"
+            aria-label="Dictionary"
+            onClick={() => {
+              setMeaningPage(current?.type === "pdf" ? current.page : 1);
+              void changePanel("meaning");
+            }}
+          >
+            <BookA size={20} />
+          </button>
           <button
             className="icon-button"
             aria-label="Add bookmark"
@@ -399,6 +496,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
             ref={host}
             className={`reader-host ${jumped ? "passage-arrived" : ""}`}
             aria-label="Book content"
+            tabIndex={0}
           />
         </div>
         {panel && (
@@ -411,18 +509,124 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
                     search: "Search this book",
                     notes: "Your annotations",
                     settings: "Reading settings",
+                    "page-notes": "Page notebooks",
+                    meaning: "Meaning",
                   }[panel]
                 }
               </h2>
               <button
                 aria-label="Close panel"
                 className="icon-button"
-                onClick={() => setPanel("")}
+                onClick={() => void changePanel("")}
               >
                 <X size={19} />
               </button>
             </header>
             <div className="panel-body">
+              {panel === "page-notes" && book.format === "pdf" && (
+                <>
+                  <label className="notebook-search">
+                    Search this book’s notes
+                    <input
+                      aria-label="Search page notes"
+                      placeholder="Words, tags, or page number"
+                      value={notebookQuery}
+                      onChange={(e) => setNotebookQuery(e.target.value)}
+                    />
+                  </label>
+                  {notebookQuery && (
+                    <div className="notebook-results">
+                      {annotations
+                        .filter(
+                          (a) =>
+                            a.type === "page-note" &&
+                            a.locator.type === "pdf" &&
+                            `${a.locator.page} ${a.note} ${a.tags.join(" ")}`
+                              .toLowerCase()
+                              .includes(notebookQuery.toLowerCase()),
+                        )
+                        .map((a) => (
+                          <button
+                            key={a.id}
+                            className="search-result"
+                            onClick={async () => {
+                              if (!(await flushNotebook())) return;
+                              await adapter.current?.goTo(a.locator);
+                              if (a.locator.type === "pdf") {
+                                await openNotebook(a.locator.page);
+                                setNotebookQuery("");
+                              }
+                            }}
+                          >
+                            <strong>{a.text}</strong>
+                            <span>{a.note.slice(0, 150)}</span>
+                          </button>
+                        ))}
+                    </div>
+                  )}
+                  {pinned && (
+                    <button
+                      className="text-button"
+                      onClick={async () => {
+                        if (await flushNotebook()) {
+                          setPinned(false);
+                          if (current?.type === "pdf")
+                            await openNotebook(current.page);
+                        }
+                      }}
+                    >
+                      Follow current page
+                    </button>
+                  )}
+                  <PageNotebook
+                    key={`${id}:${notebookPage}`}
+                    book={book}
+                    page={notebookPage}
+                    handle={notebook}
+                    onPinned={setPinned}
+                    onDeleted={() => {
+                      setPanel("");
+                      notify("Page notebook moved to trash.");
+                    }}
+                  />
+                </>
+              )}
+              {panel === "meaning" && selection && (
+                <button
+                  className="text-button"
+                  onClick={() => void changePanel("")}
+                >
+                  Back to highlight
+                </button>
+              )}
+              {panel === "meaning" && (
+                <Meaning
+                  term={meaningTerm}
+                  onAdd={
+                    book.format === "pdf"
+                      ? async (text) => {
+                          if (!(await flushNotebook()))
+                            throw new Error("Save the current notebook first.");
+                          const prior = await get(
+                            "annotation",
+                            pageNoteId(book.id, meaningPage),
+                          );
+                          const document =
+                            prior?.content?.document || emptyDocument();
+                          await savePageNote(book, meaningPage, {
+                            type: "doc",
+                            content: [
+                              ...(document.content || []),
+                              paragraph(text),
+                            ],
+                          });
+                          await openNotebook(meaningPage);
+                          notify("Definition added to your page notebook.");
+                        }
+                      : undefined
+                  }
+                />
+              )}
               {panel === "contents" && (
                 <>
                   <div>{toc(sections)}</div>
@@ -520,8 +724,19 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
                       <AnnotationCard
                         key={a.id}
                         annotation={a}
-                        onEdit={() => setEditing(a)}
-                        onOpen={() => void goTo(a.locator)}
+                        onEdit={() =>
+                          a.type === "page-note" && a.locator.type === "pdf"
+                            ? void openNotebook(a.locator.page)
+                            : setEditing(a)
+                        }
+                        onOpen={async () => {
+                          await goTo(a.locator);
+                          if (
+                            a.type === "page-note" &&
+                            a.locator.type === "pdf"
+                          )
+                            await openNotebook(a.locator.page);
+                        }}
                       />
                     ))
                   ) : (
@@ -636,21 +851,60 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
                   {book.format === "pdf" && (
                     <>
                       <label>
-                        Page layout
+                        Pages across
                         <select
-                          defaultValue="continuous"
-                          onChange={(event) => {
-                            void (
-                              adapter.current as import("./reader/pdf").PdfReader
-                            )
-                              .setPageLayout(event.target.value === "single")
-                              .catch((error) => notify(messageOf(error)));
-                          }}
+                          value={pdfLayout.columns}
+                          onChange={(event) =>
+                            void configurePdf({
+                              columns: Number(event.target.value) as 1 | 2,
+                            })
+                          }
                         >
-                          <option value="continuous">Continuous</option>
-                          <option value="single">Single page</option>
+                          <option value="1">One page</option>
+                          <option value="2">Two pages</option>
                         </select>
                       </label>
+                      <label>
+                        Navigation
+                        <select
+                          value={pdfLayout.navigation}
+                          onChange={(event) =>
+                            void configurePdf({
+                              navigation: event.target
+                                .value as PdfLayout["navigation"],
+                              fit:
+                                event.target.value === "paginated"
+                                  ? "page"
+                                  : "width",
+                            })
+                          }
+                        >
+                          <option value="continuous">
+                            Continuous scrolling
+                          </option>
+                          <option value="paginated">Page turns</option>
+                        </select>
+                      </label>
+                      <label>
+                        Fit
+                        <select
+                          value={pdfLayout.fit}
+                          onChange={(event) =>
+                            void configurePdf({
+                              fit: event.target.value as PdfLayout["fit"],
+                            })
+                          }
+                        >
+                          <option value="width">Fit width</option>
+                          <option value="page">Fit page</option>
+                        </select>
+                      </label>
+                      {layoutFallback && (
+                        <p className="notice">
+                          Showing one page to fit this screen. Two pages return
+                          when there is more room.
+                        </p>
+                      )}
                       <label>
                         Zoom
                         <select
@@ -659,7 +913,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
                             void setPdfView(Number(e.target.value), rotation)
                           }
                         >
-                          <option value="1">Fit width</option>
+                          <option value="1">100% of fit</option>
                           <option value="1.25">125%</option>
                           <option value="1.5">150%</option>
                           <option value="2">200%</option>
@@ -695,7 +949,11 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
                   )}
                   <button
                     className="text-button"
-                    onClick={() => void configure(defaults)}
+                    onClick={() => {
+                      void configure(defaults);
+                      if (book.format === "pdf")
+                        void configurePdf(defaultPdfLayout);
+                    }}
                   >
                     Reset reading settings
                   </button>
@@ -750,7 +1008,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
       </footer>
       {selection && (
         <div
-          className="selection-toolbar"
+          className={`selection-toolbar ${panel === "meaning" || panel === "page-notes" ? "selection-suspended" : ""}`}
           role="region"
           aria-label="Save selected passage"
         >
@@ -784,6 +1042,32 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
             <Check size={17} />
             {saving ? "Saving…" : "Save highlight"}
           </button>
+          {!selection.locator.quote?.exact?.startsWith("Region on page") &&
+            selection.text.length <= 100 &&
+            !(
+              selection.locator.type === "pdf" &&
+              selection.locator.regions &&
+              !selection.locator.quote &&
+              selection.text.startsWith("Region on page")
+            ) && (
+              <button
+                className="secondary meaning-action"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={async () => {
+                  if (!(await flushNotebook())) return;
+                  setMeaningTerm(selection.text);
+                  setMeaningPage(
+                    selection.locator.type === "pdf"
+                      ? selection.locator.page
+                      : 1,
+                  );
+                  setPanel("meaning");
+                }}
+              >
+                <BookA size={17} />
+                Meaning
+              </button>
+            )}
         </div>
       )}
       {editing && (

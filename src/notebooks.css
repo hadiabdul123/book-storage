@@ -1,0 +1,237 @@
+.pdf-spread {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 20px;
+  min-width: 100%;
+  width: max-content;
+  margin-bottom: 20px;
+}
+.pdf-spread[hidden],
+.pdf-page[hidden] {
+  display: none !important;
+}
+.pdf-page-frame {
+  flex: none;
+  min-width: 0;
+}
+.pdf-page-frame .pdf-page {
+  margin: 0;
+}
+.page-note-indicator {
+  display: block;
+  height: 28px;
+  padding: 3px 8px;
+  margin: 0 0 4px auto;
+  font-size: 12px;
+  color: #315c86;
+  background: #fff;
+  border: 1px solid #ccd8e2;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.page-note-indicator:hover {
+  background: #eaf2f9;
+}
+.notebook-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 18px 0 12px;
+}
+.notebook-heading h3 {
+  margin: 0 !important;
+  font-family: Literata, serif;
+  font-size: 21px;
+}
+.notebook-status {
+  font-size: 12px;
+  color: var(--muted);
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.notebook-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+  background: var(--page-bg);
+}
+.notebook-toolbar button {
+  min-width: 32px;
+  min-height: 34px;
+  padding: 4px 7px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.notebook-toolbar button:hover,
+.notebook-toolbar button:focus-visible {
+  background: #dce9f4;
+  color: #163857;
+}
+.notebook-writing {
+  min-height: 240px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 0 0 8px 8px;
+  outline: none;
+  font-family: Literata, serif;
+  font-size: 15px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+  background: var(--page-bg);
+}
+.notebook-writing:focus {
+  border-color: #638bb1;
+  box-shadow: 0 0 0 2px #315c8618;
+}
+.notebook-writing p {
+  margin: 0 0 12px;
+}
+.notebook-writing h2 {
+  margin: 18px 0 10px;
+  font-family: Literata, serif;
+}
+.notebook-writing ul,
+.notebook-writing ol,
+.rich-note ul,
+.rich-note ol {
+  padding-left: 23px;
+}
+.notebook-writing ul[data-type="taskList"],
+.notebook-checklist {
+  list-style: none;
+  padding-left: 0;
+}
+.notebook-writing li[data-type="taskItem"],
+.notebook-checklist > li {
+  display: flex;
+  gap: 9px;
+  align-items: baseline;
+}
+.notebook-writing li[data-type="taskItem"] > label {
+  margin: 0;
+  flex: none;
+}
+.notebook-writing li[data-type="taskItem"] input {
+  width: auto;
+}
+.notebook-writing li[data-type="taskItem"] > div {
+  flex: 1;
+  min-width: 0;
+}
+.page-notebook > label {
+  display: block;
+  margin: 16px 0;
+}
+.page-notebook > label input,
+.notebook-search input,
+.meaning-search input {
+  width: 100%;
+  margin-top: 6px;
+}
+.notebook-results {
+  max-height: 240px;
+  overflow: auto;
+  margin: 12px 0;
+}
+.notebook-results .search-result {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  gap: 4px;
+}
+.meaning-search {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+.meaning-search label {
+  min-width: 0;
+  flex: 1;
+}
+.dictionary-entry h3 {
+  font-family: Literata, serif;
+  font-size: 24px;
+  margin-bottom: 4px;
+  overflow-wrap: anywhere;
+}
+.dictionary-entry ol {
+  padding-left: 22px;
+}
+.dictionary-entry li {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.dictionary-entry li p {
+  margin: 0 0 9px;
+  line-height: 1.6;
+}
+.dictionary-example {
+  font-style: italic;
+  color: var(--muted);
+}
+.dictionary-credit {
+  font-size: 12px;
+  line-height: 1.7;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.meaning-action {
+  margin-top: 8px;
+  width: 100%;
+  justify-content: center;
+}
+.selection-toolbar.selection-suspended {
+  display: none;
+}
+.rich-note {
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.rich-note p {
+  white-space: pre-wrap;
+}
+.rich-note h3 {
+  font-family: Literata, serif;
+}
+.theme-dark .page-note-indicator {
+  background: #243747;
+  color: #d5e7f7;
+  border-color: #466077;
+}
+@media (max-width: 700px) {
+  .reader-header {
+    flex-wrap: wrap;
+    height: auto;
+    min-height: 58px;
+    gap: 5px;
+  }
+  .reader-header .reader-title {
+    flex: 1;
+    min-width: 0;
+    max-width: none;
+  }
+  .reader-tools {
+    width: 100%;
+    justify-content: center;
+  }
+  .reader-tools .icon-button {
+    min-width: 36px;
+    min-height: 36px;
+  }
+  .notebook-toolbar button {
+    min-height: 40px;
+  }
+  .notebook-writing {
+    font-size: 16px;
+  }
+}

@@ -12,6 +12,7 @@ export function Notes() {
     [bookId, setBookId] = useState(""),
     [color, setColor] = useState(""),
     [sort, setSort] = useState("newest"),
+    [type, setType] = useState("all"),
     [editing, setEditing] = useState<Annotation>();
   const filtered = annotations
     .filter(
@@ -19,7 +20,8 @@ export function Notes() {
         books.some((b) => b.id === a.bookId) &&
         (!bookId || a.bookId === bookId) &&
         (!color || a.color === color) &&
-        `${a.text} ${a.note} ${a.tags.join(" ")} ${books.find((b) => b.id === a.bookId)?.title}`
+        (type === "all" || (a.type || "highlight") === type) &&
+        `${a.text} ${a.note} ${a.locator.type === "pdf" ? a.locator.page : ""} ${a.tags.join(" ")} ${books.find((b) => b.id === a.bookId)?.title}`
           .toLowerCase()
           .includes(query.toLowerCase()),
     )
@@ -68,6 +70,15 @@ export function Notes() {
         The passages you kept. The ideas you made your own.
       </p>
       <div className="filter-row">
+        <select
+          aria-label="Note type"
+          value={type}
+          onChange={(e) => setType(e.target.value)}
+        >
+          <option value="all">All notes</option>
+          <option value="highlight">Highlights</option>
+          <option value="page-note">Page notes</option>
+        </select>
         <label className="search-field">
           <Search size={18} />
           <input

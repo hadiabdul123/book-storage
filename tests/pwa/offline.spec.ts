@@ -60,6 +60,14 @@ test("saved PDF notes and rendering assets survive a full offline browser restar
     );
     await page.getByRole("button", { name: "Save highlight", exact: true }).click();
     await expect(page.locator(".pdf-highlight").first()).toBeVisible();
+    await page.getByRole("button", { name: "Page notes", exact: true }).click();
+    const notebook = page.getByRole("textbox", { name: "Notebook for page 1" });
+    await expect(notebook).toHaveAttribute("contenteditable", "true");
+    await notebook.fill("Offline notebook survives restart");
+    await page.getByRole("button", { name: "Bullet list", exact: true }).click();
+    await page.getByRole("button", { name: "Save now", exact: true }).click();
+    await expect(page.locator(".notebook-status")).toHaveText("Saved on this device");
+    await page.getByRole("button", { name: "Close panel" }).click();
     // Keep IndexedDB/CacheStorage, but prevent the ordinary HTTP cache from
     // concealing missing service-worker assets during the offline restart.
     const session = await online.newCDPSession(page);
@@ -85,8 +93,19 @@ test("saved PDF notes and rendering assets survive a full offline browser restar
     await expect(page.locator(".pdf-highlight").first()).toBeVisible();
     await page.getByRole("button", { name: "Highlights and notes", exact: true }).click();
     await expect(page.getByText("Retained across an offline browser restart")).toBeVisible();
-    await page.getByRole("button", { name: "Go to passage", exact: true }).click();
+    await page.locator(".annotation-card").filter({ hasText: "Retained across an offline browser restart" }).getByRole("button", { name: "Go to passage", exact: true }).click();
     await expect(page.locator(".pdf-highlight").first()).toBeVisible();
+    await page.getByRole("button", { name: "Page notes", exact: true }).click();
+    await expect(page.getByRole("textbox", { name: "Notebook for page 1" })).toContainText("Offline notebook survives restart");
+    await expect(page.getByRole("textbox", { name: "Notebook for page 1" }).locator("li")).toHaveCount(1);
+    await page.getByRole("button", { name: "Dictionary", exact: true }).click();
+    // This word was never looked up in the online browser process.
+    const external: string[] = [];
+    page.on("request", request => { if (new URL(request.url()).origin !== new URL(baseURL!).origin) external.push(request.url()); });
+    await page.getByLabel("Dictionary word").fill("serendipity");
+    await page.getByRole("button", { name: "Look up", exact: true }).click();
+    await expect(page.locator(".dictionary-entry h3").first()).toHaveText("serendipity");
+    expect(external).toEqual([]);
     // Exercise both standard font formats even when the fixture embeds its fonts.
     const assets = await page.evaluate(async () => {
       const files = [

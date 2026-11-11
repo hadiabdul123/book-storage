@@ -6,10 +6,12 @@ import {
   type Kind,
   type Operation,
   type Row,
+  type Annotation,
   keyOf,
   now,
   uid,
 } from "./model";
+import { combineDocuments, plainText, emptyDocument } from "./richText";
 
 class LibraryDB extends Dexie {
   rows!: Table<Row, string>;
@@ -115,11 +117,29 @@ export async function resolveConflict(
       await db.rows.put(remote);
       await db.conflicts.delete(key);
       if (choice !== "remote") {
-        const value =
+        const pageBoth =
+          choice === "both" &&
+          local.kind === "annotation" &&
+          (local.value as Annotation).type === "page-note" &&
+          (remote.value as Annotation).type === "page-note";
+        let value =
           choice === "both" ? { ...local.value, id: uid() } : local.value;
+        if (pageBoth) {
+          const document = combineDocuments(
+            (local.value as Annotation).content?.document || emptyDocument(),
+            (remote.value as Annotation).content?.document || emptyDocument(),
+          );
+          value = {
+            ...local.value,
+            id: local.id,
+            content: { version: 1, document },
+            note: plainText(document),
+            updatedAt: now(),
+          } as Annotation;
+        }
         const id = value.id,
           chosenKey = keyOf(local.kind, id);
-        const revision = choice === "both" ? 0 : remote.revision;
+        const revision = choice === "both" && !pageBoth ? 0 : remote.revision;
         await db.rows.put({
           ...local,
           id,

@@ -9,6 +9,7 @@ test-results/
 .local/
 *.log
 public/pdf-assets/
+public/dictionary/
 
 # Personal library files and annotation exports never belong in public source.
 *.pdf

@@ -1,5 +1,6 @@
 import { csvCell } from "./anchors";
 import type { Annotation, Book } from "./model";
+import { markdown } from "./richText";
 export function downloadText(name: string, text: string, type = "text/plain") {
   const url = URL.createObjectURL(new Blob([text], { type }));
   const a = document.createElement("a");
@@ -22,7 +23,7 @@ export function exportAnnotations(
     text = JSON.stringify(
       {
         schema: "leafmark.annotations",
-        version: 1,
+        version: 2,
         exportedAt: new Date().toISOString(),
         books: books.map(({ id, title, author, hash, format }) => ({
           id,
@@ -38,7 +39,7 @@ export function exportAnnotations(
     );
   if (format === "csv")
     text = [
-      "Book,Quote,Note,Color,Tags,Created,Passage",
+      "Book,Quote,Note,Color,Tags,Created,Passage,Page,Type",
       ...items.map((a) =>
         [
           title(a),
@@ -48,6 +49,8 @@ export function exportAnnotations(
           a.tags.join("; "),
           a.createdAt,
           link(a),
+          a.locator.type === "pdf" ? String(a.locator.page) : "",
+          a.type || "highlight",
         ]
           .map(csvCell)
           .join(","),
@@ -64,7 +67,7 @@ export function exportAnnotations(
               .map((line) => `> ${line}`)
               .join(
                 "\n",
-              )}\n\n${a.note}\n\n[Return to passage](${link(a)})\n\n${a.tags.length ? `Tags: ${a.tags.join(", ")}\n\n` : ""}---\n`,
+              )}\n\n${a.type === "page-note" && a.content ? markdown(a.content.document) : a.note}\n\n[Return to passage](${link(a)})\n\n${a.tags.length ? `Tags: ${a.tags.join(", ")}\n\n` : ""}---\n`,
         )
         .join("\n");
   downloadText(

@@ -137,6 +137,7 @@ function Shell() {
     needRefresh: [needRefresh, setNeedRefresh],
     updateServiceWorker,
   } = useRegisterSW({
+    onOfflineReady: () => notify("Reader and dictionary are ready offline."),
     onRegisterError: (error) => console.error("Leafmark offline setup failed:", error),
   });
   return (

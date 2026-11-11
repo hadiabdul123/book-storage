@@ -161,7 +161,7 @@ test("reader search, bookmarks, page layout, theme and region notes survive relo
   await page.locator(".bookmark-row button").first().click();
   await page.getByRole("button", { name: "Reading settings", exact: true }).click();
   await page.getByRole("button", { name: "dark", exact: true }).click();
-  await page.getByRole("combobox", { name: "Page layout", exact: true }).selectOption("single");
+  await page.getByRole("combobox", { name: "Navigation", exact: true }).selectOption("paginated");
   await expect(page.locator(".pdf-page:visible")).toHaveCount(1);
   await page.getByRole("button", { name: "Select a region", exact: true }).click();
   const bounds = await page.locator(".pdf-page:visible").first().boundingBox();

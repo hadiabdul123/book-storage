@@ -56,6 +56,9 @@ export type Book = {
 export type Collection = { id: string; name: string };
 export type Membership = { id: string; bookId: string; collectionId: string };
 export type Annotation = {
+  type?: "highlight" | "page-note";
+  content?: { version: 1; document: RichNode };
+  updatedAt?: string;
   id: string;
   bookId: string;
   locator: Locator;
@@ -88,6 +91,7 @@ export type ReadingSession = {
   device: string;
 };
 export type Preferences = {
+  pdfLayout?: PdfLayout;
   id: string;
   theme: "light" | "sepia" | "dark";
   font: "Literata" | "Source Sans 3";
@@ -96,6 +100,23 @@ export type Preferences = {
   width: number;
   flow: "paginated" | "scrolled";
   spread: boolean;
+};
+export type PdfLayout = {
+  columns: 1 | 2;
+  navigation: "continuous" | "paginated";
+  fit: "width" | "page";
+};
+export const defaultPdfLayout: PdfLayout = {
+  columns: 1,
+  navigation: "continuous",
+  fit: "width",
+};
+export type RichNode = {
+  type: string;
+  text?: string;
+  attrs?: Record<string, any>;
+  marks?: { type: string }[];
+  content?: RichNode[];
 };
 export const defaults: Preferences = {
   id: "reader",

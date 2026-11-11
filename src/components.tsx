@@ -2,7 +2,10 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { X, BookOpen, ArrowUpRight, MoreHorizontal } from "lucide-react";
 import { Link } from "react-router-dom";
 import { type Annotation, type Book, type Color, colors } from "./model";
-import { save } from "./db";
+import { get, save } from "./db";
+import { useLiveQuery } from "dexie-react-hooks";
+import { PageNotebook, type NotebookHandle } from "./PageNotebook";
+import { RichTextView } from "./RichTextView";
 
 export const messageOf = (error: unknown) =>
   error instanceof Error
@@ -46,7 +49,10 @@ export function Dialog({
     <dialog
       ref={ref}
       className={wide ? "dialog wide" : "dialog"}
-      onCancel={onClose}
+      onCancel={(e) => {
+        e.preventDefault();
+        onClose();
+      }}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -195,7 +201,11 @@ export function AnnotationCard({
         </button>
       </div>
       <blockquote>{annotation.text}</blockquote>
-      {annotation.note && <p className="note-text">{annotation.note}</p>}
+      {annotation.type === "page-note" && annotation.content ? (
+        <RichTextView document={annotation.content.document} />
+      ) : (
+        annotation.note && <p className="note-text">{annotation.note}</p>
+      )}
       <div className="annotation-footer">
         <span>
           {new Date(annotation.createdAt).toLocaleDateString()}
@@ -217,7 +227,47 @@ export function AnnotationCard({
     </article>
   );
 }
-export function EditAnnotation({
+type EditProps = {
+  annotation: Annotation;
+  onClose: () => void;
+  onDelete?: (a: Annotation) => void;
+};
+export function EditAnnotation(props: EditProps) {
+  return props.annotation.type === "page-note" ? (
+    <EditPageNotebook {...props} />
+  ) : (
+    <EditHighlight {...props} />
+  );
+}
+function EditPageNotebook({ annotation, onClose, onDelete }: EditProps) {
+  const book = useLiveQuery(
+    () => get("book", annotation.bookId),
+    [annotation.bookId],
+  );
+  const handle = useRef<NotebookHandle | null>(null);
+  const close = async () => {
+    if ((await handle.current?.flush()) ?? true) onClose();
+  };
+  return (
+    <Dialog title="Page notebook" onClose={() => void close()}>
+      {book && annotation.locator.type === "pdf" ? (
+        <PageNotebook
+          book={book}
+          page={annotation.locator.page}
+          handle={handle}
+          onPinned={() => {}}
+          onDeleted={() => {
+            onDelete?.(annotation);
+            onClose();
+          }}
+        />
+      ) : (
+        <p>Opening notebook…</p>
+      )}
+    </Dialog>
+  );
+}
+function EditHighlight({
   annotation,
   onClose,
   onDelete,

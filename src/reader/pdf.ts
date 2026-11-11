@@ -13,6 +13,8 @@ import {
   type Locator,
   type Preferences,
   type Rect,
+  type PdfLayout,
+  defaultPdfLayout,
   colors,
 } from "../model";
 import type { ReaderAdapter, ReaderEvents, SearchHit, Section } from "./types";
@@ -20,6 +22,8 @@ import type { ReaderAdapter, ReaderEvents, SearchHit, Section } from "./types";
 type PageState = {
   n: number;
   element: HTMLDivElement;
+  frame: HTMLDivElement;
+  noteButton: HTMLButtonElement;
   viewport: PageViewport;
   page: PDFPageProxy;
   loaded: boolean;
@@ -46,7 +50,9 @@ export class PdfReader implements ReaderAdapter {
   private rotation = 0;
   private current = 1;
   private region = false;
-  private singlePage = false;
+  private layout: PdfLayout = { ...defaultPdfLayout };
+  private columns = 1;
+  private layingOut = false;
   private drag?: { page: PageState; x: number; y: number; box: HTMLDivElement };
   private timer: ReturnType<typeof setTimeout> | undefined;
   private viewQueue: Promise<void> = Promise.resolve();
@@ -57,7 +63,9 @@ export class PdfReader implements ReaderAdapter {
   ) {}
   async open(source: Blob) {
     this.lib = await pdfLibrary();
-    this.loadingTask = this.lib.getDocument(pdfOptions(await source.arrayBuffer()));
+    this.loadingTask = this.lib.getDocument(
+      pdfOptions(await source.arrayBuffer()),
+    );
     this.pdf = await this.loadingTask.promise.catch((error: unknown) => {
       console.error("PDF reader loading failed", error);
       throw pdfOpenError(error);
@@ -74,9 +82,23 @@ export class PdfReader implements ReaderAdapter {
       element.className = "pdf-page";
       element.dataset.page = String(n);
       element.setAttribute("aria-label", `Page ${n}`);
+      const frame = document.createElement("div");
+      frame.className = "pdf-page-frame";
+      const noteButton = document.createElement("button");
+      noteButton.className = "page-note-indicator";
+      noteButton.textContent = `Page ${n} · Add note`;
+      noteButton.setAttribute("aria-label", `Notes for page ${n}`);
+      noteButton.addEventListener("click", () => {
+        this.current = n;
+        this.onScroll();
+        this.events.onPageNote?.(n);
+      });
+      frame.append(noteButton, element);
       const state: PageState = {
         n,
         element,
+        frame,
+        noteButton,
         page,
         viewport: page.getViewport({ scale: 1 }),
         loaded: false,
@@ -85,8 +107,8 @@ export class PdfReader implements ReaderAdapter {
       };
       this.pages.push(state);
       this.size(state);
-      this.host.append(element);
     }
+    this.arrange();
     this.observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
@@ -111,11 +133,16 @@ export class PdfReader implements ReaderAdapter {
     this.host.addEventListener("pointerup", this.pointerUp);
     this.host.addEventListener("pointercancel", this.pointerCancel);
     this.host.addEventListener("click", this.click);
+    this.host.addEventListener("keydown", this.keyDown);
+    document.addEventListener("keydown", this.escapeRegion);
     await this.render(this.pages[0]);
     this.onScroll();
     this.hostWidth = this.host.clientWidth;
     this.resizeObserver = new ResizeObserver(() => {
-      if (Math.abs(this.host.clientWidth - this.hostWidth) > 5) {
+      if (
+        Math.abs(this.host.clientWidth - this.hostWidth) > 5 ||
+        this.layout.fit === "page"
+      ) {
         this.hostWidth = this.host.clientWidth;
         void this.setView(this.zoom, this.rotation).catch((e) =>
           this.events.onError(e.message),
@@ -126,8 +153,18 @@ export class PdfReader implements ReaderAdapter {
   }
   private size(state: PageState) {
     const base = state.page.getViewport({ scale: 1, rotation: this.rotation });
-    const available = Math.max(200, this.host.clientWidth - 32);
-    const scale = Math.min(available / base.width, 1.6) * this.zoom;
+    const available = Math.max(
+      160,
+      (this.host.clientWidth - 32 - (this.columns - 1) * 20) / this.columns,
+    );
+    const widthScale = Math.min(available / base.width, 1.6);
+    const scale =
+      (this.layout.fit === "page"
+        ? Math.min(
+            widthScale,
+            Math.max(160, this.host.clientHeight - 80) / base.height,
+          )
+        : widthScale) * this.zoom;
     state.viewport = state.page.getViewport({ scale, rotation: this.rotation });
     state.element.style.width = `${state.viewport.width}px`;
     state.element.style.height = `${state.viewport.height}px`;
@@ -240,17 +277,26 @@ export class PdfReader implements ReaderAdapter {
     });
   };
   private onScroll = () => {
+    if (this.layingOut) return;
     clearTimeout(this.timer);
     this.timer = setTimeout(() => {
       if (this.disposed) return;
       const top = this.host.getBoundingClientRect().top;
-      const state =
+      let state =
         this.pages.find(
           (p) =>
             !p.element.hidden &&
             p.element.getBoundingClientRect().bottom > top + 30,
         ) || this.pages[this.pages.length - 1];
       if (!state) return;
+      const selected = this.pages[this.current - 1];
+      if (
+        this.columns === 2 &&
+        selected &&
+        !selected.element.hidden &&
+        selected.frame.parentElement === state.frame.parentElement
+      )
+        state = selected;
       this.current = state.n;
       const y = Math.max(
         0,
@@ -278,6 +324,13 @@ export class PdfReader implements ReaderAdapter {
     }, 200);
   };
   private drawPage(state: PageState) {
+    const hasNote = this.marks.some(
+      (a) =>
+        a.type === "page-note" &&
+        a.locator.type === "pdf" &&
+        a.locator.page === state.n,
+    );
+    state.noteButton.textContent = `Page ${state.n} · ${hasNote ? "Open note" : "Add note"}`;
     state.element.querySelector(".pdf-highlights")?.remove();
     const layer = document.createElement("div");
     layer.className = "pdf-highlights";
@@ -303,6 +356,13 @@ export class PdfReader implements ReaderAdapter {
     state.element.append(layer);
   }
   private click = (event: MouseEvent) => {
+    const page = (event.target as HTMLElement).closest<HTMLElement>(
+      ".pdf-page",
+    );
+    if (page) {
+      this.current = Number(page.dataset.page);
+      this.onScroll();
+    }
     if (this.region || !document.getSelection()?.isCollapsed) return;
     const hit = Array.from(
       this.host.querySelectorAll<HTMLElement>("[data-annotation]"),
@@ -321,10 +381,79 @@ export class PdfReader implements ReaderAdapter {
     this.region = enabled;
     this.host.classList.toggle("region-mode", enabled);
     this.clearSelection();
+    if (!enabled) this.pointerCancel();
+    this.events.onRegionMode?.(enabled);
   }
-  async setPageLayout(single: boolean) {
-    this.singlePage = single;
-    await this.goTo(String(this.current));
+  private escapeRegion = (event: KeyboardEvent) => {
+    if (event.key === "Escape" && this.region) this.setRegionMode(false);
+  };
+  private keyDown = (event: KeyboardEvent) => {
+    if (
+      (event.target as HTMLElement).closest(
+        "input, textarea, [contenteditable=true], button",
+      )
+    )
+      return;
+    if (
+      ["ArrowRight", "PageDown", "ArrowLeft", "PageUp"].includes(event.key) &&
+      this.layout.navigation === "paginated"
+    ) {
+      event.preventDefault();
+      void (["ArrowRight", "PageDown"].includes(event.key)
+        ? this.next()
+        : this.previous());
+    }
+  };
+  private arrange() {
+    this.columns =
+      this.layout.columns === 2 && this.host.clientWidth >= 800 ? 2 : 1;
+    this.events.onLayoutFallback?.(
+      this.layout.columns === 2 && this.columns === 1,
+    );
+    const fragment = document.createDocumentFragment();
+    for (let i = 0; i < this.pages.length; i += this.columns) {
+      const row = document.createElement("div");
+      row.className = "pdf-spread";
+      for (const p of this.pages.slice(i, i + this.columns)) {
+        this.size(p);
+        row.append(p.frame);
+      }
+      fragment.append(row);
+    }
+    this.host.replaceChildren(fragment);
+    this.host.dataset.columns = String(this.columns);
+    this.host.dataset.navigation = this.layout.navigation;
+  }
+  private location(): Locator {
+    const top = this.host.getBoundingClientRect().top;
+    let state =
+      this.pages.find(
+        (p) =>
+          !p.element.hidden &&
+          p.element.getBoundingClientRect().bottom > top + 30,
+      ) || this.pages[0];
+    const selected = this.pages[this.current - 1];
+    if (selected?.frame.parentElement === state.frame.parentElement)
+      state = selected;
+    const y = Math.max(
+      0,
+      Math.min(
+        1,
+        (top - state.element.getBoundingClientRect().top) /
+          state.viewport.height,
+      ),
+    );
+    return {
+      v: 1,
+      type: "pdf",
+      hash: this.book.hash,
+      page: state.n,
+      y,
+      point: state.viewport.convertToPdfPoint(0, y * state.viewport.height) as [
+        number,
+        number,
+      ],
+    };
   }
   private pointerDown = (e: PointerEvent) => {
     if (!this.region) return;
@@ -342,6 +471,7 @@ export class PdfReader implements ReaderAdapter {
       box,
     };
     this.host.setPointerCapture(e.pointerId);
+    this.pointerId = e.pointerId;
     e.preventDefault();
   };
   private pointerMove = (e: PointerEvent) => {
@@ -381,10 +511,27 @@ export class PdfReader implements ReaderAdapter {
     }
     box.remove();
     this.drag = undefined;
+    this.releasePointer();
+    this.region = false;
+    this.host.classList.remove("region-mode");
+    this.events.onRegionMode?.(false);
   };
+  private pointerId?: number;
+  private releasePointer() {
+    if (
+      this.pointerId !== undefined &&
+      this.host.hasPointerCapture(this.pointerId)
+    )
+      this.host.releasePointerCapture(this.pointerId);
+    this.pointerId = undefined;
+  }
   private pointerCancel = () => {
     this.drag?.box.remove();
     this.drag = undefined;
+    this.releasePointer();
+    this.region = false;
+    this.host.classList.remove("region-mode");
+    this.events.onRegionMode?.(false);
   };
   setView(zoom: number, rotation: number) {
     this.viewQueue = this.viewQueue
@@ -393,17 +540,28 @@ export class PdfReader implements ReaderAdapter {
     return this.viewQueue;
   }
   private async relayout(zoom: number, rotation: number) {
-    if (this.disposed) return;
-    this.zoom = zoom;
-    this.rotation = rotation;
-    for (const p of this.pages) {
-      p.generation++;
-      p.task?.cancel();
-      p.loaded = false;
-      p.element.replaceChildren();
-      this.size(p);
+    if (this.disposed || !this.pages.length) return;
+    const anchor = this.location();
+    this.layingOut = true;
+    try {
+      this.zoom = zoom;
+      this.rotation = rotation;
+      for (const p of this.pages) {
+        p.generation++;
+        p.task?.cancel();
+        while (p.rendering && !this.disposed)
+          await new Promise((r) => setTimeout(r, 5));
+        p.loaded = false;
+        p.element.replaceChildren();
+      }
+      if (this.disposed) return;
+      this.arrange();
+      await this.goTo(anchor);
+    } finally {
+      this.layingOut = false;
     }
-    await this.goTo(String(this.current));
+    if (this.disposed) return;
+    this.onScroll();
     for (const p of this.pages.filter(
       (p) => Math.abs(p.n - this.current) < 2,
     )) {
@@ -433,30 +591,57 @@ export class PdfReader implements ReaderAdapter {
         if (rect)
           y = Math.max(
             0,
-            viewportRect(state.viewport, rect)[1] /
-              state.viewport.height -
-              0.1,
+            viewportRect(state.viewport, rect)[1] / state.viewport.height - 0.1,
           );
       }
     }
     const state =
       this.pages[Math.max(0, Math.min(this.pages.length - 1, page - 1))];
     if (!state) return;
-    for (const p of this.pages)
-      p.element.hidden = this.singlePage && p !== state;
-    this.host.scrollTop =
-      state.element.offsetTop - this.host.offsetTop + y * state.viewport.height;
+    const row = state.frame.parentElement;
+    for (const p of this.pages) {
+      const hidden =
+        this.layout.navigation === "paginated" && p.frame.parentElement !== row;
+      p.element.hidden = hidden;
+      p.frame.parentElement!.hidden = hidden;
+    }
+    this.host.scrollTop +=
+      state.element.getBoundingClientRect().top -
+      this.host.getBoundingClientRect().top +
+      y * state.viewport.height -
+      (typeof locator === "string" ||
+      (!locator.point && !locator.regions?.length)
+        ? 28
+        : 0);
     await this.render(state);
     this.current = state.n;
     this.onScroll();
   }
   async next() {
     if (document.getSelection()?.isCollapsed)
-      await this.goTo(String(Math.min(this.pages.length, this.current + 1)));
+      await this.goTo(
+        String(
+          Math.min(
+            this.pages.length,
+            Math.floor((this.current - 1) / this.columns) * this.columns +
+              this.columns +
+              1,
+          ),
+        ),
+      );
   }
   async previous() {
     if (document.getSelection()?.isCollapsed)
-      await this.goTo(String(Math.max(1, this.current - 1)));
+      await this.goTo(
+        String(
+          Math.max(
+            1,
+            Math.floor((this.current - 1) / this.columns) * this.columns -
+              this.columns +
+              1,
+          ),
+        ),
+      );
   }
   async search(query: string): Promise<SearchHit[]> {
     const hits: SearchHit[] = [];
@@ -509,10 +694,22 @@ export class PdfReader implements ReaderAdapter {
   }
   configure(p: Preferences) {
     this.host.dataset.theme = p.theme;
+    const next = p.pdfLayout || defaultPdfLayout;
+    if (JSON.stringify(next) !== JSON.stringify(this.layout)) {
+      this.layout = { ...next };
+      if (this.pages.length)
+        void this.setView(this.zoom, this.rotation).catch((e) =>
+          this.events.onError(e.message),
+        );
+    }
   }
   annotate(marks: Annotation[]) {
     this.marks = marks;
-    this.pages.filter((p) => p.loaded).forEach((p) => this.drawPage(p));
+    this.pages.forEach((p) => {
+      if (p.loaded) this.drawPage(p);
+      else
+        p.noteButton.textContent = `Page ${p.n} · ${marks.some((a) => a.type === "page-note" && a.locator.type === "pdf" && a.locator.page === p.n) ? "Open note" : "Add note"}`;
+    });
   }
   clearSelection() {
     document.getSelection()?.removeAllRanges();
@@ -529,6 +726,9 @@ export class PdfReader implements ReaderAdapter {
     this.host.removeEventListener("pointerup", this.pointerUp);
     this.host.removeEventListener("pointercancel", this.pointerCancel);
     this.host.removeEventListener("click", this.click);
+    this.host.removeEventListener("keydown", this.keyDown);
+    document.removeEventListener("keydown", this.escapeRegion);
+    this.pointerCancel();
     void this.loadingTask?.destroy();
     this.host.replaceChildren();
     this.host.classList.remove("pdf-reader", "region-mode");

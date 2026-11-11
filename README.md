@@ -4,7 +4,7 @@ A personal React + TypeScript reading PWA for Windows and Android. EPUB, PDF, an
 
 ## Current verification status
 
-Dependency installation has been repaired after the move to the C drive. Typechecking, 26 unit tests, 22 desktop/mobile browser tests, a private 317-page PDF test, and the production offline-restart test pass. Live Supabase setup/synchronization and physical Android touch behavior remain unverified. See [verification notes](docs/VERIFICATION.md) for exact coverage and remaining release gates.
+Dependency installation has been repaired after the move to the C drive. The reader now includes formatted PDF page notebooks, one/two-page reading modes, and a bundled offline English dictionary. See [verification notes](docs/VERIFICATION.md) for test results and remaining release gates. Live Supabase setup/synchronization and physical Android touch behavior remain unverified.
 
 ## Run on your PC
 
@@ -19,7 +19,7 @@ Open the localhost URL printed by Vite. Without Supabase configuration the app r
 
 This PC currently uses an ignored `.env.development.local` file with empty Supabase URL/key overrides so `npm.cmd run dev` opens the library directly, without a login. Your original cloud settings remain in `.env.local`; production builds still use them. Once the cloud owner account is set up, remove those two development overrides and restart Vite to enable cloud sign-in locally.
 
-`predev` and `prebuild` prepare local PDF fonts, character maps, WebAssembly assets, and app icons. No rendering dependency is loaded from a CDN. Keep `package-lock.json` with the source and use `npm ci` for repeatable installs. The project-local npm cache lives in the ignored `.local/npm-cache` directory.
+`predev` and `prebuild` prepare local PDF fonts, character maps, WebAssembly assets, app icons, and dictionary chunks. No rendering dependency or dictionary lookup is loaded from a CDN. Keep `package-lock.json` with the source and use `npm ci` for repeatable installs. The project-local npm cache lives in the ignored `.local/npm-cache` directory.
 
 ### Moving or recovering this project
 
@@ -73,6 +73,18 @@ The public source repository does not contain the personal library. Environment 
 
 ## Install and use
 
+### Page notebooks, reading modes, and vocabulary
+
+In a PDF, choose **Page notes** or the note button above a page. Each physical PDF page has one formatted notebook with headings, bold/italic text, lists, and checklists. Notes save automatically on this device; the status reports failures. The notebook follows the current page unless you are writing or have unsaved changes. Use **Follow current page** to resume following. Close and reopen the panel without losing saved writing. Search the book's page notes in this panel, or use **Notes → Note type** to search page notes and highlights across books. Tags, trash/restore, Markdown/CSV/JSON export, and existing synchronization also apply to page notes. If both versions of a conflicting page note are kept, they are combined in the same notebook with source labels.
+
+Under **Reading settings**, choose **Pages across** (one or two) independently of **Navigation** (continuous scrolling or paginated). **Fit** controls width or whole-page fit; zoom adjusts that fitted size. Settings persist per PDF. Two-page spreads pair pages 1–2, 3–4, and so on; the last odd page appears alone. A narrow reading area temporarily uses one page without changing your saved preference. In paginated mode, focus the reading area and use Page Up/Down or arrow keys. Region selection exits after a drag; Escape also exits it so normal reading can resume.
+
+Select a word and choose **Meaning**, or open **Dictionary** to type a word. The unfinished highlight is retained while definitions are open. In a PDF, **Add to page note** appends a definition with attribution to that page's notebook. Definitions, parts of speech, synonyms, examples where available, and common inflected forms come from bundled [Open English Wordnet 2025](https://en-word.net/). There is no API key, charge, or online lookup request. It is an English dictionary, not a translation service; some specialist terms and names have no entry.
+
+The dictionary adds about 38 MiB of uncompressed static assets. On a production deployment, stay online until **Reader and dictionary are ready offline** appears before relying on offline lookup, including words never searched before. The committed source archive is checksum-verified and converted locally during preparation; see [dictionary provenance and licenses](vendor/wordnet/README.md). The source and generated chunks are redistributable under their included attribution/license terms.
+
+### Library and offline use
+
 On Android, open the deployed HTTPS URL in Chrome and choose **Install app** or **Add to Home screen**. On Windows, use Chrome/Edge’s install control. Installation and offline cold launch require a successful production build; Vite development mode is not an offline deployment test.
 
 - Add books from the file picker or drag them into the library. Edit metadata, covers, tags, and collection membership through the book’s details menu.
@@ -84,11 +96,11 @@ On Android, open the deployed HTTPS URL in Chrome and choose **Install app** or 
 
 ## Synchronization and offline behavior
 
-Each save commits the entity and its ordered outbox operation in one IndexedDB transaction. A server revision detects concurrent changes; idempotent operation IDs make retries safe. The server serializes each owner’s mutations, so pull cursors follow commit order. A conflicting item stops syncing until you choose a version in Settings; independent items continue. Conflicting annotations can be kept as two separate notes.
+Each save commits the entity and its ordered outbox operation in one IndexedDB transaction. A server revision detects concurrent changes; idempotent operation IDs make retries safe. The server serializes each owner’s mutations, so pull cursors follow commit order. A conflicting item stops syncing until you choose a version in Settings; independent items continue. Conflicting highlights can be kept as two separate notes; conflicting page notebooks can be combined into one document.
 
 Positions are exact document locators, with percentage stored only for display. An uncontested cloud position is used when opening a book. Incoming positions never move an actively reading viewport. Concurrent offline positions are preserved for explicit resolution. Synchronization runs while the app is open, on reconnect/focus, and periodically; a closed PWA is not promised background execution.
 
-The service worker caches only the application and bundled rendering assets. Private books are stored as account-bound IndexedDB blobs. Signed downloads are not placed into a shared service-worker cache. Explicit sign-out removes local private data and is blocked while edits are pending. Offline access assumes a trusted OS/browser profile; this is not encrypted local storage or end-to-end encryption.
+The service worker caches the application, bundled rendering assets, and public dictionary data. Private books are stored as account-bound IndexedDB blobs. Signed downloads are not placed into a shared service-worker cache. Explicit sign-out removes local private data and is blocked while edits are pending. Offline access assumes a trusted OS/browser profile; this is not encrypted local storage or end-to-end encryption.
 
 There are no application book-count or monthly upload limits. Supabase’s actual storage, database, bandwidth, availability, and per-file limits still apply. Free projects currently cap individual uploads at 50 MB. Failed uploads remain local with a visible sync error; they do not prevent independent annotations from synchronizing. Local space is managed by the browser and can be evicted despite persistence requests.
 
@@ -108,7 +120,7 @@ The browser suite imports actual upstream EPUB/PDF fixtures and a generated DOCX
 
 To check a private PDF without adding it to the repository, set `LEAFMARK_TEST_PDF` to its absolute local path and run `npm.cmd run test:private`. The test blocks external requests, uses an isolated browser, and keeps screenshots under ignored `.local/private-test-results`. Never copy private books into `tests/fixtures`.
 
-`test:pwa` builds a separate local-device application in `.local/pwa-test-dist` and serves it on port 4174. It saves a PDF highlight and note, clears the ordinary HTTP cache, closes Chromium, and restarts it offline with the same profile. It checks the saved passage and cached PDF worker, fonts, character maps, and WebAssembly assets. The test uses a short temporary profile path under `.local` to avoid Windows path-length limits. This verifies desktop browser offline restart; installation on an actual phone and authenticated offline recovery still need device testing.
+`test:pwa` builds a separate local-device application in `.local/pwa-test-dist` and serves it on port 4174. It saves a PDF highlight and note, clears the ordinary HTTP cache, closes Chromium, and restarts it offline with the same profile. It checks the saved passage, a formatted page notebook, a previously unseen dictionary word, and cached PDF worker, fonts, character maps, and WebAssembly assets. The test uses a short temporary profile path under `.local` to avoid Windows path-length limits. This verifies desktop browser offline restart; installation on an actual phone and authenticated offline recovery still need device testing.
 
 ## Project structure
 

@@ -1,4 +1,5 @@
 import { cpSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import "./prepare-dictionary.mjs";
 import { deflateSync } from "node:zlib";
 
 mkdirSync("public/pdf-assets", { recursive: true });

@@ -44,7 +44,7 @@ export default defineConfig({
       workbox: {
         // PDF.js uses an ES-module worker plus PFB/TTF fallback fonts. These
         // must be available before a reader is reopened without networking.
-        globPatterns: ["**/*.{js,mjs,css,html,svg,png,woff,woff2,ttf,pfb,wasm,bcmap,bin}"],
+        globPatterns: ["**/*.{js,mjs,css,html,svg,png,woff,woff2,ttf,pfb,wasm,bcmap,bin}", "dictionary/*.json"],
         maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
         navigateFallback: "index.html",
         cleanupOutdatedCaches: true,

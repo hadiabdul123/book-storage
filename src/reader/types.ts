@@ -13,6 +13,9 @@ export interface Selection {
   text: string;
 }
 export interface ReaderEvents {
+  onPageNote?: (page: number) => void;
+  onRegionMode?: (enabled: boolean) => void;
+  onLayoutFallback?: (fallback: boolean) => void;
   onLocation: (locator: Locator, progress: number) => void;
   onSelection: (selection: Selection | null) => void;
   onAnnotation: (id: string) => void;

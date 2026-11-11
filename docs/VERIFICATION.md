@@ -1,5 +1,19 @@
 # Verification and release gates
 
+## Page notebooks, PDF layouts, and offline dictionary on 2026-11-12
+
+- Added one rich notebook per physical PDF page, including headings, bold/italic, lists/checklists, tags, autosave, recovery drafts, and explicit save-failure feedback. Active writing stays pinned while reading moves; closing or changing the panel flushes pending edits. Book-local search and the global note-type filter include page notes.
+- Page notes reuse the existing annotation sync records. Deterministic book/page IDs keep one notebook per page; keeping both sides of a conflict combines their documents with labels. JSON backup version 2 preserves rich content, still accepts version 1, remaps by book hash, and deduplicates canonical notebook IDs. Markdown preserves formatting and CSV exports plain text.
+- PDF pages-across, continuous/paginated navigation, and width/page fit are independent per-book settings. Narrow areas temporarily fall back to one column. Region mode exits after selection or Escape. Relayout preserves document coordinates, including repeated resizing; a page-level navigation inset no longer shifts restored within-page positions upward.
+- Bundled the checksum-pinned Open English Wordnet 2025 archive, attribution, and licenses. Preparation generates 256 local dictionary chunks, about 38 MiB uncompressed, plus attribution/license HTML. All are precached by the production service worker. Meaning lookup keeps unfinished highlights and can append definitions to PDF page notebooks.
+- `npm ls --depth=0`, typechecking, and all 32 unit tests pass. The unit coverage includes rich-content validation, page-note IDs/save/restore/conflicts, Markdown checklists, normalization, and lookups against the actual generated dictionary.
+- The browser suite now contains 34 desktop/mobile cases. New cases cover formatted-note persistence/search/edit/export/trash/restore, selection-to-definition-to-notebook flow, retained unfinished highlights, independent layout modes, narrow-screen fallback, repeated resize position preservation, an unpaired page with keyboard navigation, page-follow pinning, and retaining writing after an actual database conflict blocks saving.
+- The private 317-page PDF test passes again (11.3 seconds including startup), rendering pages 1, 2, 159, and 317 with nonempty pixels and no decoder errors. All requests remain local and private screenshots remain ignored.
+- The final production offline-restart test passes (50 seconds including build). It persists a formatted notebook and highlight, clears the ordinary HTTP cache, closes Chromium, starts a fresh process offline, restores both notes, and looks up a previously unseen word (`serendipity`). No external lookup request occurs. PDF font, CMap, and WebAssembly assets also remain available.
+- Visually reviewed desktop/mobile notebooks, mobile meanings, and a two-page desktop spread. The selection toolbar now collapses while the notebook/dictionary is open so it cannot cover those panels; returning restores the unfinished highlight. This does not establish native Android touch behavior.
+- Installation initially hit a full C drive. Removed only the obsolete project-local dependency backup and disposable npm cache content after checking their resolved paths; retained the old lockfile backup, private files, browser profiles, and environment configuration. Installed Tiptap 3.33.1 with project-scoped npm 11.21.2; no system npm replacement or forced audit upgrade.
+- Live Supabase setup, owner authentication, RLS/Storage checks, and actual cross-device sync remain unverified. No remote migration or public app deployment was performed by this feature change.
+
 ## Import repair and feature checks on 2026-11-11
 
 | Area | Result | Evidence / limits |
