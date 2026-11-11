@@ -44,6 +44,7 @@ test("metadata, covers, collections, library filters and download protection per
   await dialog.getByRole("button", { name: "Remove download" }).click();
   await expect(dialog.getByRole("alert")).toContainText("only local copy");
   await dialog.getByRole("button", { name: "Save changes" }).click();
+  await expect(dialog).toHaveCount(0);
   await page.reload();
   await expect(page.locator(".book-card h3")).toHaveText("Research reference");
   await page.getByRole("textbox", { name: "Search library" }).fill("language");

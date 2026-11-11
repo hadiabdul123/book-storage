@@ -27,7 +27,7 @@ Keep the source, `package.json`, `package-lock.json`, hidden `.git` folder, and 
 
 The C-drive copy's `.env.local` survived the move and uses `VITE_BASE_PATH=/`. Do not overwrite it with the example. If it is lost later, copy `.env.example` to `.env.local` and retrieve the URL and publishable key from your existing Supabase project. Keep this file private and out of Git.
 
-At recovery, the local Git repository had no commits or remote and the old drive's project folder was empty. Earlier history could not be restored from that copy. The repaired source is prepared as a new initial commit for [book-storage](https://github.com/hadiabdul123/book-storage); this preserves the current project, not the lost history.
+At recovery, the local Git repository had no commits or remote and the old drive's project folder was empty. Earlier history could not be restored from that copy. The repaired source is now committed and pushed to [book-storage](https://github.com/hadiabdul123/book-storage); this preserves the current project, not the lost history.
 
 If a future dependency update crashes npm 10 with `Cannot read properties of null (reading 'edgesOut')`, use `npx.cmd --yes npm@11.21.2 install`. This runs npm 11 for that command without replacing the system npm. The repaired lockfile supports ordinary `npm.cmd ci`.
 

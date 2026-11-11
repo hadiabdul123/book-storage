@@ -25,6 +25,8 @@ Read-only anonymous Supabase probes returned missing-table (`PGRST205`), missing
 
 Local development remains usable without sign-in through ignored development-only environment overrides. Original production configuration is preserved. Git ignores personal books, note exports, environment files, browser profiles and private screenshots; only explicitly named fixture books are exceptions. Pushes run validation only; Pages publication requires a manual deploy selection after owner/privacy verification.
 
+The source was committed and pushed to the public `hadiabdul123/book-storage` repository. The first Linux CI run passed installation, unit tests and the production build, but exposed tests that reloaded immediately after clicking Save, before asynchronous persistence completed. Collection/metadata tests now wait for their save dialogs to close, and EPUB/DOCX tests wait for the saved-highlight confirmation before checking persistence across reload. No assertion was removed and no retry was added to hide failures.
+
 ## Recovery and checks on 2026-11-11
 
 - Checked the moved project in `C:\Users\ABDUL HADI\Downloads\book storage coding`. `.env.local` exists with non-placeholder Supabase settings and `VITE_BASE_PATH=/`; its values were preserved. `.git` exists but has no commits, recoverable objects, or remote. The old `D:\book storage coding` directory is empty.

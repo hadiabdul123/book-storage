@@ -23,6 +23,7 @@ test("library starts empty without manufactured content", async ({ page }) => {
     .getByRole("textbox", { name: "Name", exact: true })
     .fill("Research");
   await page.getByRole("button", { name: "Create collection" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.reload();
   await expect(page.locator("select[aria-label=Collection]")).toContainText(
     "Research",
@@ -69,6 +70,7 @@ test("real EPUB highlight survives reload, typography changes and passage naviga
   await page
     .getByRole("button", { name: "Save highlight", exact: true })
     .click();
+  await expect(page.getByText("Highlight saved on this device.", { exact: true })).toBeVisible();
   await page.reload();
   await expect(page.locator(".reader-loading")).toHaveCount(0, {
     timeout: 45000,
@@ -187,6 +189,7 @@ test("DOCX imports semantic text and keeps linked notes", async ({ page }) => {
   await page
     .getByRole("button", { name: "Save highlight", exact: true })
     .click();
+  await expect(page.getByText("Highlight saved on this device.", { exact: true })).toBeVisible();
   await page.reload();
   await expect(page.locator(".docx-highlights span").first()).toBeVisible();
 });
