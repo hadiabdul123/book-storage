@@ -111,20 +111,20 @@
   list-style: none;
   padding-left: 0;
 }
-.notebook-writing li[data-type="taskItem"],
+.notebook-writing ul[data-type="taskList"] > li,
 .notebook-checklist > li {
   display: flex;
   gap: 9px;
   align-items: baseline;
 }
-.notebook-writing li[data-type="taskItem"] > label {
+.notebook-writing ul[data-type="taskList"] > li > label {
   margin: 0;
   flex: none;
 }
-.notebook-writing li[data-type="taskItem"] input {
+.notebook-writing ul[data-type="taskList"] > li input {
   width: auto;
 }
-.notebook-writing li[data-type="taskItem"] > div {
+.notebook-writing ul[data-type="taskList"] > li > div {
   flex: 1;
   min-width: 0;
 }
@@ -216,6 +216,7 @@
     gap: 5px;
   }
   .reader-header .reader-title {
+    display: flex;
     flex: 1;
     min-width: 0;
     max-width: none;
