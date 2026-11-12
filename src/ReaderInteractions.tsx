@@ -395,9 +395,26 @@ export const ReaderInteractions = forwardRef<
         markers,
         places: places.map((p) => p.id),
       };
-      setLayout((previous) =>
-        JSON.stringify(previous) === JSON.stringify(next) ? previous : next,
-      );
+      // EPUB fonts/images can move a range between hover and pointer-down.
+      // Keep the action buttons under the pointer until the click is complete;
+      // expanded note/meaning views still get their own measured placement.
+      const holdTools =
+        popup.current?.dataset.mode === "tools" &&
+        popup.current.matches(":hover");
+      setLayout((previous) => {
+        const placed =
+          holdTools && previous.visible && next.visible
+            ? {
+                ...next,
+                left: previous.left,
+                top: previous.top,
+                maxHeight: previous.maxHeight,
+              }
+            : next;
+        return JSON.stringify(previous) === JSON.stringify(placed)
+          ? previous
+          : placed;
+      });
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
@@ -702,6 +719,7 @@ export const ReaderInteractions = forwardRef<
             <button
               disabled={ambiguous}
               aria-pressed={mode === "note"}
+              onMouseDown={(event) => event.preventDefault()}
               onClick={() => setMode(mode === "note" ? "tools" : "note")}
             >
               {target?.note ? "Edit note" : "Add note"}

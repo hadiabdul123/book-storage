@@ -63,6 +63,24 @@ test("real EPUB highlight survives reload, typography changes and passage naviga
     page.getByRole("region", { name: "Save selected passage" }),
   ).toBeVisible();
   const quote = await page.locator(".selection-excerpt").textContent();
+  // Reproduce late EPUB layout shifts after pointing at the note action.
+  const noteAction = page.getByRole("button", {
+    name: "Add note",
+    exact: true,
+  });
+  await noteAction.hover();
+  const actionTop = (await noteAction.boundingBox())!.y;
+  await frame.locator("body").evaluate((body) => {
+    body.style.setProperty("padding-top", "48px", "important");
+  });
+  // Allow two 80 ms geometry updates; the hovered action must stay put.
+  const heldTop = await noteAction.evaluate(
+    (button) =>
+      new Promise<number>((resolve) => {
+        setTimeout(() => resolve(button.getBoundingClientRect().top), 180);
+      }),
+  );
+  expect(Math.abs(heldTop - actionTop)).toBeLessThan(2);
   await page.getByRole("button", { name: "Add note", exact: true }).click();
   await page
     .getByRole("textbox", { name: "Note for selected passage" })
