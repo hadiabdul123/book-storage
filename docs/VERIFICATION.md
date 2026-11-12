@@ -1,5 +1,16 @@
 # Verification and release gates
 
+## Live Supabase initialization on 2026-11-12
+
+- Connected to the existing healthy project and confirmed there were no application tables, storage buckets, or Auth users before setup. Applied the existing private-library migration and configured the subsequently created, confirmed owner account. No owner password was read or stored in source.
+- Applied a follow-up privilege correction: Supabase default privileges explicitly granted anon execution even after revoking PUBLIC. Revoke anon on all three public RPCs; revoke client access to internal tables/functions; enable default-deny RLS on the private tables. The consolidated initial SQL includes this correction for new installations.
+- The live transaction-rolled-back security suite passed twice, including the strengthened anonymous RPC grant assertion. It verifies owner access, rejection of another user, private storage row visibility, denied unapproved storage inserts, rejected direct writes, idempotent retry, and stale-revision conflicts. Verified zero leftover test users and records.
+- Live HTTP requests with the publishable key receive 401 for anonymous library reads and owner RPC execution; bucket metadata is hidden. The library bucket exists and is private.
+- Remaining advisor findings are intentional [authenticated SECURITY DEFINER RPC exposure](https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable), checked inside each RPC against the private allowlist, and [default-deny internal RLS without policies](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy). [Leaked-password protection](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection) is disabled; Auth configuration and signup settings were not changed through the database tools.
+- Enabled cloud configuration for local development, preserving the original browser database and ignored environment files. Configured GitHub Pages to build through Actions and stored only the Supabase URL/publishable key in repository variables.
+- Pending: owner password-session sign-in, actual file upload/download across sessions, deployed HTTPS reader verification, and physical Android installation. Earlier entries below describe historical blockers superseded by this setup.
+
+
 ## Cloud save visibility and Android reading on 2026-11-12
 
 - Added per-book local/queued/uploading/failed/synced status, progress, retry, and separate offline availability. Confirmed metadata is required before removing a local download. The sync loop drains edits added during uploads, retains newer remote revisions after failed uploads, and resumes when returning to the app.
@@ -90,7 +101,7 @@ The source was committed and pushed to the public `hadiabdul123/book-storage` re
 
 ## Not yet verified
 
-- The Supabase administrative connection/owner account and SQL migration; live RLS/Storage, actual cross-device synchronization, and concurrent-device recovery.
+- Owner password-session sign-in, real Storage HTTP upload/download, actual cross-device synchronization, and concurrent-device recovery. The administrative connection, owner allowlist, migration, SQL RLS tests, and anonymous API denial are verified above.
 - Physical Android touch selection, installed-PWA behavior on actual devices, authenticated offline recovery, the complete visual review matrix, and GitHub deployment. Local-device-mode offline browser restart is now covered by the production test above.
 - Earlier network/executor restrictions recorded during initial development are no longer blocking installation and local checks. Passing local tests does not establish the live-service or physical-device results above.
 

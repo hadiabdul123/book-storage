@@ -8,7 +8,7 @@ create function public.is_library_owner() returns boolean
 language sql stable security definer set search_path = '' as $$
   select exists(select 1 from private.owners where user_id = auth.uid());
 $$;
-revoke all on function public.is_library_owner() from public;
+revoke all on function public.is_library_owner() from public, anon;
 grant execute on function public.is_library_owner() to authenticated;
 
 create table public.library_entries (
@@ -96,7 +96,7 @@ begin
   return result;
 end;
 $$;
-revoke all on function public.apply_change(jsonb), public.pull_changes(bigint) from public;
+revoke all on function public.apply_change(jsonb), public.pull_changes(bigint) from public, anon;
 grant execute on function public.apply_change(jsonb), public.pull_changes(bigint) to authenticated;
 
 insert into storage.buckets(id,name,public) values('library','library',false)
@@ -104,6 +104,14 @@ on conflict(id) do update set public=false;
 create policy "Owner private files" on storage.objects for all to authenticated
 using(bucket_id='library' and (storage.foldername(name))[1]=(select auth.uid())::text and (select public.is_library_owner()))
 with check(bucket_id='library' and (storage.foldername(name))[1]=(select auth.uid())::text and (select public.is_library_owner()));
+
+
+-- Explicit grants may be inherited from Supabase default privileges.
+revoke all on all tables in schema private from public, anon, authenticated;
+revoke all on all functions in schema private from public, anon, authenticated;
+alter table private.owners enable row level security;
+alter table private.sync_clock enable row level security;
+alter table private.sync_receipts enable row level security;
 
 -- Optional Realtime; periodic pulls remain authoritative.
 do $$ begin

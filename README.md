@@ -4,7 +4,7 @@ A personal React + TypeScript reading PWA for Windows and Android. EPUB, PDF, an
 
 ## Current verification status
 
-Dependency installation has been repaired after the move to the C drive. The reader now includes formatted PDF page notebooks, one/two-page reading modes, and a bundled offline English dictionary. See [verification notes](docs/VERIFICATION.md) for test results and remaining release gates. Live Supabase setup/synchronization and physical Android touch behavior remain unverified.
+Dependency installation has been repaired after the move to the C drive. The reader now includes formatted PDF page notebooks, one/two-page reading modes, and a bundled offline English dictionary. See [verification notes](docs/VERIFICATION.md) for test results and remaining release gates. The live private Supabase schema and owner allowlist are configured; database access controls and anonymous API rejection have passed. Owner-session uploads, cross-device synchronization, and physical Android touch behavior still need verification.
 
 ## Run on your PC
 
@@ -17,7 +17,7 @@ npm.cmd run dev
 
 Open the localhost URL printed by Vite. Without Supabase configuration the app runs in clearly labeled **local-device mode**. Imports and annotations are real and persist in IndexedDB. This is useful for reader testing; cross-device synchronization and authenticated access require the configuration below. Keep original files and export annotations before clearing browser data.
 
-This PC currently uses an ignored `.env.development.local` file with empty Supabase URL/key overrides so `npm.cmd run dev` opens the library directly, without a login. Your original cloud settings remain in `.env.local`; production builds still use them. Once the cloud owner account is set up, remove those two development overrides and restart Vite to enable cloud sign-in locally.
+This PC now uses the private Supabase settings in ignored `.env.local` for development. The temporary empty cloud overrides were removed after configuring the owner account. Sign in using the owner email and the password created in Supabase; refresh the existing browser origin to retain its local library.
 
 `predev` and `prebuild` prepare local PDF fonts, character maps, WebAssembly assets, app icons, and dictionary chunks. No rendering dependency or dictionary lookup is loaded from a CDN. Keep `package-lock.json` with the source and use `npm ci` for repeatable installs. The project-local npm cache lives in the ignored `.local/npm-cache` directory.
 

@@ -48,6 +48,10 @@ end $$;
 reset role;
 set local role anon;
 do $$ begin
+  if has_function_privilege(current_user,'public.is_library_owner()','EXECUTE')
+    or has_function_privilege(current_user,'public.apply_change(jsonb)','EXECUTE')
+    or has_function_privilege(current_user,'public.pull_changes(bigint)','EXECUTE')
+    then raise exception 'Anonymous RPC execution unexpectedly granted'; end if;
   begin perform 1 from public.library_entries;raise exception 'Anonymous read accepted';exception when insufficient_privilege then null;end;
   begin
     if exists(select 1 from storage.objects where bucket_id='library') then raise exception 'Anonymous storage read accepted'; end if;
