@@ -376,13 +376,16 @@ export const ReaderInteractions = forwardRef<
       const shell = host.current.closest(".reader-shell");
       const header = shell?.querySelector<HTMLElement>(".reader-header");
       const footer = shell?.querySelector<HTMLElement>(".reader-footer");
+      // Overlay controls restrict popup placement, not passage/bookmark visibility.
+      let popupTop = clip.top,
+        popupBottom = clip.bottom;
       if (header && getComputedStyle(header).visibility !== "hidden")
-        clip.top = Math.max(
+        popupTop = Math.max(
           clip.top,
           header.getBoundingClientRect().bottom + 8,
         );
       if (footer && getComputedStyle(footer).visibility !== "hidden")
-        clip.bottom = Math.min(
+        popupBottom = Math.min(
           clip.bottom,
           footer.getBoundingClientRect().top - 8,
         );
@@ -410,10 +413,10 @@ export const ReaderInteractions = forwardRef<
         ? 48
         : 14;
       const aboveSpace = rect
-          ? Math.max(0, rect.top - clip.top - handleGap)
+          ? Math.max(0, rect.top - popupTop - handleGap)
           : 0,
         belowSpace = rect
-          ? Math.max(0, clip.bottom - rect.bottom - handleGap)
+          ? Math.max(0, popupBottom - rect.bottom - handleGap)
           : 0;
       const above =
         aboveSpace >= desiredHeight ||
@@ -425,9 +428,9 @@ export const ReaderInteractions = forwardRef<
       const height = Math.min(popup.current?.offsetHeight || 110, maxHeight);
       const top = rect
         ? Math.max(
-            clip.top + 4,
+            popupTop + 4,
             Math.min(
-              clip.bottom - height - 4,
+              popupBottom - height - 4,
               above ? rect.top - height - handleGap : rect.bottom + handleGap,
             ),
           )
@@ -473,8 +476,8 @@ export const ReaderInteractions = forwardRef<
           holdTools &&
           previous.visible &&
           next.visible &&
-          previous.top >= clip.top &&
-          previous.top + (popup.current?.offsetHeight || 0) <= clip.bottom
+          previous.top >= popupTop &&
+          previous.top + (popup.current?.offsetHeight || 0) <= popupBottom
             ? {
                 ...next,
                 left: previous.left,

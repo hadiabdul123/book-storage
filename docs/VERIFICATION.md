@@ -9,6 +9,7 @@
 - The expanded auto-sync regression exposed notebook initialization emitting an editor update. Merely opening a notebook could save unchanged content and create false conflicts on another device. Enabling editing now suppresses this synthetic update. The two-context test verifies automatic upload and a pull on return-to-app; no manual sync button is used.
 - Local checks: 48 unit tests and typechecking passed. Generated scanned-page OCR, browser touch selection/handle extension, saved highlight/text reload, desktop bookmark/hover, and phone PDF swipe regressions passed. The actual private PDF's page 20 passed recognition, touch highlighting, and reload with all external requests blocked.
 - Production offline browser restart passed, including first-ever recognition of a saved generated scan with networking disabled. OCR assets were loaded through the installed service worker, with no previous engine or model initialization in that browser profile.
+- Initial full CI stopped deployment after detecting six interaction regressions from clipping anchor visibility to the toolbar bounds. The correction keeps original reading-surface visibility for passages/bookmarks and applies toolbar bounds only to popup placement.
 - Physical Chrome/Android confirmation remains necessary for device-specific gesture behavior and performance. Earlier native-only limitations are addressed by a tested in-app fallback, but desktop touch emulation is not a physical-phone test.
 
 ## Immersive reading and simpler vocabulary on 2026-11-12
