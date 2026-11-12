@@ -273,3 +273,18 @@
     pointer-events: none;
   }
 }
+
+/* Recovery actions must stay below the overlay toolbar on both layouts. */
+.reader-shell .reader-error {
+  top: calc(76px + env(safe-area-inset-top));
+  gap: 10px;
+  flex-wrap: wrap;
+  max-height: calc(100% - 150px);
+  overflow: auto;
+}
+.reader-shell .reader-error > span {
+  flex: 1 1 220px;
+}
+.reader-shell .reader-error > button {
+  flex-shrink: 0;
+}

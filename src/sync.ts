@@ -1,3 +1,4 @@
+import { downloadFreshBlob } from "./bookDownload";
 import { createClient } from "@supabase/supabase-js";
 import { Upload } from "tus-js-client";
 import { db, acceptRemote } from "./db";
@@ -354,19 +355,21 @@ export async function downloadBook(book: Book) {
     data: { user },
   } = await cloud.auth.getUser();
   if (!user) throw new Error("Sign in to download this book.");
-  const source = await cloud.storage
-    .from("library")
-    .download(`${user.id}/${book.sourcePath}`);
-  if (source.error) throw source.error;
+  const download = (path: string) => downloadFreshBlob((nonce) =>
+    cloud!.storage.from("library").download(
+      `${user.id}/${path}`,
+      { cacheNonce: nonce },
+      // IndexedDB is the verified offline copy. Do not reuse Chrome's partial
+      // HTTP-cache entries after an interrupted authenticated download.
+      { cache: "no-store" },
+    ),
+  );
+  const source = await download(book.sourcePath);
   let derived: Blob | undefined;
   if (book.derivedPath) {
-    const result = await cloud.storage
-      .from("library")
-      .download(`${user.id}/${book.derivedPath}`);
-    if (result.error) throw result.error;
-    derived = result.data;
+    derived = await download(book.derivedPath);
   }
-  const bytes = await source.data.arrayBuffer();
+  const bytes = await source.arrayBuffer();
   const hash = Array.from(
     new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)),
   )
@@ -376,7 +379,7 @@ export async function downloadBook(book: Book) {
     throw new Error(
       "The downloaded file did not match this book. Retry the download.",
     );
-  const file = { id: book.id, source: source.data, derived, uploaded: true };
+  const file = { id: book.id, source, derived, uploaded: true };
   await db.files.put(file);
   return file;
 }

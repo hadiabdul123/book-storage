@@ -143,6 +143,9 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   annotationsRef.current = annotations;
   const [loading, setLoading] = useState(true),
     [error, setError] = useState(""),
+    [openFailed, setOpenFailed] = useState(false),
+    [opened, setOpened] = useState(false),
+    [loadAttempt, setLoadAttempt] = useState(0),
     [panel, setPanel] = useState(""),
     [sections, setSections] = useState<Section[]>([]),
     [editing, setEditing] = useState<Annotation>(),
@@ -238,6 +241,9 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
     };
     const start = async () => {
       setLoading(true);
+      setOpenFailed(false);
+      setOpened(false);
+      setOfferedPosition(undefined);
       position.current = null;
       setError("");
       setCurrent(undefined);
@@ -317,6 +323,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
       if (stored) position.current = stored;
       seenPosition.current = stored?.readAt || "";
       restoring = false;
+      setOpened(true);
       setLoading(false);
       setReady((v) => v + 1);
       if (book.status === "unread")
@@ -325,6 +332,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
     void start().catch((e) => {
       if (!cancelled) {
         setError(messageOf(e));
+        setOpenFailed(true);
         setLoading(false);
       }
     });
@@ -348,7 +356,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
       window.removeEventListener("keydown", activity);
       window.removeEventListener("wheel", activity);
     };
-  }, [book?.id, book?.hash]);
+  }, [book?.id, book?.hash, loadAttempt]);
   useEffect(() => {
     adapter.current?.annotate(annotations);
   }, [annotations, ready]);
@@ -357,6 +365,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   }, [savedPrefs, pdfPrefs, localView, ready]);
   useEffect(() => {
     if (
+      opened &&
       !loading &&
       remotePosition &&
       remotePosition.device !== deviceId() &&
@@ -366,7 +375,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
       seenPosition.current = remotePosition.readAt;
       setOfferedPosition(remotePosition);
     }
-  }, [remotePosition, loading]);
+  }, [remotePosition, loading, opened]);
   useEffect(() => {
     if (
       panel === "page-notes" &&
@@ -489,7 +498,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
       >
         Show reading controls
       </button>
-      {offeredPosition && (
+      {opened && offeredPosition && (
         <div className="resume-reading" role="status">
           <span>
             A newer reading position is available from your other device.
@@ -621,6 +630,18 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
           {error && (
             <div className="reader-error" role="alert">
               <span>{error}</span>
+              {openFailed && (
+                <button
+                  className="secondary"
+                  disabled={loading}
+                  onClick={() => {
+                    setLoading(true);
+                    setLoadAttempt(value => value + 1);
+                  }}
+                >
+                  Retry opening book
+                </button>
+              )}
               <button
                 aria-label="Dismiss error"
                 className="icon-button"

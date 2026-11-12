@@ -177,7 +177,11 @@ it("verifies downloaded bytes before retaining an offline copy", async () => {
   );
   expect(await db.files.count()).toBe(0);
   await downloadBook({ ...book, hash });
-  expect(fake.download).toHaveBeenCalledWith(`owner/${book.sourcePath}`);
+  expect(fake.download).toHaveBeenCalledWith(
+    `owner/${book.sourcePath}`,
+    { cacheNonce: expect.any(String) },
+    { cache: "no-store" },
+  );
   expect((await db.files.get(book.id))?.uploaded).toBe(true);
   fake.user.mockRejectedValue(new Error("Offline"));
   await expect(downloadBook({ ...book, hash })).resolves.toMatchObject({

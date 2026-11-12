@@ -205,3 +205,15 @@ The initial suite is a starting corpus, not evidence of exhaustive ebook compati
 - The owner's normal Chrome now exposes the actual failure: `UnknownError Internal error. UnknownError: Internal error.` This is consistent with a local IndexedDB failure, not proof of bad credentials. The same owner's Incognito library was observed as synced and available offline. C: had about 1.6 GB free; removing verified regenerable project build/test artifacts and the unused full test-browser download freed about 650 MB, leaving about 2.2 GB. No Chrome profile, private library, source, or original PDF was removed. The owner was asked to reload and retry; recovery is not yet confirmed.
 
 - Owner confirmation: freeing space and a normal page reload alone did not clear the error. After completely exiting and reopening Chrome, the owner confirmed **the library opens in normal Chrome**. No database reset or Chrome-profile modification was performed. The exact browser-internal cause is not established; the failure cleared after restarting the browser. The code patch remains release `b5bd84b`.
+
+
+## Interrupted Flow PDF download recovery
+
+The owner reported `Failed to fetch` while opening Flow in normal PC Chrome. Supabase logs showed a successful response for the 14,486,132-byte original and repeated range probes at byte 10,516,776; authentication/sync requests were successful. This suggests a stuck partial HTTP-cache transfer, rather than a missing cloud file, but the browser's network internals were not directly captured.
+
+- Authenticated downloads now use `cache: no-store` and a fresh cache nonce. The verified IndexedDB copy remains the offline source.
+- Interrupted transfers and temporary server errors retry once. Authorization errors do not retry automatically. The existing original-file SHA-256 check still runs before storing a download.
+- Reader opening failures expose an accessible retry action below the overlay toolbar, retain notes, and no longer display a resume-position offer before the book opens.
+- Four isolated browser regression cases passed: interrupted transfer recovery with fresh URLs, desktop and phone retry controls with restored position/retained notes, and access-denied/corrupt-byte rejection. Live owner verification follows deployment.
+
+- Before release: typecheck, all 52 unit tests, and all 11 cloud/auth/download browser tests passed.
