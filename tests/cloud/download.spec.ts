@@ -98,3 +98,22 @@ test("access denial is not retried and corrupt bytes never become an offline cop
   expect(nonces).toHaveLength(2);
   expect(await page.evaluate(async () => (await import("/src/db.ts")).db.files.count())).toBe(0);
 });
+
+
+test("book opens and persists when Chrome's network blob reader fails", async ({ page }) => {
+  await page.addInitScript(() => {
+    Response.prototype.blob = async function () {
+      throw new TypeError("Failed to fetch");
+    };
+  });
+  const nonces = await setup(page, ["valid"]);
+  await expect(page.locator(".reader-progress")).toContainText("Page 2");
+  expect(nonces).toHaveLength(1);
+  expect(await page.evaluate(async () => {
+    const file = await (await import("/src/db.ts")).db.files.get("download-book");
+    return { size: file!.source.size, type: file!.source.type };
+  })).toEqual({ size: bytes.length, type: "application/pdf" });
+  await page.reload();
+  await expect(page.locator(".reader-progress")).toContainText("Page 2");
+  expect(nonces).toHaveLength(1);
+});

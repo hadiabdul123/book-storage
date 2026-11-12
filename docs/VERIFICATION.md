@@ -219,3 +219,14 @@ The owner reported `Failed to fetch` while opening Flow in normal PC Chrome. Sup
 - Before release: typecheck, all 52 unit tests, and all 11 cloud/auth/download browser tests passed.
 
 - Release `caa8ea0` deployed successfully in [GitHub Actions run 43227739734](https://github.com/hadiabdul123/book-storage/actions/runs/43227739734): 52 unit tests, 68 reader browser cases (10 platform-specific skips), 11 cloud/auth/download cases, and the production update/offline restart case passed. Live HTTPS verification at 360, 412 and 1440 pixels passed with no page errors, failed site assets or horizontal overflow. The deployed application bundle contains the fresh-download and retry recovery code. The owner has been asked to reopen Flow in normal PC Chrome; confirmation of that existing-session recovery is still pending.
+
+
+### Confirmed Chrome response-body failure and recovery
+
+The owner still saw the download error after `caa8ea0`. Inspection of the actual normal Chrome tab reproduced `net::ERR_FAILED 200 (OK)` for the private PDF. The Supabase response was accepted, but the network response body failed in the SDK's `Response.blob()` path. Removing a pre-existing DevTools Fast 4G throttle did not resolve it. Browser extensions were not disabled, and no site data or authentication was cleared.
+
+A temporary in-page diagnostic replaced `Response.blob()` with `arrayBuffer()` followed by `new Blob(...)`. The same authenticated request then returned all **14,486,132 bytes**, passed the existing checksum, and opened Flow. After closing DevTools and reloading (which removed the temporary diagnostic), the stored book reopened at the saved position without a download error. This verifies recovery in the owner's actual normal Chrome session; the precise browser-internal reason for the native blob reader failure is not established.
+
+The permanent implementation uses the installed Supabase SDK's authenticated `.asStream()` download API, consumes the body as bytes, and constructs the typed Blob before the existing checksum/offline persistence. It retains fresh cache nonces, one transient retry, and error recovery without altering global browser APIs. A browser regression forces `Response.blob()` to fail, then verifies a successful download, correct stored byte count/MIME type, and reopening after reload without another transfer.
+
+- Permanent byte-reader patch: local typecheck, all 52 unit tests, and all 12 cloud/auth/download browser tests passed, including the forced native-blob failure regression. Deployment verification follows.

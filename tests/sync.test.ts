@@ -14,7 +14,12 @@ vi.mock("@supabase/supabase-js", () => ({
   createClient: () => ({
     auth: { getSession: fake.session, getUser: fake.user },
     rpc: fake.rpc,
-    storage: { from: () => ({ download: fake.download }) },
+    storage: { from: () => ({ download: (...args: unknown[]) => ({
+      asStream: async () => {
+        const result = await fake.download(...args);
+        return { ...result, data: result.data?.stream() ?? null };
+      },
+    }) }) },
   }),
 }));
 vi.mock("tus-js-client", () => ({

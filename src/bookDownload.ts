@@ -1,13 +1,18 @@
 /** Retry only interrupted transfers and temporary server failures. */
 export async function downloadFreshBlob(
-  download: (nonce: string) => PromiseLike<{ data: Blob | null; error: unknown }>,
+  download: (nonce: string) => PromiseLike<{ data: ReadableStream<Uint8Array> | null; error: unknown }>,
+  type: string,
 ): Promise<Blob> {
   for (let attempt = 0; ; attempt++) {
     try {
       const { data, error } = await download(crypto.randomUUID());
       if (error) throw error;
       if (!data) throw new Error("The download was empty.");
-      return data;
+      // Some Chrome profiles fail in network Response.blob() even after
+      // HTTP 200. Read bytes first, then construct the Blob;
+      // this path recovered the owner's actual failing 14 MB Flow download.
+      const bytes = await new Response(data).arrayBuffer();
+      return new Blob([bytes], { type });
     } catch (error) {
       const e = error as { status?: number; statusCode?: string };
       const status = Number(e.statusCode || e.status || 0);

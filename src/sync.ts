@@ -355,19 +355,25 @@ export async function downloadBook(book: Book) {
     data: { user },
   } = await cloud.auth.getUser();
   if (!user) throw new Error("Sign in to download this book.");
-  const download = (path: string) => downloadFreshBlob((nonce) =>
+  const download = (path: string, type: string) => downloadFreshBlob((nonce) =>
     cloud!.storage.from("library").download(
       `${user.id}/${path}`,
       { cacheNonce: nonce },
       // IndexedDB is the verified offline copy. Do not reuse Chrome's partial
       // HTTP-cache entries after an interrupted authenticated download.
       { cache: "no-store" },
-    ),
+    ).asStream(),
+    type,
   );
-  const source = await download(book.sourcePath);
+  const sourceType = {
+    pdf: "application/pdf",
+    epub: "application/epub+zip",
+    docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  }[book.format];
+  const source = await download(book.sourcePath, sourceType);
   let derived: Blob | undefined;
   if (book.derivedPath) {
-    derived = await download(book.derivedPath);
+    derived = await download(book.derivedPath, "text/html");
   }
   const bytes = await source.arrayBuffer();
   const hash = Array.from(
