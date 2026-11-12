@@ -281,9 +281,17 @@ test("reader search, bookmarks, page layout, theme and region notes survive relo
     .click();
   const bounds = await page.locator(".pdf-page:visible").first().boundingBox();
   expect(bounds).not.toBeNull();
-  await page.mouse.move(bounds!.x + 40, bounds!.y + 55);
+  // Navigation now preserves fit/zoom. At fit-width the page can extend
+  // beneath the overlay toolbar; draw within the visible reading surface.
+  const header = await page.locator(".reader-header").boundingBox();
+  const startX = Math.max(0, bounds!.x) + 40;
+  const startY = Math.max(bounds!.y, (header?.y || 0) + (header?.height || 0)) + 24;
+  expect(await page.evaluate(({ x, y }) =>
+    !!document.elementFromPoint(x, y)?.closest(".pdf-page"),
+    { x: startX, y: startY })).toBe(true);
+  await page.mouse.move(startX, startY);
   await page.mouse.down();
-  await page.mouse.move(bounds!.x + 160, bounds!.y + 120, { steps: 6 });
+  await page.mouse.move(startX + 120, startY + 65, { steps: 6 });
   await page.mouse.up();
   await page.getByRole("button", { name: "Add note", exact: true }).click();
   await page
