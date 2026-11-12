@@ -1,3 +1,4 @@
+import { ReadingPointerControls, useReadingPointer } from "./ReadingPointer";
 import { bindPageSwipes } from "./reader/swipes";
 import { useEffect, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
@@ -176,6 +177,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
     ready,
     !!panel || !!editing || region,
   );
+  const readingPointer = useReadingPointer(host, book?.format === "pdf" && opened && !loading, ready, notify);
   const swipeEnabled =
     swipeToTurn &&
     phone &&
@@ -1170,6 +1172,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
                       </button>
                     </>
                   )}
+                  {book.format === "pdf" && <ReadingPointerControls {...readingPointer} />}
                   <button
                     className="text-button"
                     onClick={() => {

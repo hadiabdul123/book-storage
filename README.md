@@ -181,3 +181,5 @@ Rendering: [EPUB.js](https://github.com/futurepress/epub.js), [Mozilla PDF.js](h
 
 
 In **Reading settings**, enable **Hide bottom page controls** to remove the footer independently of the top toolbar. The choice is saved for that book on that device. PDF pages support pinch zoom, Ctrl/Meta + wheel over the page, and Ctrl/Cmd + plus/minus/0 while reading, without scaling the reader toolbars or panels. Page zoom is retained on this device; single-finger scrolling and panning stay native. Browser-level zoom remains available through the browser's controls.
+
+PDF **Reading settings > Reading pointer** offers an optional larger arrow, dot, hollow ring, or short underline and an independently switchable fading cursor trail. Adjust size, color, trail length/thickness/opacity/fade and try them in the preview. These preferences apply to every PDF on this device, work offline, and do not create cloud changes. Guides stay screen-sized when zooming and pause during selection and region drawing. They are off by default and only respond to mouse/trackpad movement; touch gestures are unchanged.
