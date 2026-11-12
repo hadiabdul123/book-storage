@@ -12,6 +12,8 @@ The deployed app is [Leafmark](https://hadiabdul123.github.io/book-storage/). Si
 
 If normal Chrome gets stuck signing in while Incognito works, first refresh the hosted page with **Ctrl+Shift+R**. The sign-in screen now offers **Repair sign-in on this device**: it removes only this project's saved login tokens and reloads, preserving downloaded books, account binding, notes, drafts, and queued changes. Sign in again with the same account. Repeated or stalled sign-in attempts show an error instead of silently resetting or spinning forever.
 
+If the error specifically says **UnknownError / Internal error**, the browser's local database may be unavailable. Save unfinished browser work, completely exit Chrome (including Incognito windows), then reopen it and Leafmark. Check available disk space, and avoid deleting site data while recovering unsynced notes. The owner's normal-Chrome failure was resolved by a complete browser restart after disk space was freed.
+
 When an update is ready, return from the reader to the library and choose **Update**. Pending cloud changes no longer block installation: they remain in IndexedDB and resume syncing after reload. App updates are also available from the sign-in screen. Switching PDF **Navigation** preserves the selected fit/zoom and existing rendered pages; change **Fit** separately when desired.
 
 ## Run on your PC
