@@ -11,7 +11,8 @@
 - Owner password sign-in succeeded and the user reported Synced. Independently verified the real book record and its 14,486,132-byte original in private storage. Anonymous attempts against standard, public, and authenticated object download routes all failed. No private book contents or credentials were added to the repository.
 - Deployed the HTTPS reader through [GitHub Actions run 43164771662](https://github.com/hadiabdul123/book-storage/actions/runs/43164771662). Dependency installation, all unit tests, the full desktop/mobile browser suite, simulated two-context cloud transport, offline restart, configured production build, and Pages deployment passed.
 - Live hosted sign-in layout passed at 360, 412, and 1440 pixels: HTTP 200, no horizontal overflow, no page errors, valid standalone manifest, and available icons. Visually reviewed the phone and desktop screenshots. The app registers its worker after sign-in; the isolated signed-out smoke check explicitly registered the deployed worker to test its assets. All 530 assets cached, activation completed after about three minutes on this connection, and the public app shell reopened with networking disabled. This is not a test of authenticated book reading on a physical phone.
-- Pending: authenticated download in a second device/session and physical Android installation. Earlier entries below describe historical blockers superseded by this setup.
+- The user confirmed on the physical phone that the synced book appears and opens after signing into the deployed app. This verifies the real PC upload to phone discovery/download/open path.
+- Pending: physical Android installation/offline restart and two-device annotation/conflict testing. Earlier entries below describe historical blockers superseded by this setup.
 
 
 ## Cloud save visibility and Android reading on 2026-11-12

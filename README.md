@@ -4,7 +4,7 @@ A personal React + TypeScript reading PWA for Windows and Android. EPUB, PDF, an
 
 ## Current verification status
 
-Dependency installation has been repaired after the move to the C drive. The reader now includes formatted PDF page notebooks, one/two-page reading modes, and a bundled offline English dictionary. See [verification notes](docs/VERIFICATION.md) for test results and remaining release gates. The live private Supabase schema and owner allowlist are configured; database access controls and anonymous API rejection have passed. Owner sign-in and a real book upload are verified. Cross-device download/synchronization and physical Android touch behavior still need verification.
+Dependency installation has been repaired after the move to the C drive. The reader now includes formatted PDF page notebooks, one/two-page reading modes, and a bundled offline English dictionary. See [verification notes](docs/VERIFICATION.md) for test results and remaining release gates. The live private Supabase schema and owner allowlist are configured; database access controls and anonymous API rejection have passed. Owner sign-in and a real book upload are verified, and the user confirmed the same book appears and opens on the phone. Physical Android offline restart, touch selection, and two-device annotation/conflict behavior still need verification.
 
 ## Open the hosted reader
 
