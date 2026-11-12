@@ -28,6 +28,7 @@ type OcrWord = { text: string; rect: Rect };
 type PageState = {
   ocrButton: HTMLButtonElement;
   ocrWords?: OcrWord[];
+  ocrChecked?: boolean;
   hasText?: boolean;
   recognizing?: Promise<void>;
   n: number;
@@ -60,6 +61,7 @@ export class PdfReader implements ReaderAdapter {
   private hostHeight = 0;
   private autoOcrTimer?: ReturnType<typeof setTimeout>;
   private autoOcrBusy = false;
+  private autoOcrBlocked = false;
   private autoOcrAttempted = new Set<number>();
   private marks: Annotation[] = [];
   private disposed = false;
@@ -255,14 +257,7 @@ export class PdfReader implements ReaderAdapter {
         (item) => "str" in item && item.str.trim(),
       );
       if (!state.hasText) {
-        if (!state.ocrWords) {
-          const cached = await db.meta.get(`ocr-v1:${this.book.id}:${state.n}`);
-          if (cached) {
-            try {
-              state.ocrWords = JSON.parse(cached.value);
-            } catch {}
-          }
-        }
+        await this.loadOcrCache(state);
         if (this.disposed || generation !== state.generation) return;
         this.renderOcr(state);
       }
@@ -275,26 +270,47 @@ export class PdfReader implements ReaderAdapter {
       state.rendering = false;
     }
   }
-  // Only recognize pages actually on screen, after scrolling has settled.
-  // Never enqueue a whole book or allocate several OCR canvases at once.
+  private ocrKey(state: PageState) {
+    return `ocr-v2:${this.book.id}:${this.book.hash}:${state.n}`;
+  }
+  private async loadOcrCache(state: PageState) {
+    if (state.ocrChecked || state.ocrWords !== undefined) return;
+    const cached = await db.meta.get(this.ocrKey(state)) ||
+      await db.meta.get(`ocr-v1:${this.book.id}:${state.n}`);
+    if (cached) {
+      try {
+        const words = JSON.parse(cached.value);
+        if (Array.isArray(words) && words.every(w => typeof w.text === "string" &&
+            Array.isArray(w.rect) && w.rect.length === 4 && w.rect.every(Number.isFinite)))
+          state.ocrWords = words;
+      } catch { /* Ignore incomplete old cache entries and recognize again. */ }
+    }
+    state.ocrChecked = true;
+  }
+  // Prioritize the visible page, then prepare the rest quietly, one at a time.
+  // Completed (including blank) pages survive reopen; hidden tabs stop working.
   private scheduleRecognition = () => {
     clearTimeout(this.autoOcrTimer);
-    if (this.disposed || this.autoOcrBusy) return;
+    if (this.disposed || this.autoOcrBusy || this.autoOcrBlocked) return;
     this.autoOcrTimer = setTimeout(() => {
       if (this.disposed || document.hidden || this.layingOut) return;
       if (this.pages.some(p => p.recognizing)) return;
       const viewport = this.host.getBoundingClientRect();
-      const visible = this.pages.filter(p => {
-        if (!p.loaded || p.hasText !== false || p.ocrWords?.length ||
-            p.element.hidden || this.autoOcrAttempted.has(p.n)) return false;
+      const pending = this.pages.filter(p => !p.hasText &&
+        p.ocrWords === undefined && !this.autoOcrAttempted.has(p.n));
+      const visible = pending.filter(p => {
+        if (!p.loaded || p.element.hidden) return false;
         const box = p.element.getBoundingClientRect();
         return box.width > 0 && box.bottom > viewport.top && box.top < viewport.bottom;
       });
-      const state = visible.sort((a, b) => Math.abs(a.n - this.current) - Math.abs(b.n - this.current))[0];
+      const state = visible.sort((a, b) => Math.abs(a.n - this.current) - Math.abs(b.n - this.current))[0] || pending[0];
       if (!state) return;
       this.autoOcrAttempted.add(state.n);
       this.autoOcrBusy = true;
-      void this.recognizePage(state, true).catch(() => {}).finally(() => {
+      void this.recognizePage(state, true).catch(() => {
+        // A missing worker/model must not trigger one failed download per page.
+        this.autoOcrBlocked = true;
+      }).finally(() => {
         this.autoOcrBusy = false;
         this.scheduleRecognition();
       });
@@ -304,7 +320,7 @@ export class PdfReader implements ReaderAdapter {
     const layer = state.element.querySelector<HTMLElement>(".textLayer");
     if (!layer || state.hasText) return;
     const words = state.ocrWords;
-    state.ocrButton.hidden = !!words?.length;
+    state.ocrButton.hidden = words !== undefined;
     if (!state.ocrButton.isConnected) state.element.append(state.ocrButton);
     if (!words?.length) return;
     layer.classList.add("ocr-text-layer");
@@ -338,15 +354,27 @@ export class PdfReader implements ReaderAdapter {
     }
   }
   private recognizePage(state: PageState, automatic = false): Promise<void> {
-    if (state.hasText || state.ocrWords?.length) return Promise.resolve();
+    if (state.hasText || state.ocrWords !== undefined) return Promise.resolve();
     if (state.recognizing) return state.recognizing;
     state.recognizing = (async () => {
       state.ocrButton.hidden = false;
       state.ocrButton.disabled = true;
+      state.ocrButton.classList.remove("ocr-failed");
       state.ocrButton.classList.add("recognizing");
       state.ocrButton.textContent = "Preparing text recognition...";
       const canvas = document.createElement("canvas");
       try {
+        await this.loadOcrCache(state);
+        if (state.hasText === undefined) {
+          const text = await state.page.getTextContent();
+          state.hasText = text.items.some(item => "str" in item && item.str.trim());
+        }
+        if (state.hasText || state.ocrWords !== undefined) {
+          state.ocrButton.hidden = true;
+          this.renderOcr(state);
+          return;
+        }
+        if (this.disposed) return;
         const base = state.page.getViewport({ scale: 1, rotation: 0 });
         const viewport = state.page.getViewport({
           scale: Math.min(2.5, 1800 / base.width, 2400 / base.height),
@@ -360,22 +388,21 @@ export class PdfReader implements ReaderAdapter {
           state.ocrButton.textContent = `Recognizing text: ${percent}%`;
         });
         if (this.disposed) return;
-        state.ocrWords = recognized.map(({ text, box }) => {
+        const words = recognized.map(({ text, box }) => {
           const a = viewport.convertToPdfPoint(box.x0, box.y0),
             b = viewport.convertToPdfPoint(box.x1, box.y1);
           return { text, rect: normalizeRect([a[0], a[1], b[0], b[1]]) };
         });
-        if (!state.ocrWords.length)
-          throw new Error(
-            "No readable English text found. Try selecting a region in Reading settings.",
-          );
         await db.meta.put({
-          key: `ocr-v1:${this.book.id}:${state.n}`,
-          value: JSON.stringify(state.ocrWords),
+          key: this.ocrKey(state),
+          value: JSON.stringify(words),
         });
+        state.ocrWords = words;
+        this.autoOcrBlocked = false;
         if (!this.disposed) this.renderOcr(state);
       } catch (error) {
         if (!this.disposed) {
+          state.ocrButton.classList.add("ocr-failed");
           state.ocrButton.textContent = "Retry text recognition";
           const message = error instanceof Error ? error.message : String(error);
           state.ocrButton.title = message;

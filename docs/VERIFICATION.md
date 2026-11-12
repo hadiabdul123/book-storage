@@ -232,3 +232,15 @@ The permanent implementation uses the installed Supabase SDK's authenticated `.a
 - Permanent byte-reader patch: local typecheck, all 52 unit tests, and all 12 cloud/auth/download browser tests passed, including the forced native-blob failure regression. Deployment verification follows.
 
 - Permanent fix `2ac456f` deployed successfully in [GitHub Actions run 43231673703](https://github.com/hadiabdul123/book-storage/actions/runs/43231673703): 52 unit tests, 68 reader browser tests (10 platform-specific skips), 12 cloud/auth/download tests, and 1 production update/offline restart test passed. Live HTTPS checks at 360, 412 and 1440 pixels passed without page errors, failed assets or horizontal overflow. The served bundle `index-VGNJO0ty.js` contains the stream download and byte-reader fix. Actual owner-session recovery and reload persistence were independently observed before release, as described above.
+
+
+## OCR release loading and persistent recognition
+
+The owner reported a failed dynamic import of `/assets/index-Czg0-Y83.js` after a release. A direct live check returned HTTP 404, and the current worker manifest no longer referenced that old chunk. The OCR loader is now a static dependency of the PDF reader; the expensive OCR worker/model still starts only when a scanned page needs recognition. This removes the late OCR-module import from an already-open PDF reader.
+
+- Vite module-load failures expose a deliberate library reload/update path and check for a waiting service worker. There is no automatic reload over an open reader or draft. Raw module URLs are replaced with a recovery message.
+- Recognition prioritizes visible pages, then prepares remaining pages serially in the background while the reader is visible. It does not block book opening or allocate multiple OCR canvases. A worker/model failure pauses the background queue until a successful manual retry instead of attempting every page.
+- Completed OCR, including empty results for blank pages, is saved locally by book ID, source fingerprint and page number. Existing successful v1 page caches remain readable. Already processed pages do not start a worker on reopen; remaining pages continue on a later visit. OCR results are local to each device and depend on retaining site storage.
+- Added coverage for unseen-page preparation and reuse after reload with OCR assets unavailable, persistent blank-page completion, and an actual missing production module followed by a deliberate reload that preserves the saved book. The existing offline restart test continues to exercise first-time OCR without networking.
+
+- Local verification: typecheck and 52 unit tests passed; targeted OCR coverage passed 7 browser cases (3 platform-specific skips), including real retry clicks on desktop and mobile layouts. Both production PWA cases passed after fixing update-banner route tracking to use React Router and making the retry button visible below the reader toolbar. The offline test uses exact navigation labels now that the update banner correctly offers its own library link. Full release checks follow deployment dispatch.

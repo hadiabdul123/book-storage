@@ -386,10 +386,13 @@ test("a blank scanned page does not interrupt reading or retry recognition endle
   });
   await expect(page.locator(".book-card")).toHaveCount(1);
   await page.locator(".book-cover-link").click();
-  await expect(page.locator(".pdf-ocr-button")).toHaveText("Retry text recognition", { timeout: 60000 });
-  await page.waitForTimeout(900);
-  await expect(page.locator(".pdf-ocr-button")).toHaveText("Retry text recognition");
-  await expect(page.locator(".pdf-ocr-button")).toBeEnabled();
+  await expect.poll(() => page.evaluate(async () => {
+    const { db } = await import("/src/db.ts");
+    return (await db.meta.where("key").startsWith("ocr-v2:").toArray()).map(row => row.value);
+  }), { timeout: 60000 }).toEqual(["[]"]);
+  await page.route("**/ocr/**", route => route.abort());
+  await page.reload();
+  await expect(page.locator(".pdf-ocr-button")).toBeHidden();
   await expect(page.locator(".reader-error")).toHaveCount(0);
   await expect(page.locator(".pdf-page canvas")).toBeVisible();
 });
@@ -408,4 +411,56 @@ test("navigation mode switches reuse rendered pages and keep the current page", 
     expect(await canvas!.evaluate(el => el.isConnected)).toBe(true);
     await expect(page.locator('.pdf-page[data-page="1"]')).toBeVisible();
   }
+});
+
+
+test("recognition prepares unseen pages once and reuses the whole saved result after reload", async ({ page }) => {
+  test.setTimeout(90000);
+  await page.goto("/");
+  await page.locator("input[type=file]").setInputFiles({
+    name: "Background scan.pdf", mimeType: "application/pdf", buffer: await scanPdf(page, false, 3),
+  });
+  await expect(page.locator(".book-card")).toHaveCount(1);
+  await page.locator(".book-cover-link").click();
+  await expect(page.locator('.pdf-page[data-page="1"] .ocr-text-layer')).toContainText("Reading opens", { timeout: 60000 });
+  await expect.poll(() => page.evaluate(async () => {
+    const { db } = await import("/src/db.ts");
+    return (await db.meta.where("key").startsWith("ocr-v2:").toArray())
+      .filter(row => JSON.parse(row.value).some((word: any) => word.text === "Reading")).length;
+  }), { timeout: 60000 }).toBe(3);
+  let restartedWorker = false;
+  await page.route("**/ocr/**", route => { restartedWorker = true; return route.abort(); });
+  await page.reload();
+  await expect(page.locator('.pdf-page[data-page="1"] .ocr-text-layer')).toContainText("Reading opens");
+  await page.locator('.pdf-page[data-page="3"]').scrollIntoViewIfNeeded();
+  await expect(page.locator('.pdf-page[data-page="3"] .ocr-text-layer')).toContainText("Reading opens");
+  expect(restartedWorker).toBe(false);
+  await expect(page.locator(".reader-error")).toHaveCount(0);
+});
+
+
+test("failed OCR startup pauses background processing and manual retry recovers", async ({ page }) => {
+  test.setTimeout(90000);
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  let attempts = 0;
+  await page.route("**/ocr/worker.min.js", route => { attempts++; return route.abort(); });
+  await page.goto("/");
+  await page.locator("input[type=file]").setInputFiles({
+    name: "Retry scan.pdf", mimeType: "application/pdf", buffer: await scanPdf(page, false, 3),
+  });
+  await expect(page.locator(".book-card")).toHaveCount(1);
+  await page.locator(".book-cover-link").click();
+  const retry = page.locator('.pdf-page[data-page="1"] .pdf-ocr-button');
+  await expect(retry).toHaveText("Retry text recognition");
+  await page.waitForTimeout(1000);
+  expect(attempts).toBe(1);
+  await page.unroute("**/ocr/worker.min.js");
+  await retry.click();
+  await expect(page.locator('.pdf-page[data-page="1"] .ocr-text-layer')).toContainText("Reading opens", { timeout: 60000 });
+  await expect.poll(() => page.evaluate(async () => {
+    const { db } = await import("/src/db.ts");
+    return db.meta.where("key").startsWith("ocr-v2:").count();
+  }), { timeout: 60000 }).toBe(3);
+  expect(errors).toEqual([]);
 });

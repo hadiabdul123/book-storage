@@ -8,10 +8,13 @@ import { PageNotebook, type NotebookHandle } from "./PageNotebook";
 import { RichTextView } from "./RichTextView";
 import { BookSyncStatus } from "./BookSyncStatus";
 
-export const messageOf = (error: unknown) =>
-  error instanceof Error
-    ? error.message
+export const messageOf = (error: unknown) => {
+  const message = error instanceof Error ? error.message
     : String((error as { message?: string })?.message || error);
+  return /dynamically imported module|Importing a module script failed/i.test(message)
+    ? "A reading tool could not load. Return to the library and reload Leafmark. Your saved books and notes are safe."
+    : message;
+};
 export function Empty({
   icon = <BookOpen size={34} />,
   title,

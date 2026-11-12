@@ -104,7 +104,7 @@ test("saved PDF notes and rendering assets survive a full offline browser restar
       "Saved on this device",
     );
     await page.getByRole("button", { name: "Close panel" }).click();
-    await page.getByRole("link", { name: "Back to library" }).click();
+    await page.getByRole("link", { name: "Back to library", exact: true }).click();
     await page
       .locator("input[type=file]")
       .setInputFiles({
@@ -236,7 +236,7 @@ test("saved PDF notes and rendering assets survive a full offline browser restar
       expect(asset.bytes, asset.file).toBeGreaterThan(0);
     }
     await page.getByRole("button", { name: "Close panel" }).click();
-    await page.getByRole("link", { name: "Back to library" }).click();
+    await page.getByRole("link", { name: "Back to library", exact: true }).click();
     await page
       .locator(".book-card")
       .filter({ hasText: "Original scan" })
@@ -255,4 +255,30 @@ test("saved PDF notes and rendering assets survive a full offline browser restar
       throw new Error("Unexpected test profile path");
     rmSync(profile, { recursive: true, force: true });
   }
+});
+
+
+test("a missing release module offers a deliberate reload and preserves the saved book", async ({ browser, baseURL }) => {
+  const context = await browser.newContext({ serviceWorkers: "block" });
+  try {
+    const page = await context.newPage();
+    await page.goto(baseURL!);
+    await page.locator("input[type=file]").setInputFiles(path.resolve("tests/fixtures/tracemonkey.pdf"));
+    await expect(page.locator(".book-card")).toHaveCount(1);
+    await page.route("**/assets/*.js", route => route.abort());
+    await page.locator(".book-cover-link").click();
+    await expect(page.locator(".update-banner")).toContainText("A reading tool could not load");
+    await expect(page).toHaveURL(/#\/read\//);
+    await page.unroute("**/assets/*.js");
+    await page.getByRole("link", { name: "Back to library to reload" }).click();
+    await expect(page.locator(".book-card")).toHaveCount(1);
+    await Promise.all([
+      page.waitForEvent("load"),
+      page.getByRole("button", { name: "Reload Leafmark", exact: true }).click(),
+    ]);
+    await expect(page.locator(".book-card")).toHaveCount(1);
+    await page.locator(".book-cover-link").click();
+    await expect(page.locator(".pdf-page .textLayer span").first()).toBeVisible();
+    await expect(page.locator(".update-banner")).toHaveCount(0);
+  } finally { await context.close(); }
 });

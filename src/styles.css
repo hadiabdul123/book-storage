@@ -1102,6 +1102,12 @@
     gap: 14px;
     font-size: 13px;
   }
+  .update-banner {
+    width: min(680px, calc(100vw - 24px));
+    flex-wrap: wrap;
+  }
+  .update-banner > span { flex: 1 1 280px; }
+  .update-banner > a, .update-banner > button { flex-shrink: 0; }
   .update-banner > button {
     color: var(--accent);
     font-weight: 600;

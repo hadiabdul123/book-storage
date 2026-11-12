@@ -1,4 +1,4 @@
-import type { Worker } from "tesseract.js";
+import { createWorker, type Worker } from "tesseract.js";
 
 /** One bounded page at a time, with same-origin engine/model assets. */
 export class PageOcr {
@@ -12,25 +12,27 @@ export class PageOcr {
       .then(async () => {
         if (this.disposed) throw new Error("Reader closed");
         this.progress = progress;
-        this.worker ||= import("tesseract.js").then(({ createWorker }) => {
+        if (!this.worker) {
           const base = new URL(
             `${import.meta.env.BASE_URL}ocr/`,
             location.origin,
           ).href;
-          return createWorker("eng", 1, {
+          this.worker = createWorker("eng", 1, {
             workerPath: `${base}worker.min.js`,
             corePath: base,
             langPath: base.replace(/\/$/, ""),
             workerBlobURL: false,
+            // The job promise reports failures; avoid a second global throw.
+            errorHandler: () => {},
             logger: ({ status, progress }) => {
               if (status === "recognizing text")
                 this.progress?.(Math.round(progress * 100));
             },
           });
-        });
+        }
         const worker = await this.worker.catch((error) => {
           this.worker = undefined;
-          throw error;
+          throw new Error("Text recognition tools could not load. Connect to the internet, then retry text recognition.", { cause: error });
         });
         if (this.disposed) throw new Error("Reader closed");
         const { data } = await worker.recognize(

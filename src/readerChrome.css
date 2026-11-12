@@ -192,7 +192,7 @@
   background: #fff;
   color: #315c86;
 }
-.reading-mode .pdf-ocr-button:not(.recognizing) {
+.reading-mode .pdf-ocr-button:not(.recognizing):not(.ocr-failed) {
   visibility: hidden;
 }
 .pdf-selection-handle {
@@ -287,4 +287,8 @@
 }
 .reader-shell .reader-error > button {
   flex-shrink: 0;
+}
+
+.reader-shell .pdf-ocr-button.ocr-failed {
+  top: calc(76px + env(safe-area-inset-top));
 }

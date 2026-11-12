@@ -36,7 +36,7 @@ import { Reader } from "./Reader";
 import { messageOf } from "./components";
 
 export default function App() {
-  return <><AccessGate /><UpdateNotice /></>;
+  return <HashRouter><AccessGate /><UpdateNotice /></HashRouter>;
 }
 function AccessGate() {
   const [authenticated, setAuthenticated] = useState(!cloud);
@@ -115,7 +115,7 @@ function AccessGate() {
   useEffect(() => { if (authenticated) return startSync(); }, [authenticated]);
   if (checking) return <div className="boot"><BookOpen size={32} /><p>Opening your reading space…</p></div>;
   if (!authenticated) return <SignIn error={authError} setError={setAuthError} onSignIn={verify} />;
-  return <HashRouter><Shell /></HashRouter>;
+  return <Shell />;
 }
 function Shell() {
   const location = useLocation(),

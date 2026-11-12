@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test";
 // Original generated scan: no copyrighted book or private content in fixtures.
-export async function scanPdf(page: Page, blank = false) {
+export async function scanPdf(page: Page, blank = false, pages = 1) {
   const jpeg = Buffer.from(
     await page.evaluate((blank) => {
       const c = document.createElement("canvas");
@@ -23,7 +23,7 @@ export async function scanPdf(page: Page, blank = false) {
   const stream = Buffer.from("q 500 0 0 650 0 0 cm /Im0 Do Q");
   const objects = [
     Buffer.from("<< /Type /Catalog /Pages 2 0 R >>"),
-    Buffer.from("<< /Type /Pages /Kids [3 0 R] /Count 1 >>"),
+    Buffer.from(`<< /Type /Pages /Kids [3 0 R ${Array.from({ length: pages - 1 }, (_, i) => `${i + 6} 0 R`).join(" ")}] /Count ${pages} >>`),
     Buffer.from(
       "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 500 650] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>",
     ),
@@ -40,6 +40,9 @@ export async function scanPdf(page: Page, blank = false) {
       Buffer.from("\nendstream"),
     ]),
   ];
+  for (let n = 1; n < pages; n++) objects.push(Buffer.from(
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 500 650] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>",
+  ));
   let pdf = Buffer.from("%PDF-1.4\n"),
     offsets = [0];
   objects.forEach((o, i) => {
@@ -55,12 +58,12 @@ export async function scanPdf(page: Page, blank = false) {
   return Buffer.concat([
     pdf,
     Buffer.from(
-      `xref\n0 6\n0000000000 65535 f \n${offsets
+      `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets
         .slice(1)
         .map((o) => `${String(o).padStart(10, "0")} 00000 n \n`)
         .join(
           "",
-        )}trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`,
+        )}trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`,
     ),
   ]);
 }
