@@ -1,5 +1,14 @@
 # Verification and release gates
 
+## Immersive reading and simpler vocabulary on 2026-11-12
+
+- Added hidden-by-default overlay toolbars, mobile tap toggling, desktop top-edge hover, keyboard reveal/Escape, and a persistent device-local pin setting. Toolbars no longer resize the document viewport. Phone tools use a compact menu and touch-sized controls; PDF pages retain their original layout.
+- Native selection and scrolling take priority over reading taps. PDF selection geometry is coalesced to animation frames and rectangle extraction runs once per update. Touch popup updates settle briefly before displaying; saved passage actions preserve their selection. Passage bookmark markers avoid the visible toolbars.
+- Added checksum-verified Simple English Wiktionary data with CC BY-SA 4.0 attribution and license. A short first meaning is shown before expandable alternate senses and WordNet fallback. Lookup stays entirely local. The combined dictionary is about 65 MiB uncompressed; the built offline reader precaches 533 entries, about 73 MiB.
+- Unit tests: 48 passed. Typechecking and production build passed. Focused interaction/notebook regressions pass, including both bookmark layouts after closing the mobile menu before tapping content. New immersive tests passed (6 cases, 2 platform-specific skips), including browser touch long press versus tap, no viewport reflow, hover hiding, and compact expandable definitions. Reviewed phone and desktop screenshots.
+- Isolated two-device cloud transport passed, including original-byte transfer, notes, bookmarks, position, and offline access. Production offline browser restart passed, retaining PDF rendering, highlights, notebooks, bookmarks, and an unseen dictionary lookup. These automated tests use isolated contexts and no personal library.
+- Physical Android selection remains unverified: desktop Chromium mobile emulation could not create a native long-press selection in either the reader or a plain HTML baseline. Programmatic range/highlight coverage and browser touch-event tests do not establish native handle-dragging reliability. Use the physical-device matrix below after deployment.
+
 ## Live Supabase initialization on 2026-11-12
 
 - Connected to the existing healthy project and confirmed there were no application tables, storage buckets, or Auth users before setup. Applied the existing private-library migration and configured the subsequently created, confirmed owner account. No owner password was read or stored in source.
@@ -105,7 +114,7 @@ The source was committed and pushed to the public `hadiabdul123/book-storage` re
 
 ## Not yet verified
 
-- Real authenticated Storage download on a second device, actual cross-device synchronization, and concurrent-device recovery. The administrative connection, owner sign-in/upload, migration, SQL RLS tests, and anonymous API/object denial are verified above.
+- Cross-device annotation/conflict recovery remains unverified on physical devices. The user has confirmed real PC upload to phone discovery/download/open; administrative setup, owner sign-in, SQL RLS tests, and anonymous API/object denial are verified above.
 - Physical Android touch selection, installed-PWA behavior on actual devices, authenticated offline recovery, and the complete visual review matrix. GitHub deployment and the hosted app-shell offline check are verified above. Local-device-mode offline browser restart is now covered by the production test above.
 - Earlier network/executor restrictions recorded during initial development are no longer blocking installation and local checks. Passing local tests does not establish the live-service or physical-device results above.
 

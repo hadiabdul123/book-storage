@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import {
   lookupEnglish,
   normalizeWord,
+  dictionarySource,
+  definitionNote,
   type DictionaryEntry,
 } from "./dictionary";
 export function Meaning({
@@ -16,10 +18,12 @@ export function Meaning({
   const [input, setInput] = useState(term),
     [query, setQuery] = useState(term);
   const [editingWord, setEditingWord] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const [entries, setEntries] = useState<DictionaryEntry[]>([]),
     [status, setStatus] = useState("Looking up…"),
     [adding, setAdding] = useState(false);
   useEffect(() => {
+    setExpanded(false);
     setInput(term);
     setQuery(term);
   }, [term]);
@@ -60,6 +64,7 @@ export function Meaning({
           className="meaning-search"
           onSubmit={(e) => {
             e.preventDefault();
+            setExpanded(false);
             setQuery(input);
           }}
         >
@@ -76,7 +81,7 @@ export function Meaning({
         </form>
       )}
       {status && <p role="status">{status}</p>}
-      {entries.map((entry, i) => (
+      {(expanded ? entries : entries.slice(0, 1)).map((entry, i) => (
         <div
           className="dictionary-entry"
           key={`${entry.word}-${entry.partOfSpeech}-${i}`}
@@ -88,57 +93,68 @@ export function Meaning({
               ? ` · Base word for “${query}”`
               : ""}
           </p>
+          <p className="muted">
+            {entry.source === "simple"
+              ? "Simple meaning"
+              : "Standard dictionary meaning"}{" "}
+            &middot;{" "}
+            <a
+              href={dictionarySource(entry).url}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {dictionarySource(entry).name}
+            </a>
+          </p>
           <ol>
-            {entry.senses.map((sense, n) => (
-              <li key={n}>
-                <p>{sense.definitions.join("; ")}</p>
-                {sense.examples.map((example, j) => (
-                  <p className="dictionary-example" key={j}>
-                    “{example}”
-                  </p>
-                ))}
-                {!!sense.synonyms.length && (
-                  <p className="muted">Synonyms: {sense.synonyms.join(", ")}</p>
-                )}
-                {onAdd && (
-                  <button
-                    className="text-button"
-                    disabled={adding}
-                    onClick={async () => {
-                      setAdding(true);
-                      try {
-                        await onAdd(
-                          `${entry.word} (${entry.partOfSpeech}): ${sense.definitions.join("; ")}\nSource: Open English Wordnet 2025 · CC BY 4.0 · https://en-word.net/`,
-                        );
-                      } catch (e) {
-                        setStatus(String(e));
-                      } finally {
-                        setAdding(false);
-                      }
-                    }}
-                  >
-                    Add to page note
-                  </button>
-                )}
-              </li>
-            ))}
+            {(expanded ? entry.senses : entry.senses.slice(0, 1)).map(
+              (sense, n) => (
+                <li key={n}>
+                  <p>{sense.definitions.join("; ")}</p>
+                  {(expanded ? sense.examples : sense.examples.slice(0, 1)).map(
+                    (example, j) => (
+                      <p className="dictionary-example" key={j}>
+                        “{example}”
+                      </p>
+                    ),
+                  )}
+                  {expanded && !!sense.synonyms.length && (
+                    <p className="muted">
+                      Synonyms: {sense.synonyms.join(", ")}
+                    </p>
+                  )}
+                  {onAdd && (
+                    <button
+                      className="text-button"
+                      disabled={adding}
+                      onClick={async () => {
+                        setAdding(true);
+                        try {
+                          await onAdd(definitionNote(entry, sense));
+                        } catch (e) {
+                          setStatus(String(e));
+                        } finally {
+                          setAdding(false);
+                        }
+                      }}
+                    >
+                      Add to page note
+                    </button>
+                  )}
+                </li>
+              ),
+            )}
           </ol>
         </div>
       ))}
+      {entries.length > 0 && (
+        <button className="text-button" onClick={() => setExpanded(!expanded)}>
+          {expanded ? "Fewer meanings" : "More meanings"}
+        </button>
+      )}
       <p className="dictionary-credit">
-        Definitions:{" "}
-        <a href="https://en-word.net/" target="_blank" rel="noreferrer">
-          Open English Wordnet 2025
-        </a>
-        , derived from Princeton WordNet.{" "}
-        <a
-          href="https://creativecommons.org/licenses/by/4.0/"
-          target="_blank"
-          rel="noreferrer"
-        >
-          CC BY 4.0
-        </a>
-        .{" "}
+        Lookup stays on this device. Simple English Wiktionary definitions: CC
+        BY-SA 4.0. WordNet definitions: CC BY 4.0.{" "}
         <a
           href={`${import.meta.env.BASE_URL}dictionary/licenses.html`}
           target="_blank"
@@ -146,7 +162,7 @@ export function Meaning({
         >
           Attribution and licenses
         </a>
-        . Lookup stays on this device.
+        .
       </p>
     </section>
   );

@@ -1,3 +1,4 @@
+import { openTools, clickTool } from "../e2e/controls";
 import { chromium, expect, test } from "@playwright/test";
 import path from "node:path";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
@@ -20,6 +21,9 @@ test("saved PDF notes and rendering assets survive a full offline browser restar
     page.on("console", (message) => {
       if (message.type() === "error") console.error(message.text());
     });
+    await page.addInitScript(() =>
+      localStorage.setItem("leafmark-controls-pinned", "true"),
+    );
     await page.goto(baseURL!);
     await expect(
       page.getByRole("heading", {
@@ -46,6 +50,7 @@ test("saved PDF notes and rendering assets survive a full offline browser restar
     // Prompt-based updates intentionally leave existing pages under their old
     // controller. Reload after first installation to use the active worker.
     await page.reload();
+    await openTools(page);
     await expect
       .poll(() => page.evaluate(() => !!navigator.serviceWorker.controller))
       .toBe(true);
@@ -54,6 +59,7 @@ test("saved PDF notes and rendering assets survive a full offline browser restar
       .setInputFiles(path.resolve("tests/fixtures/tracemonkey.pdf"));
     await expect(page.locator(".book-card")).toHaveCount(1);
     await page.locator(".book-cover-link").click();
+    await openTools(page);
     await expect(
       page.locator(".pdf-page .textLayer span").first(),
     ).toBeVisible();
@@ -81,13 +87,11 @@ test("saved PDF notes and rendering assets survive a full offline browser restar
       .getByRole("button", { name: "Bookmark passage", exact: true })
       .click();
     await expect(page.locator(".passage-bookmark")).toHaveCount(1);
-    await page
-      .getByRole("button", { name: "Add bookmark", exact: true })
-      .click();
+    await clickTool(page, "Add bookmark");
     await expect(
       page.getByRole("button", { name: "Remove bookmark", exact: true }),
     ).toHaveAttribute("aria-pressed", "true");
-    await page.getByRole("button", { name: "Page notes", exact: true }).click();
+    await clickTool(page, "Page notes");
     const notebook = page.getByRole("textbox", { name: "Notebook for page 1" });
     await expect(notebook).toHaveAttribute("contenteditable", "true");
     await notebook.fill("Offline notebook survives restart");
@@ -117,16 +121,18 @@ test("saved PDF notes and rendering assets survive a full offline browser restar
   try {
     const page = await offline.newPage();
     page.on("pageerror", (error) => errors.push(error.message));
+    await page.addInitScript(() =>
+      localStorage.setItem("leafmark-controls-pinned", "true"),
+    );
     await page.goto(baseURL!);
     await expect(page.locator(".book-card")).toHaveCount(1);
     await page.locator(".book-cover-link").click();
+    await openTools(page);
     await expect(
       page.locator(".pdf-page .textLayer span").first(),
     ).toBeVisible();
     await expect(page.locator(".pdf-highlight").first()).toBeVisible();
-    await page
-      .getByRole("button", { name: "Highlights and notes", exact: true })
-      .click();
+    await clickTool(page, "Highlights and notes");
     await expect(
       page.getByText("Retained across an offline browser restart"),
     ).toBeVisible();
@@ -136,7 +142,7 @@ test("saved PDF notes and rendering assets survive a full offline browser restar
       .getByRole("button", { name: "Go to passage", exact: true })
       .click();
     await expect(page.locator(".pdf-highlight").first()).toBeVisible();
-    await page.getByRole("button", { name: "Page notes", exact: true }).click();
+    await clickTool(page, "Page notes");
     await expect(
       page.getByRole("textbox", { name: "Notebook for page 1" }),
     ).toContainText("Offline notebook survives restart");
@@ -147,7 +153,7 @@ test("saved PDF notes and rendering assets survive a full offline browser restar
     await expect(
       page.getByRole("button", { name: "Remove bookmark", exact: true }),
     ).toHaveAttribute("aria-pressed", "true");
-    await page.getByRole("button", { name: "Dictionary", exact: true }).click();
+    await clickTool(page, "Dictionary");
     // This word was never looked up in the online browser process.
     const external: string[] = [];
     page.on("request", (request) => {
@@ -158,6 +164,11 @@ test("saved PDF notes and rendering assets survive a full offline browser restar
     await page.getByRole("button", { name: "Look up", exact: true }).click();
     await expect(page.locator(".dictionary-entry h3").first()).toHaveText(
       "serendipity",
+    );
+    await page.getByLabel("Dictionary word").fill("comfort");
+    await page.getByRole("button", { name: "Look up", exact: true }).click();
+    await expect(page.locator(".dictionary-entry")).toContainText(
+      "Simple meaning",
     );
     expect(external).toEqual([]);
     // Exercise both standard font formats even when the fixture embeds its fonts.

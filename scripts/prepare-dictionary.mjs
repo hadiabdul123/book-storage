@@ -1,9 +1,17 @@
+import { gunzipSync } from "node:zlib";
 import { readFileSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { createHash } from "node:crypto";
 import JSZip from "jszip";
 const checksum =
   "7d749f6e2c39e6970e4997839dcf6e42fd281f3c2fae0171d2192bae8cfa4b51";
-const version = `oewn-2025-${checksum.slice(0, 12)}-v1`;
+const simpleChecksum =
+  "ddcd73f43d23daff9c38510e8f7a63c5a7262dc962f7cce85f105da4c418e79f";
+const simpleArchive = readFileSync(
+  "vendor/simple-wiktionary/simple-2026-10-02.jsonl.gz",
+);
+if (createHash("sha256").update(simpleArchive).digest("hex") !== simpleChecksum)
+  throw new Error("Simple dictionary checksum mismatch");
+const version = `simple-2026-10-02-${simpleChecksum.slice(0, 12)}-oewn-2025-v2`;
 const directory = "public/dictionary";
 const archive = readFileSync("vendor/wordnet/english-wordnet-2025-json.zip");
 if (createHash("sha256").update(archive).digest("hex") !== checksum)
@@ -11,6 +19,10 @@ if (createHash("sha256").update(archive).digest("hex") !== checksum)
 mkdirSync(directory, { recursive: true });
 const notices = ["README.md", "LICENSE.md", "CC-BY-4.0.txt"]
   .map((name) => readFileSync(`vendor/wordnet/${name}`, "utf8"))
+  .concat(
+    readFileSync("vendor/simple-wiktionary/README.md", "utf8"),
+    readFileSync("vendor/simple-wiktionary/CC-BY-SA-4.0.txt", "utf8"),
+  )
   .join("\n\n");
 writeFileSync(
   `${directory}/licenses.html`,
@@ -61,6 +73,7 @@ if (
       if (!senses.length) continue;
       const record = {
         word,
+        source: "wordnet",
         partOfSpeech:
           { n: "noun", v: "verb", a: "adjective", s: "adjective", r: "adverb" }[
             pos
@@ -72,6 +85,65 @@ if (
         if (typeof form === "string" && normalize(form) !== normalize(word))
           add(form, record);
     }
+  }
+  // Keep source order within Simple Wiktionary, but put it before WordNet.
+  const simpleRecords = gunzipSync(simpleArchive)
+    .toString("utf8")
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line))
+    .filter((r) => r.lang_code === "en");
+  const byWord = new Map();
+  for (const item of simpleRecords) {
+    const canonical = item.forms?.find((f) =>
+      f.tags?.includes("canonical"),
+    )?.form;
+    if (canonical && normalize(canonical) !== normalize(item.word)) continue;
+    const senses = (item.senses || [])
+      .filter((s) => !s.form_of && s.glosses?.length)
+      .map((s) => ({
+        definitions: s.glosses,
+        examples: (s.examples || []).map((e) => e.text).filter(Boolean),
+        synonyms: (s.synonyms || []).map((e) => e.word).filter(Boolean),
+      }));
+    if (!senses.length) continue;
+    const record = {
+      word: item.word,
+      partOfSpeech:
+        {
+          adj: "adjective",
+          adv: "adverb",
+          prep: "preposition",
+          pron: "pronoun",
+          conj: "conjunction",
+          det: "determiner",
+          intj: "interjection",
+        }[item.pos] || item.pos,
+      source: "simple",
+      senses,
+    };
+    const terms = new Set([
+      item.word,
+      ...(item.forms || [])
+        .map((f) => f.form)
+        .filter((f) => f && !/\?/.test(f)),
+    ]);
+    for (const term of terms) {
+      const key = normalize(term);
+      const list = byWord.get(key) || [];
+      if (
+        !list.some(
+          (r) =>
+            r.word === record.word && r.partOfSpeech === record.partOfSpeech,
+        )
+      )
+        list.push(record);
+      byWord.set(key, list);
+    }
+  }
+  for (const [term, records] of byWord) {
+    const chunk = buckets[bucket(term)];
+    chunk[term] = [...records, ...(chunk[term] || [])];
   }
   mkdirSync(directory, { recursive: true });
   let bytes = 0,
@@ -88,8 +160,9 @@ if (
     `${directory}/manifest.json`,
     JSON.stringify({
       version,
-      source: "Open English Wordnet 2025",
-      license: "CC BY 4.0",
+      source:
+        "Simple English Wiktionary 2026-10-02 + Open English Wordnet 2025",
+      license: "Simple Wiktionary: CC BY-SA 4.0; WordNet: CC BY 4.0",
       url: "https://en-word.net/",
       chunks: buckets.length,
       terms,

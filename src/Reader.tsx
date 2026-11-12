@@ -19,6 +19,7 @@ import {
   Eye,
   ZoomIn,
   ZoomOut,
+  MoreHorizontal,
 } from "lucide-react";
 import { db, get, list, save } from "./db";
 import {
@@ -42,6 +43,8 @@ import { Meaning } from "./Meaning";
 import { pageNoteId, savePageNote } from "./pageNotes";
 import { emptyDocument, paragraph } from "./richText";
 import "./notebooks.css";
+import "./readerChrome.css";
+import { useReaderChrome } from "./useReaderChrome";
 import {
   readDeviceReading,
   writeDeviceReading,
@@ -86,7 +89,6 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
       defaults.spread,
     pdfLayout,
   };
-  const [readingMode, setReadingMode] = useState(false);
   const shell = useRef<HTMLElement>(null);
   const remotePosition = useLiveQuery(() => get("position", id), [id]);
   const [offeredPosition, setOfferedPosition] = useState<Position>();
@@ -118,13 +120,17 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
     return (await notebook.current?.flush()) ?? true;
   }
   async function changePanel(name: string) {
-    if (await flushNotebook()) setPanel(name);
+    if (await flushNotebook()) {
+      setPanel(name);
+      chrome.setMenu(false);
+    }
   }
   async function openNotebook(page: number, hold = false) {
     if (!(await flushNotebook())) return;
     setNotebookPage(page);
     setPinned(hold);
     setPanel("page-notes");
+    chrome.setMenu(false);
   }
   openNotebookRef.current = (page) => void openNotebook(page, true);
   const host = useRef<HTMLDivElement>(null),
@@ -149,6 +155,14 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
     [region, setRegion] = useState(false),
     [ready, setReady] = useState(0),
     [jumped, setJumped] = useState(false);
+  const chrome = useReaderChrome(
+    shell,
+    host,
+    ready,
+    !!panel || !!editing || region,
+  );
+  const chromeRef = useRef(chrome);
+  chromeRef.current = chrome;
   const notifyRef = useRef(notify);
   notifyRef.current = notify;
   useEffect(() => {
@@ -208,7 +222,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
       if (cancelled) return;
       reader = new ctor(host.current!, book, {
         onShortcut: (event) => interactions.current?.shortcut(event),
-        onReaderPointerDown: () => interactions.current?.dismiss(),
+        onReaderTap: () => chromeRef.current.tap(),
         onPageNote: (page) => openNotebookRef.current(page),
         onRegionMode: setRegion,
         onLayoutFallback: setLayoutFallback,
@@ -406,7 +420,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   return (
     <main
       ref={shell}
-      className={`reader-shell theme-${prefs.theme}${readingMode ? " reading-mode" : ""}`}
+      className={`reader-shell theme-${prefs.theme}${chrome.visible ? " controls-visible" : " reading-mode"}${chrome.menu ? " controls-menu-open" : ""}`}
       onClickCapture={(event) => {
         const anchor = (event.target as HTMLElement).closest<HTMLAnchorElement>(
           'a[href^="#/"]',
@@ -420,15 +434,21 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
         }
       }}
     >
-      {readingMode && (
-        <button
-          className="reading-mode-exit secondary"
-          aria-label="Show reading controls"
-          onClick={() => setReadingMode(false)}
-        >
-          <Eye size={18} /> Controls
-        </button>
-      )}
+      <button
+        className="reader-reveal"
+        aria-label="Show reading controls"
+        onFocus={chrome.reveal}
+        onClick={() => {
+          interactions.current?.dismiss();
+          chrome.reveal();
+        }}
+        onPointerLeave={chrome.leave}
+        onPointerEnter={(e) => {
+          if (e.pointerType === "mouse") chrome.reveal();
+        }}
+      >
+        Show reading controls
+      </button>
       {offeredPosition && (
         <div className="resume-reading" role="status">
           <span>
@@ -451,7 +471,11 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
           </button>
         </div>
       )}
-      <header className="reader-header">
+      <header
+        className="reader-header"
+        onPointerEnter={chrome.reveal}
+        onPointerLeave={chrome.leave}
+      >
         <Link to="/" className="icon-button" aria-label="Back to library">
           <ArrowLeft size={21} />
         </Link>
@@ -459,6 +483,15 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
           <strong>{book.title}</strong>
           <span>{book.author}</span>
         </div>
+        <div className="reader-action-buttons" ref={setActionsHost} />
+        <button
+          className="icon-button reader-menu-toggle"
+          aria-label="Reading tools"
+          aria-expanded={chrome.menu}
+          onClick={() => chrome.setMenu(!chrome.menu)}
+        >
+          <MoreHorizontal size={22} />
+        </button>
         <div className="reader-tools">
           <button
             className="icon-button"
@@ -472,7 +505,9 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
                   adapter.current as import("./reader/pdf").PdfReader
                 )?.setRegionMode(false);
               interactions.current?.dismiss();
-              setReadingMode(true);
+              chrome.setPinned(false);
+              chrome.conceal();
+              (document.activeElement as HTMLElement)?.blur();
             }}
           >
             <Eye size={20} />
@@ -512,7 +547,6 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
           >
             <BookA size={20} />
           </button>
-          <div className="reader-action-buttons" ref={setActionsHost} />
           <button
             className="icon-button desktop-only"
             aria-label="Toggle full screen"
@@ -803,6 +837,14 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
               )}
               {panel === "settings" && (
                 <>
+                  <label className="pin-controls">
+                    <input
+                      type="checkbox"
+                      checked={chrome.pinned}
+                      onChange={(e) => chrome.setPinned(e.target.checked)}
+                    />{" "}
+                    Keep controls visible on this device
+                  </label>
                   <label>
                     Page theme
                     <div className="theme-options">
@@ -1023,7 +1065,11 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
           </aside>
         )}
       </div>
-      <footer className="reader-footer">
+      <footer
+        className="reader-footer"
+        onPointerEnter={chrome.reveal}
+        onPointerLeave={chrome.leave}
+      >
         {book.format === "pdf" && (
           <div
             className="reader-zoom-controls"

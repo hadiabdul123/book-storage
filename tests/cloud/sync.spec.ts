@@ -1,3 +1,4 @@
+import { openTools, clickTool } from "../e2e/controls";
 import { expect, test, type BrowserContext } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -32,6 +33,7 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
   const install = async (context: BrowserContext) => {
     await context.addInitScript(
       ({ session }) => {
+        localStorage.setItem("leafmark-controls-pinned", "true");
         if (!localStorage.getItem("test-auth-initialized")) {
           localStorage.setItem("sb-cloud-auth-token", JSON.stringify(session));
           localStorage.setItem("test-auth-initialized", "true");
@@ -90,7 +92,8 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
       if (p.startsWith("/storage/v1/upload/resumable")) {
         const headers = {
           "Tus-Resumable": "1.0.0",
-          "Access-Control-Expose-Headers": "Location, Upload-Offset, Tus-Resumable",
+          "Access-Control-Expose-Headers":
+            "Location, Upload-Offset, Tus-Resumable",
         };
         if (request.method() === "POST") {
           const meta = Object.fromEntries(
@@ -169,18 +172,15 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
         .digest("hex"),
     ).toBe(expected);
     await first.locator(".book-cover-link").click();
+    await openTools(first);
     await expect(first.locator(".reader-loading")).toHaveCount(0);
-    await first
-      .getByRole("button", { name: "Page notes", exact: true })
-      .click();
+    await clickTool(first, "Page notes");
     await first
       .getByRole("textbox", { name: "Notebook for page 1", exact: true })
       .fill("A note shared between devices");
     await first.getByRole("button", { name: "Save now" }).click();
     await first.getByRole("button", { name: "Close panel" }).click();
-    await first
-      .getByRole("button", { name: "Add bookmark", exact: true })
-      .click();
+    await clickTool(first, "Add bookmark");
     await first.getByRole("button", { name: "Next page", exact: true }).click();
     await expect(first.locator(".reader-progress")).toContainText("Page 2");
     await first.getByRole("link", { name: "Back to library" }).click();
@@ -199,6 +199,7 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
       "Download when opened",
     );
     await second.locator(".book-cover-link").click();
+    await openTools(second);
     await expect(second.locator(".reader-progress")).toContainText("Page 2", {
       timeout: 30000,
     });
@@ -208,9 +209,7 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
     await expect(
       second.getByRole("button", { name: "Remove bookmark", exact: true }),
     ).toHaveAttribute("aria-pressed", "true");
-    await second
-      .getByRole("button", { name: "Page notes", exact: true })
-      .click();
+    await clickTool(second, "Page notes");
     await expect(
       second.getByRole("textbox", { name: "Notebook for page 1", exact: true }),
     ).toContainText("A note shared between devices");

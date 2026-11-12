@@ -1,4 +1,5 @@
 export type DictionaryEntry = {
+  source?: "simple" | "wordnet";
   word: string;
   partOfSpeech: string;
   senses: { definitions: string[]; examples: string[]; synonyms: string[] }[];
@@ -60,4 +61,25 @@ export async function lookupEnglish(term: string): Promise<DictionaryEntry[]> {
     if (found.length) return found;
   }
   return [];
+}
+
+export function dictionarySource(entry: DictionaryEntry) {
+  return entry.source === "simple"
+    ? {
+        name: "Simple English Wiktionary",
+        license: "CC BY-SA 4.0",
+        url: `https://simple.wiktionary.org/wiki/${encodeURIComponent(entry.word)}`,
+      }
+    : {
+        name: "Open English Wordnet 2025",
+        license: "CC BY 4.0",
+        url: "https://en-word.net/",
+      };
+}
+export function definitionNote(
+  entry: DictionaryEntry,
+  sense: DictionaryEntry["senses"][number],
+) {
+  const source = dictionarySource(entry);
+  return `${entry.word} (${entry.partOfSpeech}): ${sense.definitions.join("; ")}\nSource: ${source.name} \u00b7 ${source.license} \u00b7 ${source.url}`;
 }

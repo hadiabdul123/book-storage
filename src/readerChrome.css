@@ -1,0 +1,181 @@
+/* Visibility never changes the document viewport. */
+.reader-shell .reader-header,
+.reader-shell .reader-footer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 35;
+  transition: opacity 0.14s ease;
+  box-shadow: 0 2px 14px #14243315;
+  background: var(--page-bg);
+}
+.reader-shell .reader-header {
+  top: 0;
+  padding-top: max(9px, env(safe-area-inset-top));
+  height: auto;
+  min-height: 66px;
+}
+.reader-shell .reader-footer {
+  bottom: 0;
+}
+.reader-shell.reading-mode .reader-header,
+.reader-shell.reading-mode .reader-footer {
+  display: flex;
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+.reader-shell .reader-workspace {
+  height: 100%;
+}
+.reader-shell .reader-panel {
+  position: absolute;
+  right: 0;
+  top: 66px;
+  bottom: 60px;
+  z-index: 28;
+  padding: 20px;
+  width: min(380px, 100%);
+  height: auto;
+}
+.reader-shell .reader-reveal {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 24px;
+  z-index: 24;
+  opacity: 0;
+  border: 0;
+  background: var(--page-bg);
+  color: var(--page-text);
+}
+.reader-shell .reader-reveal:focus-visible {
+  height: 44px;
+  opacity: 1;
+  z-index: 30;
+}
+.reader-shell.reading-mode .page-note-indicator {
+  visibility: hidden;
+  pointer-events: none;
+}
+.reader-shell .reader-menu-toggle {
+  display: none;
+}
+.reader-shell .pin-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.reader-shell .pin-controls input {
+  width: 20px;
+  height: 20px;
+}
+@media (max-width: 700px) {
+  .reader-shell .reader-header {
+    flex-wrap: nowrap;
+    min-height: 56px;
+    padding: 6px 12px;
+    gap: 8px;
+    padding-top: max(6px, env(safe-area-inset-top));
+  }
+  .reader-shell .reader-title strong {
+    font-size: 15px;
+  }
+  .reader-shell .reader-title > span {
+    display: none;
+  }
+  .reader-shell .reader-menu-toggle {
+    display: inline-flex;
+  }
+  .reader-shell .reader-tools {
+    display: none;
+  }
+  .reader-shell.controls-menu-open .reader-tools {
+    display: flex;
+    position: absolute;
+    top: 100%;
+    left: 8px;
+    right: 8px;
+    width: auto;
+    max-height: 45dvh;
+    overflow: auto;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    background: var(--page-bg);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px;
+    box-shadow: 0 8px 24px #14243322;
+  }
+  .reader-shell .reader-tools .icon-button,
+  .reader-shell .reader-header .icon-button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .reader-shell .reader-footer {
+    gap: 6px;
+    flex-wrap: nowrap;
+    padding: 6px 10px max(6px, env(safe-area-inset-bottom));
+  }
+  .reader-shell .reader-progress {
+    flex: 1;
+    min-width: 48px;
+    width: auto;
+  }
+  .reader-shell .reader-zoom-controls {
+    gap: 0;
+  }
+  .reader-shell .reader-zoom-controls .icon-button {
+    min-width: 44px;
+    width: 44px;
+  }
+  .reader-shell .reader-panel {
+    top: 60px;
+    bottom: 60px;
+    padding: 16px;
+  }
+  .reader-shell .pdf-reader {
+    padding: 8px 0;
+  }
+  .reader-shell .pdf-page {
+    margin-bottom: 10px;
+    box-shadow: none;
+  }
+  .reader-shell .passage-colors > button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .reader-shell .passage-actions > button {
+    min-height: 44px;
+  }
+}
+@media (hover: none) {
+  .reader-shell .reader-reveal:not(:focus-visible) {
+    pointer-events: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .reader-shell .reader-header,
+  .reader-shell .reader-footer {
+    transition: none;
+  }
+}
+
+@media (max-width: 700px) {
+  .reader-header > .reader-action-buttons > button:not(:first-child) {
+    display: none;
+  }
+  .controls-menu-open
+    .reader-header
+    > .reader-action-buttons
+    > button:not(:first-child) {
+    display: inline-flex;
+  }
+  .controls-menu-open .reader-header {
+    flex-wrap: wrap;
+  }
+  .controls-menu-open .reader-header > .reader-action-buttons {
+    flex-wrap: wrap;
+  }
+}

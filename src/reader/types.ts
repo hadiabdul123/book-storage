@@ -19,7 +19,7 @@ export type ScreenRect = {
   bottom: number;
 };
 export interface ReaderEvents {
-  onReaderPointerDown?: () => void;
+  onReaderTap?: () => void;
   onShortcut?: (event: KeyboardEvent) => void;
   onPageNote?: (page: number) => void;
   onRegionMode?: (enabled: boolean) => void;

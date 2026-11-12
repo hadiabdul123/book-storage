@@ -1,3 +1,4 @@
+import { openTools, clickTool } from "./controls";
 import { test, expect, type Page } from "@playwright/test";
 import path from "node:path";
 async function openPdf(page: Page) {
@@ -7,13 +8,19 @@ async function openPdf(page: Page) {
     .setInputFiles(path.resolve("tests/fixtures/tracemonkey.pdf"));
   await expect(page.locator(".book-card")).toHaveCount(1, { timeout: 45000 });
   await page.locator(".book-cover-link").click();
+  await openTools(page);
   await expect(page.locator(".pdf-page .textLayer span").first()).toBeVisible();
 }
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() =>
+    localStorage.setItem("leafmark-controls-pinned", "true"),
+  );
+});
 test("formatted page notebooks persist, search, export and restore", async ({
   page,
 }, testInfo) => {
   await openPdf(page);
-  await page.getByRole("button", { name: "Page notes", exact: true }).click();
+  await clickTool(page, "Page notes");
   const editor = page.getByRole("textbox", {
     name: "Notebook for page 1",
     exact: true,
@@ -35,7 +42,8 @@ test("formatted page notebooks persist, search, export and restore", async ({
   });
   await page.getByRole("button", { name: "Close panel" }).click();
   await page.reload();
-  await page.getByRole("button", { name: "Page notes", exact: true }).click();
+  await openTools(page);
+  await clickTool(page, "Page notes");
   await expect(editor).toContainText("Second bullet");
   await expect(editor.locator("li")).toHaveCount(2);
   await page.getByLabel("Search page notes").fill("learning");
@@ -107,12 +115,13 @@ test("meaning lookup preserves selection and adds definitions to the page notebo
     .click();
   await expect(
     page.getByRole("textbox", { name: "Notebook for page 1" }),
-  ).toContainText("Open English Wordnet");
+  ).toContainText("Simple English Wiktionary");
   await page.getByRole("button", { name: "Close panel" }).click();
+  await openTools(page);
   await page.getByRole("button", { name: /Unfinished notes/ }).click();
   await page.getByRole("button", { name: "Save note", exact: true }).click();
   await expect(page.locator(".pdf-highlight").first()).toBeVisible();
-  await page.getByRole("button", { name: "Dictionary", exact: true }).click();
+  await clickTool(page, "Dictionary");
   await page.getByLabel("Dictionary word").fill("went");
   await page.getByRole("button", { name: "Look up", exact: true }).click();
   await expect(page.locator(".dictionary-entry h3").first()).toHaveText("go");
@@ -122,7 +131,7 @@ test("PDF layout settings persist on this device and continuous scrolling resume
 }, testInfo) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await openPdf(page);
-  await page.getByRole("button", { name: "Reading settings" }).click();
+  await clickTool(page, "Reading settings");
   await page
     .getByRole("combobox", { name: "Pages across", exact: true })
     .selectOption("2");
@@ -148,7 +157,8 @@ test("PDF layout settings persist on this device and continuous scrolling resume
   await page.getByRole("button", { name: "Next page", exact: true }).click();
   await expect(page.locator('.pdf-page[data-page="3"]')).toBeVisible();
   await page.reload();
-  await page.getByRole("button", { name: "Reading settings" }).click();
+  await openTools(page);
+  await clickTool(page, "Reading settings");
   await expect(
     page.getByRole("combobox", { name: "Navigation", exact: true }),
   ).toHaveValue("paginated");
@@ -176,7 +186,7 @@ test("PDF layout settings persist on this device and continuous scrolling resume
     "data-columns",
     "2",
   );
-  await page.getByRole("button", { name: "Reading settings" }).click();
+  await clickTool(page, "Reading settings");
   await page.getByRole("button", { name: "Select a region" }).click();
   await expect(page.locator(".pdf-reader")).toHaveClass(/region-mode/);
   await page.keyboard.press("Escape");
@@ -233,8 +243,9 @@ test("an unpaired final PDF page remains usable in two-page mode", async ({
     .setInputFiles(path.resolve("tests/fixtures/jbig2-symbol-offset.pdf"));
   await expect(page.locator(".book-card")).toHaveCount(1, { timeout: 45000 });
   await page.locator(".book-cover-link").click();
+  await openTools(page);
   await expect(page.locator(".pdf-page canvas").first()).toBeVisible();
-  await page.getByRole("button", { name: "Reading settings" }).click();
+  await clickTool(page, "Reading settings");
   await page
     .getByRole("combobox", { name: "Pages across", exact: true })
     .selectOption("2");
@@ -258,7 +269,7 @@ test("page following pins active writing and failed saves retain the notebook", 
   page,
 }) => {
   await openPdf(page);
-  await page.getByRole("button", { name: "Page notes", exact: true }).click();
+  await clickTool(page, "Page notes");
   const first = page.getByRole("textbox", {
     name: "Notebook for page 1",
     exact: true,

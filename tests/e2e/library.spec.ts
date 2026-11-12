@@ -1,3 +1,4 @@
+import { openTools, clickTool } from "./controls";
 import { test, expect, type Page } from "@playwright/test";
 import path from "node:path";
 import { readFile } from "node:fs/promises";
@@ -11,6 +12,7 @@ async function addPdf(page: Page) {
 }
 async function saveNote(page: Page) {
   await page.locator(".book-cover-link").click();
+  await openTools(page);
   await expect(page.locator(".pdf-page .textLayer span").first()).toBeVisible();
   await page
     .locator(".pdf-page .textLayer")
@@ -35,6 +37,11 @@ async function saveNote(page: Page) {
   await page.getByRole("link", { name: "Back to library" }).click();
 }
 
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() =>
+    localStorage.setItem("leafmark-controls-pinned", "true"),
+  );
+});
 test("metadata, covers, collections, library filters and download protection persist", async ({
   page,
 }) => {
@@ -89,6 +96,7 @@ test("metadata, covers, collections, library filters and download protection per
   await dialog.getByRole("button", { name: "Save changes" }).click();
   await expect(dialog).toHaveCount(0);
   await page.reload();
+  await openTools(page);
   await expect(page.locator(".book-card h3")).toHaveText("Research reference");
   await expect(page.locator(".book-card .cover img")).toHaveAttribute(
     "src",
@@ -191,25 +199,21 @@ test("annotation edits, filters, exports, JSON restore and malformed backups", a
   await page
     .getByRole("button", { name: "Restore annotations from JSON" })
     .click();
-  await page
-    .getByLabel("JSON annotation backup")
-    .setInputFiles({
-      name: "bad.json",
-      mimeType: "application/json",
-      buffer: Buffer.from('{"version":0}'),
-    });
+  await page.getByLabel("JSON annotation backup").setInputFiles({
+    name: "bad.json",
+    mimeType: "application/json",
+    buffer: Buffer.from('{"version":0}'),
+  });
   await expect(
     page.getByText("This is not a Leafmark annotation backup.", {
       exact: true,
     }),
   ).toBeVisible();
-  await page
-    .getByLabel("JSON annotation backup")
-    .setInputFiles({
-      name: "notes.json",
-      mimeType: "application/json",
-      buffer: backup,
-    });
+  await page.getByLabel("JSON annotation backup").setInputFiles({
+    name: "notes.json",
+    mimeType: "application/json",
+    buffer: backup,
+  });
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.goto("/#/notes");
   await expect(
@@ -246,6 +250,7 @@ test("book trash, restore and permanent file deletion operate on disposable impo
       .getByRole("button", { name: "Restore", exact: true }),
   ).toHaveCount(0);
   await page.reload();
+  await openTools(page);
   await expect(page.locator(".trash-row")).toContainText("Permanently removed");
 });
 
@@ -254,19 +259,18 @@ test("reader search, bookmarks, page layout, theme and region notes survive relo
 }) => {
   await addPdf(page);
   await page.locator(".book-cover-link").click();
+  await openTools(page);
   await expect(page.locator(".pdf-page canvas").first()).toBeVisible();
-  await page.getByRole("button", { name: "Search book", exact: true }).click();
+  await clickTool(page, "Search book");
   await page.getByRole("textbox", { name: "Search text" }).fill("JavaScript");
   await page.getByRole("button", { name: "Find", exact: true }).click();
   await expect(page.locator(".search-result").first()).toBeVisible();
   await page.locator(".search-result").first().click();
-  await page.getByRole("button", { name: "Add bookmark" }).click();
-  await page.getByRole("button", { name: "Contents", exact: true }).click();
+  await clickTool(page, "Add bookmark");
+  await clickTool(page, "Contents");
   await expect(page.locator(".bookmark-row")).toHaveCount(1);
   await page.locator(".bookmark-row button").first().click();
-  await page
-    .getByRole("button", { name: "Reading settings", exact: true })
-    .click();
+  await clickTool(page, "Reading settings");
   await page.getByRole("button", { name: "dark", exact: true }).click();
   await page
     .getByRole("combobox", { name: "Navigation", exact: true })
@@ -288,16 +292,15 @@ test("reader search, bookmarks, page layout, theme and region notes survive relo
   await page.getByRole("button", { name: "Save note", exact: true }).click();
   await expect(page.locator(".pdf-highlight")).toHaveCount(1);
   await page.reload();
+  await openTools(page);
   await expect(page.locator(".reader-shell")).toHaveClass(/theme-dark/);
-  await page
-    .getByRole("button", { name: "Highlights and notes", exact: true })
-    .click();
+  await clickTool(page, "Highlights and notes");
   await expect(
     page.getByText("A scanned region note", { exact: true }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Go to passage" }).click();
   await expect(page.locator(".pdf-highlight").first()).toBeVisible();
-  await page.getByRole("button", { name: "Contents", exact: true }).click();
+  await clickTool(page, "Contents");
   await expect(page.locator(".bookmark-row")).toHaveCount(1);
   await page.locator(".bookmark-row button").last().click();
   await expect(page.locator(".bookmark-row")).toHaveCount(0);

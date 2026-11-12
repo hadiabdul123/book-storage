@@ -219,7 +219,15 @@ export class PdfReader implements ReaderAdapter {
       state.rendering = false;
     }
   }
+  private selectionFrame?: number;
   private selection = () => {
+    if (this.selectionFrame !== undefined) return;
+    this.selectionFrame = requestAnimationFrame(() => {
+      this.selectionFrame = undefined;
+      this.readSelection();
+    });
+  };
+  private readSelection = () => {
     if (this.region) return;
     const selection = document.getSelection();
     if (!selection?.rangeCount || selection.isCollapsed) return;
@@ -229,12 +237,13 @@ export class PdfReader implements ReaderAdapter {
       !this.host.contains(range.endContainer)
     )
       return;
+    const rangeRects = Array.from(range.getClientRects());
     const regions: { page: number; rects: Rect[] }[] = [];
     for (const state of this.pages) {
       if (!state.loaded || !range.intersectsNode(state.element)) continue;
       const bounds = state.element.getBoundingClientRect(),
         rects: Rect[] = [];
-      for (const rect of Array.from(range.getClientRects())) {
+      for (const rect of rangeRects) {
         const left = Math.max(rect.left, bounds.left),
           right = Math.min(rect.right, bounds.right),
           top = Math.max(rect.top, bounds.top),
@@ -769,6 +778,8 @@ export class PdfReader implements ReaderAdapter {
     this.observer?.disconnect();
     this.resizeObserver?.disconnect();
     document.removeEventListener("selectionchange", this.selection);
+    if (this.selectionFrame !== undefined)
+      cancelAnimationFrame(this.selectionFrame);
     this.host.removeEventListener("scroll", this.onScroll);
     this.host.removeEventListener("pointerdown", this.pointerDown);
     this.host.removeEventListener("pointermove", this.pointerMove);

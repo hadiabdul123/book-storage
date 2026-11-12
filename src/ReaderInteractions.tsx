@@ -184,7 +184,7 @@ export const ReaderInteractions = forwardRef<
       active = false;
     };
   }, [draftKey]);
-  const select = (value: Selection | null, annotationId?: string) => {
+  const selectNow = (value: Selection | null, annotationId?: string) => {
     if (!value) {
       setOpen(false);
       return;
@@ -198,6 +198,20 @@ export const ReaderInteractions = forwardRef<
     setChosen(annotationId);
     setOpen(true);
   };
+  const selectionTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  const select = (value: Selection | null, annotationId?: string) => {
+    clearTimeout(selectionTimer.current);
+    if (
+      !annotationId &&
+      value &&
+      window.matchMedia("(pointer: coarse)").matches
+    ) {
+      selectionTimer.current = setTimeout(() => selectNow(value), 180);
+    } else selectNow(value, annotationId);
+  };
+  useEffect(() => () => clearTimeout(selectionTimer.current), []);
   async function perform(
     label: string,
     changes: ReaderChange[],
@@ -270,6 +284,9 @@ export const ReaderInteractions = forwardRef<
     const keydown = (event: KeyboardEvent) => shortcutRef.current(event);
     const dismiss = (event: PointerEvent) => {
       const element = event.target as Element;
+      // Native selection handles operate inside the reading surface. Do not
+      // tear down the action state as a finger begins adjusting them.
+      if (host.current?.contains(element)) return;
       if (
         !element.closest?.(
           ".passage-popup, .passage-bookmark, .reader-action-buttons, .reader-feedback",
@@ -279,9 +296,29 @@ export const ReaderInteractions = forwardRef<
         if (!host.current?.contains(element)) adapter.current?.clearSelection();
       }
     };
+    let began: { x: number; y: number; time: number } | undefined;
+    const touchStart = (e: PointerEvent) => {
+      began = host.current?.contains(e.target as Node)
+        ? { x: e.clientX, y: e.clientY, time: Date.now() }
+        : undefined;
+    };
+    const touchEnd = (e: PointerEvent) => {
+      if (
+        began &&
+        Date.now() - began.time < 250 &&
+        Math.hypot(e.clientX - began.x, e.clientY - began.y) < 8 &&
+        document.getSelection()?.isCollapsed
+      )
+        setOpen(false);
+      began = undefined;
+    };
+    document.addEventListener("pointerdown", touchStart);
+    document.addEventListener("pointerup", touchEnd);
     window.addEventListener("keydown", keydown);
     document.addEventListener("pointerdown", dismiss);
     return () => {
+      document.removeEventListener("pointerdown", touchStart);
+      document.removeEventListener("pointerup", touchEnd);
       window.removeEventListener("keydown", keydown);
       document.removeEventListener("pointerdown", dismiss);
     };
@@ -373,6 +410,17 @@ export const ReaderInteractions = forwardRef<
             ),
           )
         : 0;
+      const shell = host.current.closest(".reader-shell");
+      const header = shell?.querySelector<HTMLElement>(".reader-header");
+      const footer = shell?.querySelector<HTMLElement>(".reader-footer");
+      const markerTop =
+        header && getComputedStyle(header).visibility !== "hidden"
+          ? Math.max(clip.top, header.getBoundingClientRect().bottom + 8)
+          : clip.top;
+      const markerBottom =
+        footer && getComputedStyle(footer).visibility !== "hidden"
+          ? Math.min(clip.bottom, footer.getBoundingClientRect().top - 8)
+          : clip.bottom;
       const markers: { id: string; left: number; top: number }[] = [],
         places: { id: string; top: number }[] = [];
       for (const b of state.bookmarks) {
@@ -382,7 +430,7 @@ export const ReaderInteractions = forwardRef<
           markers.push({
             id: b.id,
             left: Math.max(clip.left + 2, r.left - 24),
-            top: Math.max(clip.top, r.top),
+            top: Math.max(markerTop, Math.min(markerBottom - 28, r.top)),
           });
         else places.push({ id: b.id, top: r.top });
       }
@@ -684,7 +732,7 @@ export const ReaderInteractions = forwardRef<
                       ? `Remove ${color} highlight`
                       : `Highlight ${color}`
                   }
-                  onMouseDown={(e) => e.preventDefault()}
+                  onPointerDown={(e) => e.preventDefault()}
                   onClick={() =>
                     void attempt(() => colorAction(color as Color))
                   }
@@ -708,7 +756,7 @@ export const ReaderInteractions = forwardRef<
               selected.text.length <= 100 && (
                 <button
                   aria-pressed={mode === "meaning"}
-                  onMouseDown={(e) => e.preventDefault()}
+                  onPointerDown={(e) => e.preventDefault()}
                   onClick={() =>
                     setMode(mode === "meaning" ? "tools" : "meaning")
                   }
@@ -719,7 +767,7 @@ export const ReaderInteractions = forwardRef<
             <button
               disabled={ambiguous}
               aria-pressed={mode === "note"}
-              onMouseDown={(event) => event.preventDefault()}
+              onPointerDown={(event) => event.preventDefault()}
               onClick={() => setMode(mode === "note" ? "tools" : "note")}
             >
               {target?.note ? "Edit note" : "Add note"}
@@ -727,6 +775,7 @@ export const ReaderInteractions = forwardRef<
             <button
               disabled={busy}
               aria-pressed={!!selectedBookmark}
+              onPointerDown={(e) => e.preventDefault()}
               onClick={() => void attempt(togglePassage)}
             >
               <BookmarkIcon

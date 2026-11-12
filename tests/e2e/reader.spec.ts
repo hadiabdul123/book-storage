@@ -1,3 +1,4 @@
+import { openTools, clickTool } from "./controls";
 import { test, expect, type Page } from "@playwright/test";
 import path from "node:path";
 import JSZip from "jszip";
@@ -9,10 +10,16 @@ async function importFile(page: Page, file: string) {
     .setInputFiles(path.resolve("tests/fixtures", file));
   await expect(page.locator(".book-card")).toHaveCount(1, { timeout: 45000 });
   await page.locator(".book-cover-link").click();
+  await openTools(page);
   await expect(page.locator(".reader-loading")).toHaveCount(0, {
     timeout: 45000,
   });
 }
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() =>
+    localStorage.setItem("leafmark-controls-pinned", "true"),
+  );
+});
 test("library starts empty without manufactured content", async ({ page }) => {
   await page.goto("/");
   await expect(
@@ -25,6 +32,7 @@ test("library starts empty without manufactured content", async ({ page }) => {
   await page.getByRole("button", { name: "Create collection" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.reload();
+  await openTools(page);
   await expect(page.locator("select[aria-label=Collection]")).toContainText(
     "Research",
   );
@@ -33,7 +41,7 @@ test("real EPUB highlight survives reload, typography changes and passage naviga
   page,
 }) => {
   await importFile(page, "alice.epub");
-  await page.getByRole("button", { name: "Contents", exact: true }).click();
+  await clickTool(page, "Contents");
   const chapter = page
     .locator(".toc-item")
     .filter({ hasText: /rabbit|chapter|down/i })
@@ -93,18 +101,15 @@ test("real EPUB highlight survives reload, typography changes and passage naviga
     page.getByText("Highlight saved on this device.", { exact: true }),
   ).toBeVisible();
   await page.reload();
+  await openTools(page);
   await expect(page.locator(".reader-loading")).toHaveCount(0, {
     timeout: 45000,
   });
-  await page
-    .getByRole("button", { name: "Reading settings", exact: true })
-    .click();
+  await clickTool(page, "Reading settings");
   await page.getByLabel("Text size").focus();
   await page.getByLabel("Text size").press("End");
   await page.getByRole("button", { name: "Close panel" }).click();
-  await page
-    .getByRole("button", { name: "Highlights and notes", exact: true })
-    .click();
+  await clickTool(page, "Highlights and notes");
   await expect(page.locator(".annotation-card blockquote")).toHaveText(quote!);
   await expect(page.getByText("A note that must survive.")).toBeVisible();
   await page.getByRole("button", { name: "Go to passage" }).click();
@@ -112,6 +117,7 @@ test("real EPUB highlight survives reload, typography changes and passage naviga
   await page.getByRole("link", { name: "Back to library" }).click();
   await page.context().setOffline(true);
   await page.locator(".book-cover-link").click();
+  await openTools(page);
   await expect(page.locator(".reader-loading")).toHaveCount(0, {
     timeout: 45000,
   });
@@ -147,9 +153,7 @@ test("real PDF selection persists at document coordinates after zoom and rotatio
     .fill("PDF coordinate regression");
   await page.getByRole("button", { name: "Save note", exact: true }).click();
   await expect(page.locator(".pdf-highlight").first()).toBeVisible();
-  await page
-    .getByRole("button", { name: "Reading settings", exact: true })
-    .click();
+  await clickTool(page, "Reading settings");
   await page
     .getByRole("combobox", { name: "Zoom", exact: true })
     .selectOption("1.5");
@@ -157,18 +161,18 @@ test("real PDF selection persists at document coordinates after zoom and rotatio
   await page.getByRole("button", { name: "Close panel" }).click();
   await expect(page.locator(".pdf-highlight").first()).toBeVisible();
   await page.reload();
+  await openTools(page);
   await expect(page.locator(".reader-loading")).toHaveCount(0, {
     timeout: 45000,
   });
-  await page
-    .getByRole("button", { name: "Highlights and notes", exact: true })
-    .click();
+  await clickTool(page, "Highlights and notes");
   await expect(page.getByText("PDF coordinate regression")).toBeVisible();
   await page.getByRole("button", { name: "Go to passage" }).click();
   await expect(page.locator(".pdf-highlight").first()).toBeVisible();
   await page.getByRole("link", { name: "Back to library" }).click();
   await expect(page.locator(".book-card")).toHaveCount(1);
   await page.locator(".book-cover-link").click();
+  await openTools(page);
   await expect(page.locator(".pdf-highlight").first()).toBeVisible();
   expect(pageErrors).toEqual([]);
 });
@@ -195,6 +199,7 @@ test("DOCX imports semantic text and keeps linked notes", async ({ page }) => {
   });
   await expect(page.locator(".book-card")).toHaveCount(1);
   await page.locator(".book-cover-link").click();
+  await openTools(page);
   await expect(page.locator(".docx-content")).toContainText(
     "worth remembering",
   );
@@ -213,5 +218,6 @@ test("DOCX imports semantic text and keeps linked notes", async ({ page }) => {
     page.getByText("Highlight saved on this device.", { exact: true }),
   ).toBeVisible();
   await page.reload();
+  await openTools(page);
   await expect(page.locator(".docx-highlights span").first()).toBeVisible();
 });

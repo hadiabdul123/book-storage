@@ -1,3 +1,4 @@
+import { openTools, clickTool } from "./controls";
 import { test, expect, type Page } from "@playwright/test";
 import path from "node:path";
 import JSZip from "jszip";
@@ -8,6 +9,7 @@ async function openPdf(page: Page) {
     .setInputFiles(path.resolve("tests/fixtures/tracemonkey.pdf"));
   await expect(page.locator(".book-card")).toHaveCount(1, { timeout: 45000 });
   await page.locator(".book-cover-link").click();
+  await openTools(page);
   await expect(page.locator(".pdf-page .textLayer span").first()).toBeVisible();
 }
 async function selectPdf(page: Page, partial = false) {
@@ -29,6 +31,11 @@ async function selectPdf(page: Page, partial = false) {
     }, partial);
   await expect(page.locator(".passage-popup")).toBeVisible();
 }
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() =>
+    localStorage.setItem("leafmark-controls-pinned", "true"),
+  );
+});
 test("floating meanings, one-click highlights and partial reselection support undo and redo", async ({
   page,
 }, info) => {
@@ -79,11 +86,10 @@ test("floating meanings, one-click highlights and partial reselection support un
   await expect(page.locator(".pdf-highlight").first()).toBeVisible();
   await page.keyboard.press("Control+Shift+z");
   await expect(page.locator(".pdf-highlight")).toHaveCount(0);
-  await page
-    .getByRole("button", { name: "Undo reader change", exact: true })
-    .click();
+  await clickTool(page, "Undo reader change");
   await expect(page.locator(".pdf-highlight").first()).toBeVisible();
   await page.reload();
+  await openTools(page);
   await expect(page.locator(".pdf-highlight").first()).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Undo reader change", exact: true }),
@@ -93,7 +99,7 @@ test("page and passage bookmarks toggle, indicate saved state, and persist", asy
   page,
 }) => {
   await openPdf(page);
-  await page.getByRole("button", { name: "Add bookmark", exact: true }).click();
+  await clickTool(page, "Add bookmark");
   await expect(
     page.getByRole("button", { name: "Remove bookmark", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
@@ -110,9 +116,7 @@ test("page and passage bookmarks toggle, indicate saved state, and persist", asy
   await expect(
     page.getByRole("button", { name: "Remove bookmark", exact: true }),
   ).toBeVisible();
-  await page
-    .getByRole("button", { name: "Remove bookmark", exact: true })
-    .click();
+  await clickTool(page, "Remove bookmark");
   await expect(
     page.getByRole("button", { name: "Add bookmark", exact: true }),
   ).toBeVisible();
@@ -128,9 +132,7 @@ test("page and passage bookmarks toggle, indicate saved state, and persist", asy
     page.getByRole("button", { name: "Remove passage bookmark", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator(".passage-bookmark")).toHaveCount(1);
-  await page
-    .getByRole("button", { name: "Reading settings", exact: true })
-    .click();
+  await clickTool(page, "Reading settings");
   await page
     .getByRole("combobox", { name: "Zoom", exact: true })
     .selectOption("1.25");
@@ -140,10 +142,20 @@ test("page and passage bookmarks toggle, indicate saved state, and persist", asy
     page.getByRole("button", { name: "Remove passage bookmark", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
   await page.reload();
+  await openTools(page);
   await expect(page.locator(".passage-bookmark")).toHaveCount(1);
   await expect(
     page.getByRole("button", { name: "Remove bookmark", exact: true }),
   ).toBeVisible();
+  const toolsMenu = page.getByRole("button", {
+    name: "Reading tools",
+    exact: true,
+  });
+  if (
+    (await toolsMenu.isVisible()) &&
+    (await toolsMenu.getAttribute("aria-expanded")) === "true"
+  )
+    await toolsMenu.click();
   await page.locator(".passage-bookmark").click();
   await page
     .getByRole("button", { name: "Remove passage bookmark", exact: true })
@@ -173,6 +185,7 @@ test("note typing keeps native undo and unfinished drafts survive dismissal and 
     page.getByRole("button", { name: /Unfinished notes/ }),
   ).toBeVisible();
   await page.reload();
+  await openTools(page);
   await page.getByRole("button", { name: /Unfinished notes/ }).click();
   await expect(note).toHaveValue("Recovered writing");
   await page.getByRole("button", { name: "Save note", exact: true }).click();
@@ -226,11 +239,12 @@ for (const format of ["epub", "docx"] as const)
     }
     await expect(page.locator(".book-card")).toHaveCount(1, { timeout: 45000 });
     await page.locator(".book-cover-link").click();
+    await openTools(page);
     await expect(page.locator(".reader-loading")).toHaveCount(0, {
       timeout: 45000,
     });
     if (format === "epub") {
-      await page.getByRole("button", { name: "Contents", exact: true }).click();
+      await clickTool(page, "Contents");
       await page
         .locator(".toc-item")
         .filter({ hasText: /rabbit|chapter|down/i })
@@ -244,9 +258,7 @@ for (const format of ["epub", "docx"] as const)
     await expect(body).toContainText(
       format === "epub" ? "Alice was beginning" : "Thoughtful reading",
     );
-    await page
-      .getByRole("button", { name: "Add bookmark", exact: true })
-      .click();
+    await clickTool(page, "Add bookmark");
     await expect(
       page.getByRole("button", { name: "Remove bookmark", exact: true }),
     ).toHaveAttribute("aria-pressed", "true");
@@ -290,15 +302,22 @@ for (const format of ["epub", "docx"] as const)
       .getByRole("button", { name: "Bookmark passage", exact: true })
       .click();
     await expect(page.locator(".passage-bookmark")).toHaveCount(1);
-    await page
-      .getByRole("button", { name: "Reading settings", exact: true })
-      .click();
+    await clickTool(page, "Reading settings");
     await page.getByLabel("Text size").fill("24");
     await page.getByLabel("Text size").dispatchEvent("change");
     await page
       .getByRole("button", { name: "Close panel", exact: true })
       .click();
     await expect(page.locator(".passage-bookmark")).toHaveCount(1);
+    const toolsMenu = page.getByRole("button", {
+      name: "Reading tools",
+      exact: true,
+    });
+    if (
+      (await toolsMenu.isVisible()) &&
+      (await toolsMenu.getAttribute("aria-expanded")) === "true"
+    )
+      await toolsMenu.click();
     await page.locator(".passage-bookmark").click();
     await page.getByRole("button", { name: "Meaning", exact: true }).click();
     await expect(
@@ -308,6 +327,7 @@ for (const format of ["epub", "docx"] as const)
       path: `.local/floating-${format}-${info.project.name}.png`,
     });
     await page.reload();
+    await openTools(page);
     await expect(marks.first()).toBeVisible({ timeout: 15000 });
     await expect(page.locator(".passage-bookmark")).toHaveCount(1);
   });

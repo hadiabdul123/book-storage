@@ -1,3 +1,4 @@
+import { bindReadingTaps } from "./gestures";
 import ePub, {
   EpubCFI,
   type Book as EpubBook,
@@ -132,8 +133,7 @@ export class EpubReader implements ReaderAdapter {
     };
     doc.addEventListener("selectionchange", selection);
     doc.addEventListener("pointerup", selection);
-    const pointerDown = () => this.events.onReaderPointerDown?.();
-    doc.addEventListener("pointerdown", pointerDown);
+    const unbindTaps = bindReadingTaps(doc, () => this.events.onReaderTap?.());
     const key = (event: KeyboardEvent) => {
       this.events.onShortcut?.(event);
       if (event.defaultPrevented) return;
@@ -150,7 +150,7 @@ export class EpubReader implements ReaderAdapter {
     this.cleanups.push(() => {
       doc.removeEventListener("selectionchange", selection);
       doc.removeEventListener("pointerup", selection);
-      doc.removeEventListener("pointerdown", pointerDown);
+      unbindTaps();
       doc.removeEventListener("keydown", key);
     });
   }
