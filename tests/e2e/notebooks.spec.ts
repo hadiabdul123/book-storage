@@ -87,6 +87,7 @@ test("meaning lookup preserves selection and adds definitions to the page notebo
       selection.addRange(range);
       document.dispatchEvent(new Event("selectionchange"));
     });
+  await page.getByRole("button", { name: "Add note", exact: true }).click();
   await page
     .getByLabel("Note for selected passage")
     .fill("Keep this unsaved thought");
@@ -95,9 +96,11 @@ test("meaning lookup preserves selection and adds definitions to the page notebo
   await page.screenshot({
     path: `.local/review-meaning-${testInfo.project.name}.png`,
   });
+  await page.getByRole("button", { name: "Add note", exact: true }).click();
   await expect(page.getByLabel("Note for selected passage")).toHaveValue(
     "Keep this unsaved thought",
   );
+  await page.getByRole("button", { name: "Meaning", exact: true }).click();
   await page
     .getByRole("button", { name: "Add to page note", exact: true })
     .first()
@@ -106,9 +109,8 @@ test("meaning lookup preserves selection and adds definitions to the page notebo
     page.getByRole("textbox", { name: "Notebook for page 1" }),
   ).toContainText("Open English Wordnet");
   await page.getByRole("button", { name: "Close panel" }).click();
-  await page
-    .getByRole("button", { name: "Save highlight", exact: true })
-    .click();
+  await page.getByRole("button", { name: /Unfinished notes/ }).click();
+  await page.getByRole("button", { name: "Save note", exact: true }).click();
   await expect(page.locator(".pdf-highlight").first()).toBeVisible();
   await page.getByRole("button", { name: "Dictionary", exact: true }).click();
   await page.getByLabel("Dictionary word").fill("went");

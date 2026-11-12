@@ -63,14 +63,17 @@ test("real EPUB highlight survives reload, typography changes and passage naviga
     page.getByRole("region", { name: "Save selected passage" }),
   ).toBeVisible();
   const quote = await page.locator(".selection-excerpt").textContent();
+  await page.getByRole("button", { name: "Add note", exact: true }).click();
   await page
     .getByRole("textbox", { name: "Note for selected passage" })
     .fill("A note that must survive.");
-  await page.getByRole("button", { name: "blue", exact: true }).click();
   await page
-    .getByRole("button", { name: "Save highlight", exact: true })
+    .getByRole("button", { name: "blue highlight", exact: true })
     .click();
-  await expect(page.getByText("Highlight saved on this device.", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Save note", exact: true }).click();
+  await expect(
+    page.getByText("Highlight saved on this device.", { exact: true }),
+  ).toBeVisible();
   await page.reload();
   await expect(page.locator(".reader-loading")).toHaveCount(0, {
     timeout: 45000,
@@ -120,12 +123,11 @@ test("real PDF selection persists at document coordinates after zoom and rotatio
   await expect(
     page.getByRole("region", { name: "Save selected passage" }),
   ).toBeVisible();
+  await page.getByRole("button", { name: "Add note", exact: true }).click();
   await page
     .getByRole("textbox", { name: "Note for selected passage" })
     .fill("PDF coordinate regression");
-  await page
-    .getByRole("button", { name: "Save highlight", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Save note", exact: true }).click();
   await expect(page.locator(".pdf-highlight").first()).toBeVisible();
   await page
     .getByRole("button", { name: "Reading settings", exact: true })
@@ -187,9 +189,11 @@ test("DOCX imports semantic text and keeps linked notes", async ({ page }) => {
     document.dispatchEvent(new Event("selectionchange"));
   });
   await page
-    .getByRole("button", { name: "Save highlight", exact: true })
+    .getByRole("button", { name: "yellow highlight", exact: true })
     .click();
-  await expect(page.getByText("Highlight saved on this device.", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("Highlight saved on this device.", { exact: true }),
+  ).toBeVisible();
   await page.reload();
   await expect(page.locator(".docx-highlights span").first()).toBeVisible();
 });

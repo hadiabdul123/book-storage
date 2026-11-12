@@ -5,6 +5,7 @@ import {
   textNodes,
 } from "../anchors";
 import { sanitize } from "../import";
+import { rectsForRange } from "./geometry";
 import {
   colors,
   type Annotation,
@@ -226,6 +227,20 @@ export class DocxReader implements ReaderAdapter {
     });
     if (hit) this.events.onAnnotation(hit.dataset.annotation!);
   };
+  bounds(locator: Locator) {
+    if (locator.type !== "docx" || locator.hash !== this.book.hash) return [];
+    const range = rangeForOffsets(this.article, locator.start, locator.end);
+    return range ? rectsForRange(range) : [];
+  }
+  intersects(a: Locator, b: Locator) {
+    return (
+      a.type === "docx" &&
+      b.type === "docx" &&
+      a.hash === b.hash &&
+      a.start < b.end &&
+      b.start < a.end
+    );
+  }
   clearSelection() {
     document.getSelection()?.removeAllRanges();
   }

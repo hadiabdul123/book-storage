@@ -231,6 +231,7 @@ type EditProps = {
   annotation: Annotation;
   onClose: () => void;
   onDelete?: (a: Annotation) => void;
+  onSave?: (a: Annotation, deleted?: boolean) => Promise<void>;
 };
 export function EditAnnotation(props: EditProps) {
   return props.annotation.type === "page-note" ? (
@@ -271,10 +272,12 @@ function EditHighlight({
   annotation,
   onClose,
   onDelete,
+  onSave,
 }: {
   annotation: Annotation;
   onClose: () => void;
   onDelete?: (a: Annotation) => void;
+  onSave?: (a: Annotation, deleted?: boolean) => Promise<void>;
 }) {
   const [note, setNote] = useState(annotation.note),
     [color, setColor] = useState(annotation.color),
@@ -288,7 +291,9 @@ function EditHighlight({
           e.preventDefault();
           setBusy(true);
           try {
-            await save("annotation", {
+            await (
+              onSave || ((value: Annotation) => save("annotation", value))
+            )({
               ...annotation,
               note,
               color,
@@ -336,7 +341,8 @@ function EditHighlight({
             className="danger text-button"
             onClick={async () => {
               try {
-                await save("annotation", annotation, true);
+                if (onSave) await onSave(annotation, true);
+                else await save("annotation", annotation, true);
                 onDelete?.(annotation);
                 onClose();
               } catch (e) {

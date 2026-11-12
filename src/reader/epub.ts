@@ -1,9 +1,11 @@
 import ePub, {
+  EpubCFI,
   type Book as EpubBook,
   type Rendition,
   type Contents,
 } from "epubjs";
 import DOMPurify from "dompurify";
+import { rectsForRange, rangeOverlap } from "./geometry";
 import literataFont from "@fontsource/literata/files/literata-latin-400-normal.woff2?url";
 import sansFont from "@fontsource/source-sans-3/files/source-sans-3-latin-400-normal.woff2?url";
 import { findQuote, offsetsForRange, rangeForOffsets } from "../anchors";
@@ -20,6 +22,7 @@ export class EpubReader implements ReaderAdapter {
   private epub!: EpubBook;
   private rendition!: Rendition;
   private prefs!: Preferences;
+  private appliedPrefs?: Preferences;
   private marks: Annotation[] = [];
   private rendered = new Set<string>();
   private cleanups: (() => void)[] = [];
@@ -129,7 +132,11 @@ export class EpubReader implements ReaderAdapter {
     };
     doc.addEventListener("selectionchange", selection);
     doc.addEventListener("pointerup", selection);
+    const pointerDown = () => this.events.onReaderPointerDown?.();
+    doc.addEventListener("pointerdown", pointerDown);
     const key = (event: KeyboardEvent) => {
+      this.events.onShortcut?.(event);
+      if (event.defaultPrevented) return;
       if (
         event.target instanceof HTMLElement &&
         /INPUT|TEXTAREA/.test(event.target.tagName)
@@ -143,6 +150,7 @@ export class EpubReader implements ReaderAdapter {
     this.cleanups.push(() => {
       doc.removeEventListener("selectionchange", selection);
       doc.removeEventListener("pointerup", selection);
+      doc.removeEventListener("pointerdown", pointerDown);
       doc.removeEventListener("keydown", key);
     });
   }
@@ -261,8 +269,13 @@ export class EpubReader implements ReaderAdapter {
   configure(p: Preferences) {
     this.prefs = p;
     if (!this.rendition) return;
-    this.rendition.flow(p.flow === "scrolled" ? "scrolled-doc" : "paginated");
-    this.rendition.spread(p.spread ? "auto" : "none");
+    const prior = this.appliedPrefs;
+    if (prior && JSON.stringify(prior) === JSON.stringify(p)) return;
+    this.appliedPrefs = { ...p };
+    if (!prior || prior.flow !== p.flow)
+      this.rendition.flow(p.flow === "scrolled" ? "scrolled-doc" : "paginated");
+    if (!prior || prior.spread !== p.spread)
+      this.rendition.spread(p.spread ? "auto" : "none");
     const palette =
       p.theme === "dark"
         ? ["#202830", "#e1e5e8"]
@@ -325,6 +338,46 @@ export class EpubReader implements ReaderAdapter {
     for (const c of (this.rendition?.getContents() as unknown as Contents[]) ||
       [])
       c.document.getSelection()?.removeAllRanges();
+  }
+  private range(locator: Locator): Range | null {
+    if (locator.type !== "epub" || locator.hash !== this.book.hash) return null;
+    let spine: number;
+    try {
+      spine = new EpubCFI(locator.cfi).spinePos;
+    } catch {
+      return null;
+    }
+    for (const contents of (this.rendition?.getContents() as unknown as Contents[]) ||
+      []) {
+      if (contents.sectionIndex !== spine) continue;
+      try {
+        const range = contents.range(locator.cfi);
+        if (range) return range;
+      } catch {}
+    }
+    return null;
+  }
+  bounds(locator: Locator) {
+    const range = this.range(locator);
+    if (!range) return [];
+    const frame = range.startContainer.ownerDocument?.defaultView
+      ?.frameElement as HTMLElement | null;
+    if (!frame) return [];
+    const box = frame.getBoundingClientRect();
+    const scaleX = box.width / (frame.clientWidth || box.width || 1),
+      scaleY = box.height / (frame.clientHeight || box.height || 1);
+    return rectsForRange(range).map((r) => ({
+      left: box.left + r.left * scaleX,
+      right: box.left + r.right * scaleX,
+      top: box.top + r.top * scaleY,
+      bottom: box.top + r.bottom * scaleY,
+    }));
+  }
+  intersects(a: Locator, b: Locator) {
+    if (a.hash !== b.hash) return false;
+    const first = this.range(a),
+      second = this.range(b);
+    return !!first && !!second && rangeOverlap(first, second);
   }
   destroy() {
     this.disposed = true;

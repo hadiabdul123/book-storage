@@ -7,12 +7,15 @@ import {
 export function Meaning({
   term,
   onAdd,
+  compact = false,
 }: {
   term: string;
   onAdd?: (text: string) => Promise<void>;
+  compact?: boolean;
 }) {
   const [input, setInput] = useState(term),
     [query, setQuery] = useState(term);
+  const [editingWord, setEditingWord] = useState(false);
   const [entries, setEntries] = useState<DictionaryEntry[]>([]),
     [status, setStatus] = useState("Looking up…"),
     [adding, setAdding] = useState(false);
@@ -44,24 +47,34 @@ export function Meaning({
   }, [query]);
   return (
     <section className="meaning-panel">
-      <form
-        className="meaning-search"
-        onSubmit={(e) => {
-          e.preventDefault();
-          setQuery(input);
-        }}
-      >
-        <label>
-          Look up a word
-          <input
-            aria-label="Dictionary word"
-            value={input}
-            maxLength={100}
-            onChange={(e) => setInput(e.target.value)}
-          />
-        </label>
-        <button className="secondary">Look up</button>
-      </form>
+      {compact && !editingWord && (
+        <button
+          className="text-button compact-dictionary-edit"
+          onClick={() => setEditingWord(true)}
+        >
+          Change word
+        </button>
+      )}
+      {(!compact || editingWord) && (
+        <form
+          className="meaning-search"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setQuery(input);
+          }}
+        >
+          <label>
+            Look up a word
+            <input
+              aria-label="Dictionary word"
+              value={input}
+              maxLength={100}
+              onChange={(e) => setInput(e.target.value)}
+            />
+          </label>
+          <button className="secondary">Look up</button>
+        </form>
+      )}
       {status && <p role="status">{status}</p>}
       {entries.map((entry, i) => (
         <div

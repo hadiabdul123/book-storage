@@ -75,6 +75,14 @@ The public source repository does not contain the personal library. Environment 
 
 ### Page notebooks, reading modes, and vocabulary
 
+Selecting text opens a compact toolbar above the passage (below it when there is more room). Click a color to save a highlight immediately. Click a saved highlight, or select any part of it, to change its color; clicking its current color or **Remove highlight** removes the whole annotation. If several highlights overlap, choose which one to change. **Add/Edit note** opens the passage-note editor. Unfinished writing is kept in a private local recovery draft; use **Unfinished notes** to reopen it, or explicitly discard it.
+
+**Meaning** expands the offline dictionary inside the same popup. **Change word** lets you edit the lookup without changing the selected passage. The header Dictionary button still offers a separate manual search. The popup follows scrolling, PDF zoom/rotation, and EPUB/DOCX reflow, and hides while its passage is offscreen.
+
+The header bookmark icon fills when the active PDF page is bookmarked; click it again to remove that page bookmark. EPUB/DOCX use saved reading places, with the visible place nearest the top controlling the icon. **Bookmark passage** in the selection toolbar saves the exact text separately and adds a small clickable bookmark marker. Both kinds appear in Contents. Legacy duplicate bookmarks for a PDF page are removed together when that page is unbookmarked.
+
+Use the reader's **Undo/Redo** buttons or Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z, and Ctrl+Y for highlights, attached-note edits, and bookmarks. Text fields and page notebooks keep their normal editing undo. Reader history holds the last 50 actions for the open book and resets when the reader is reopened. Removal also offers a clickable **Undo**, and deleted annotations remain in Trash. Undo refuses to overwrite newer edits from another tab/device or unresolved sync conflicts.
+
 In a PDF, choose **Page notes** or the note button above a page. Each physical PDF page has one formatted notebook with headings, bold/italic text, lists, and checklists. Notes save automatically on this device; the status reports failures. The notebook follows the current page unless you are writing or have unsaved changes. Use **Follow current page** to resume following. Close and reopen the panel without losing saved writing. Search the book's page notes in this panel, or use **Notes → Note type** to search page notes and highlights across books. Tags, trash/restore, Markdown/CSV/JSON export, and existing synchronization also apply to page notes. If both versions of a conflicting page note are kept, they are combined in the same notebook with source labels.
 
 Under **Reading settings**, choose **Pages across** (one or two) independently of **Navigation** (continuous scrolling or paginated). **Fit** controls width or whole-page fit; zoom adjusts that fitted size. Settings persist per PDF. Two-page spreads pair pages 1–2, 3–4, and so on; the last odd page appears alone. A narrow reading area temporarily uses one page without changing your saved preference. In paginated mode, focus the reading area and use Page Up/Down or arrow keys. Region selection exits after a drag; Escape also exits it so normal reading can resume.
@@ -89,7 +97,7 @@ On Android, open the deployed HTTPS URL in Chrome and choose **Install app** or 
 
 - Add books from the file picker or drag them into the library. Edit metadata, covers, tags, and collection membership through the book’s details menu.
 - Open a book to retain a local copy. Book details also offers explicit Download and Remove download actions. The only unsynchronized local copy cannot be removed.
-- Select text, choose a color, optionally add a note, and save. On scans, enable PDF **Select a region** in reading settings. Selecting text uses native browser handles.
+- Select text and click a color to highlight immediately; use **Add note** and **Save note** for an attached note. On scans, enable PDF **Select a region** in reading settings. Selecting text uses native browser handles.
 - Open any saved note’s **Go to passage** link to return to the source. EPUB anchors contain CFIs and quoted context; PDF annotations use document coordinates; DOCX anchors use stable offsets into the stored conversion.
 - The note archive searches quotes, notes, book titles, and tags and exports Markdown, CSV, and JSON. JSON restore matches the original file hash, preventing anchors from attaching to another edition.
 - Trash retains books for recovery. **Delete files** permanently removes original/derived blobs after a synchronized tombstone prevents resurrection. If interrupted, **Retry file cleanup** completes removal. Notes can still be exported.

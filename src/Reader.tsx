@@ -8,10 +8,8 @@ import {
   List,
   Search,
   Highlighter,
-  BookmarkPlus,
   Settings2,
   X,
-  Check,
   Maximize2,
   RotateCw,
   Scan,
@@ -23,11 +21,9 @@ import { db, get, list, save } from "./db";
 import {
   defaults,
   type Annotation,
-  type Color,
   type Locator,
   type Preferences,
   type Position,
-  colors,
   deviceId,
   now,
   uid,
@@ -35,24 +31,18 @@ import {
   type PdfLayout,
 } from "./model";
 import { downloadBook } from "./sync";
-import type {
-  ReaderAdapter,
-  SearchHit,
-  Section,
-  Selection,
-} from "./reader/types";
-import {
-  AnnotationCard,
-  ColorPicker,
-  EditAnnotation,
-  messageOf,
-} from "./components";
+import type { ReaderAdapter, SearchHit, Section } from "./reader/types";
+import { AnnotationCard, EditAnnotation, messageOf } from "./components";
 import { exportAnnotations } from "./export";
 import { PageNotebook, type NotebookHandle } from "./PageNotebook";
 import { Meaning } from "./Meaning";
 import { pageNoteId, savePageNote } from "./pageNotes";
 import { emptyDocument, paragraph } from "./richText";
 import "./notebooks.css";
+import {
+  ReaderInteractions,
+  type InteractionHandle,
+} from "./ReaderInteractions";
 
 export function Reader({ notify }: { notify: (message: string) => void }) {
   const { id = "" } = useParams(),
@@ -79,6 +69,8 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   const [meaningTerm, setMeaningTerm] = useState(""),
     [meaningPage, setMeaningPage] = useState(1),
     [layoutFallback, setLayoutFallback] = useState(false);
+  const interactions = useRef<InteractionHandle | null>(null);
+  const [actionsHost, setActionsHost] = useState<HTMLElement | null>(null);
   const openNotebookRef = useRef<(page: number) => void>(() => {});
   async function flushNotebook() {
     return (await notebook.current?.flush()) ?? true;
@@ -104,16 +96,12 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
     [error, setError] = useState(""),
     [panel, setPanel] = useState(""),
     [sections, setSections] = useState<Section[]>([]),
-    [selection, setSelection] = useState<Selection | null>(null),
-    [color, setColor] = useState<Color>("yellow"),
-    [note, setNote] = useState(""),
     [editing, setEditing] = useState<Annotation>(),
     [progress, setProgress] = useState(0),
     [current, setCurrent] = useState<Locator>(),
     [query, setQuery] = useState(""),
     [hits, setHits] = useState<SearchHit[]>([]),
     [searching, setSearching] = useState(false),
-    [saving, setSaving] = useState(false),
     [zoom, setZoom] = useState(1),
     [rotation, setRotation] = useState(0),
     [region, setRegion] = useState(false),
@@ -166,7 +154,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
       setLoading(true);
       position.current = null;
       setError("");
-      setSelection(null);
+      setCurrent(undefined);
       const files = await downloadBook(book);
       if (cancelled) return;
       const ctor =
@@ -177,6 +165,8 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
             : (await import("./reader/docx")).DocxReader;
       if (cancelled) return;
       reader = new ctor(host.current!, book, {
+        onShortcut: (event) => interactions.current?.shortcut(event),
+        onReaderPointerDown: () => interactions.current?.dismiss(),
         onPageNote: (page) => openNotebookRef.current(page),
         onRegionMode: setRegion,
         onLayoutFallback: setLayoutFallback,
@@ -197,12 +187,14 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
           saveTimer = setTimeout(flush, 650);
         },
         onSelection: (value) => {
-          setSelection(value);
+          interactions.current?.select(value);
           activity();
         },
         onAnnotation: (markId) => {
           const mark = annotationsRef.current.find((a) => a.id === markId);
-          if (mark) setEditing(mark);
+          if (mark?.type === "page-note" && mark.locator.type === "pdf")
+            openNotebookRef.current(mark.locator.page);
+          else interactions.current?.openAnnotation(markId);
         },
         onError: (message) => setError(message),
       });
@@ -300,30 +292,6 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
       setPanel("");
     } catch (e) {
       notify(messageOf(e));
-    }
-  }
-  async function createAnnotation() {
-    if (!selection || saving) return;
-    setSaving(true);
-    try {
-      await save("annotation", {
-        id: uid(),
-        bookId: id,
-        locator: selection.locator,
-        text: selection.text,
-        note,
-        color,
-        tags: [],
-        createdAt: now(),
-      });
-      setSelection(null);
-      setNote("");
-      adapter.current?.clearSelection();
-      notify("Highlight saved on this device.");
-    } catch (e) {
-      notify(messageOf(e));
-    } finally {
-      setSaving(false);
     }
   }
   async function setPdfView(z: number, r: number) {
@@ -425,31 +393,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
           >
             <BookA size={20} />
           </button>
-          <button
-            className="icon-button"
-            aria-label="Add bookmark"
-            disabled={!current}
-            onClick={async () => {
-              if (!current) return;
-              try {
-                await save("bookmark", {
-                  id: uid(),
-                  bookId: id,
-                  locator: current,
-                  label:
-                    current.type === "pdf"
-                      ? `Page ${current.page}`
-                      : `${Math.round(progress * 100)}% through`,
-                  createdAt: now(),
-                });
-                notify("Bookmark saved.");
-              } catch (e) {
-                notify(messageOf(e));
-              }
-            }}
-          >
-            <BookmarkPlus size={20} />
-          </button>
+          <div className="reader-action-buttons" ref={setActionsHost} />
           <button
             className="icon-button desktop-only"
             aria-label="Toggle full screen"
@@ -591,14 +535,6 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
                   />
                 </>
               )}
-              {panel === "meaning" && selection && (
-                <button
-                  className="text-button"
-                  onClick={() => void changePanel("")}
-                >
-                  Back to highlight
-                </button>
-              )}
               {panel === "meaning" && (
                 <Meaning
                   term={meaningTerm}
@@ -644,9 +580,9 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
                           aria-label={`Remove ${b.label}`}
                           className="icon-button"
                           onClick={() =>
-                            void save("bookmark", b, true).catch((e) =>
-                              notify(messageOf(e)),
-                            )
+                            void interactions.current
+                              ?.removeBookmark(b)
+                              .catch((e) => notify(messageOf(e)))
                           }
                         >
                           <X size={15} />
@@ -1006,73 +942,38 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
           <ChevronRight size={22} />
         </button>
       </footer>
-      {selection && (
-        <div
-          className={`selection-toolbar ${panel === "meaning" || panel === "page-notes" ? "selection-suspended" : ""}`}
-          role="region"
-          aria-label="Save selected passage"
-        >
-          <div className="selection-top">
-            <ColorPicker value={color} onChange={setColor} />
-            <button
-              className="icon-button"
-              aria-label="Cancel highlight"
-              onClick={() => {
-                setSelection(null);
-                setNote("");
-                adapter.current?.clearSelection();
-              }}
-            >
-              <X size={18} />
-            </button>
-          </div>
-          <p className="selection-excerpt">{selection.text}</p>
-          <textarea
-            aria-label="Note for selected passage"
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder="Add a note (optional)"
-            rows={2}
-          />
-          <button
-            className="primary"
-            onClick={() => void createAnnotation()}
-            disabled={saving}
-          >
-            <Check size={17} />
-            {saving ? "Saving…" : "Save highlight"}
-          </button>
-          {!selection.locator.quote?.exact?.startsWith("Region on page") &&
-            selection.text.length <= 100 &&
-            !(
-              selection.locator.type === "pdf" &&
-              selection.locator.regions &&
-              !selection.locator.quote &&
-              selection.text.startsWith("Region on page")
-            ) && (
-              <button
-                className="secondary meaning-action"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={async () => {
-                  if (!(await flushNotebook())) return;
-                  setMeaningTerm(selection.text);
-                  setMeaningPage(
-                    selection.locator.type === "pdf"
-                      ? selection.locator.page
-                      : 1,
-                  );
-                  setPanel("meaning");
-                }}
-              >
-                <BookA size={17} />
-                Meaning
-              </button>
-            )}
-        </div>
-      )}
+      <ReaderInteractions
+        key={book.id}
+        ref={interactions}
+        book={book}
+        current={current}
+        annotations={annotations}
+        bookmarks={bookmarks}
+        adapter={adapter}
+        host={host}
+        controls={actionsHost}
+        ready={!loading}
+        suspended={panel !== ""}
+        notify={notify}
+        onDefinition={async (page, text) => {
+          if (!(await flushNotebook()))
+            throw new Error("Save the current notebook first.");
+          const prior = await get("annotation", pageNoteId(book.id, page));
+          const document = prior?.content?.document || emptyDocument();
+          await savePageNote(book, page, {
+            type: "doc",
+            content: [...(document.content || []), paragraph(text)],
+          });
+          await openNotebook(page);
+          notify("Definition added to your page notebook.");
+        }}
+      />
       {editing && (
         <EditAnnotation
           annotation={editing}
+          onSave={(value, deleted) =>
+            interactions.current!.changeAnnotation(value, deleted)
+          }
           onClose={() => setEditing(undefined)}
           onDelete={(a) =>
             notify(

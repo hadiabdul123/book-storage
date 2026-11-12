@@ -1,0 +1,182 @@
+.reader-action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.passage-popup {
+  font-family: "Source Sans 3", sans-serif;
+}
+.passage-popup .dictionary-entry h3 {
+  font-family: Literata, serif;
+}
+.passage-popup {
+  position: fixed;
+  z-index: 45;
+  width: min(360px, calc(100vw - 16px));
+  max-height: min(520px, 65dvh);
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid #b7c9da;
+  border-radius: 10px;
+  background: var(--page-bg, #fff);
+  color: var(--page-text, #293541);
+  box-shadow: 0 8px 30px #20364c30;
+}
+.passage-popup-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--muted);
+}
+.passage-popup .selection-excerpt {
+  margin: 3px 0 10px;
+  max-height: 42px;
+  overflow: hidden;
+  font-family: Literata, serif;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.passage-colors {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.passage-colors > button {
+  width: 30px;
+  height: 30px;
+  border: 1px solid #0002;
+  border-radius: 50%;
+  color: #172e43;
+}
+.passage-colors > button[aria-pressed="true"] {
+  outline: 2px solid #315c86;
+  outline-offset: 2px;
+}
+.passage-colors > .remove-highlight {
+  width: auto;
+  border: 0;
+  border-radius: 4px;
+  font-size: 12px;
+  color: inherit;
+}
+.passage-actions {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--line);
+  padding-top: 9px;
+  margin-top: 12px;
+}
+.passage-actions > button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: 5px;
+  font-size: 13px;
+  color: #315c86;
+}
+.passage-actions > button:hover,
+.passage-actions > button[aria-pressed="true"] {
+  background: #e6eef5;
+}
+.passage-note {
+  margin-top: 10px;
+}
+.passage-note > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+.passage-popup .meaning-panel {
+  margin-top: 8px;
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+.passage-popup[data-mode="meaning"] .selection-excerpt {
+  display: none;
+}
+.compact-dictionary-edit {
+  float: right;
+  font-size: 12px;
+  margin: 2px 0 5px 8px;
+}
+.passage-popup .dictionary-entry > .muted {
+  margin-bottom: 6px;
+}
+.passage-popup .dictionary-entry ol {
+  margin-top: 6px;
+}
+.passage-popup .dictionary-entry h3 {
+  font-size: 24px;
+}
+.passage-popup .meaning-search label {
+  font-size: 12px;
+}
+.passage-popup .meaning-search input {
+  padding: 7px;
+}
+.passage-popup .meaning-search button {
+  padding: 8px;
+}
+.passage-bookmark {
+  position: fixed;
+  z-index: 6;
+  width: 22px;
+  height: 24px;
+  padding: 2px;
+  color: #315c86;
+  background: #eff5fb;
+  border: 1px solid #b7c9da;
+  border-radius: 4px;
+}
+.overlap-choices button {
+  display: block;
+  text-align: left;
+  padding: 8px;
+  border: 1px solid var(--line);
+  width: 100%;
+}
+.overlap-choices button span {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-right: 6px;
+}
+.reader-feedback {
+  position: fixed;
+  bottom: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 55;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: #293e50;
+  color: #fff;
+  padding: 12px 16px;
+  border-radius: 8px;
+  max-width: calc(100vw - 20px);
+}
+.reader-feedback button {
+  color: inherit;
+  text-decoration: underline;
+}
+.draft-recovery {
+  max-width: 110px;
+  font-size: 11px;
+}
+@media (max-width: 700px) {
+  .reader-tools {
+    flex-wrap: wrap;
+  }
+  .reader-tools .icon-button {
+    min-width: 32px;
+  }
+  .passage-popup {
+    max-height: 55dvh;
+  }
+}

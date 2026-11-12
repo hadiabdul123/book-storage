@@ -21,52 +21,83 @@ test("saved PDF notes and rendering assets survive a full offline browser restar
       if (message.type() === "error") console.error(message.text());
     });
     await page.goto(baseURL!);
-    await expect(page.getByRole("heading", {
-      name: "A little space for a lot of reading",
-    })).toBeVisible();
-    await expect.poll(() => page.evaluate(async () => {
-      const registration = await navigator.serviceWorker.getRegistration();
-      return {
-        active: registration?.active?.state,
-        installing: registration?.installing?.state,
-        waiting: registration?.waiting?.state,
-      };
-    }), { timeout: 45_000, message: "Production service worker activates" }).toMatchObject({
-      active: "activated",
-    });
+    await expect(
+      page.getByRole("heading", {
+        name: "A little space for a lot of reading",
+      }),
+    ).toBeVisible();
+    await expect
+      .poll(
+        () =>
+          page.evaluate(async () => {
+            const registration =
+              await navigator.serviceWorker.getRegistration();
+            return {
+              active: registration?.active?.state,
+              installing: registration?.installing?.state,
+              waiting: registration?.waiting?.state,
+            };
+          }),
+        { timeout: 45_000, message: "Production service worker activates" },
+      )
+      .toMatchObject({
+        active: "activated",
+      });
     // Prompt-based updates intentionally leave existing pages under their old
     // controller. Reload after first installation to use the active worker.
     await page.reload();
-    await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true);
-    await page.locator("input[type=file]").setInputFiles(
-      path.resolve("tests/fixtures/tracemonkey.pdf"),
-    );
+    await expect
+      .poll(() => page.evaluate(() => !!navigator.serviceWorker.controller))
+      .toBe(true);
+    await page
+      .locator("input[type=file]")
+      .setInputFiles(path.resolve("tests/fixtures/tracemonkey.pdf"));
     await expect(page.locator(".book-card")).toHaveCount(1);
     await page.locator(".book-cover-link").click();
-    await expect(page.locator(".pdf-page .textLayer span").first()).toBeVisible();
-    await page.locator(".pdf-page .textLayer").first().evaluate((layer) => {
-      const span = Array.from(layer.querySelectorAll("span")).find(
-        (element) => (element.textContent?.length || 0) > 20,
-      )!;
-      const range = document.createRange();
-      range.selectNodeContents(span);
-      const selection = document.getSelection()!;
-      selection.removeAllRanges();
-      selection.addRange(range);
-      document.dispatchEvent(new Event("selectionchange"));
-    });
-    await page.getByRole("textbox", { name: "Note for selected passage" }).fill(
-      "Retained across an offline browser restart",
-    );
-    await page.getByRole("button", { name: "Save highlight", exact: true }).click();
+    await expect(
+      page.locator(".pdf-page .textLayer span").first(),
+    ).toBeVisible();
+    await page
+      .locator(".pdf-page .textLayer")
+      .first()
+      .evaluate((layer) => {
+        const span = Array.from(layer.querySelectorAll("span")).find(
+          (element) => (element.textContent?.length || 0) > 20,
+        )!;
+        const range = document.createRange();
+        range.selectNodeContents(span);
+        const selection = document.getSelection()!;
+        selection.removeAllRanges();
+        selection.addRange(range);
+        document.dispatchEvent(new Event("selectionchange"));
+      });
+    await page.getByRole("button", { name: "Add note", exact: true }).click();
+    await page
+      .getByRole("textbox", { name: "Note for selected passage" })
+      .fill("Retained across an offline browser restart");
+    await page.getByRole("button", { name: "Save note", exact: true }).click();
     await expect(page.locator(".pdf-highlight").first()).toBeVisible();
+    await page
+      .getByRole("button", { name: "Bookmark passage", exact: true })
+      .click();
+    await expect(page.locator(".passage-bookmark")).toHaveCount(1);
+    await page
+      .getByRole("button", { name: "Add bookmark", exact: true })
+      .click();
+    await expect(
+      page.getByRole("button", { name: "Remove bookmark", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
     await page.getByRole("button", { name: "Page notes", exact: true }).click();
     const notebook = page.getByRole("textbox", { name: "Notebook for page 1" });
     await expect(notebook).toHaveAttribute("contenteditable", "true");
     await notebook.fill("Offline notebook survives restart");
-    await page.getByRole("button", { name: "Bullet list", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Bullet list", exact: true })
+      .click();
     await page.getByRole("button", { name: "Save now", exact: true }).click();
-    await expect(page.locator(".notebook-status")).toHaveText("Saved on this device");
+    await expect(page.locator(".notebook-status")).toHaveText(
+      "Saved on this device",
+    );
     await page.getByRole("button", { name: "Close panel" }).click();
     // Keep IndexedDB/CacheStorage, but prevent the ordinary HTTP cache from
     // concealing missing service-worker assets during the offline restart.
@@ -89,22 +120,45 @@ test("saved PDF notes and rendering assets survive a full offline browser restar
     await page.goto(baseURL!);
     await expect(page.locator(".book-card")).toHaveCount(1);
     await page.locator(".book-cover-link").click();
-    await expect(page.locator(".pdf-page .textLayer span").first()).toBeVisible();
+    await expect(
+      page.locator(".pdf-page .textLayer span").first(),
+    ).toBeVisible();
     await expect(page.locator(".pdf-highlight").first()).toBeVisible();
-    await page.getByRole("button", { name: "Highlights and notes", exact: true }).click();
-    await expect(page.getByText("Retained across an offline browser restart")).toBeVisible();
-    await page.locator(".annotation-card").filter({ hasText: "Retained across an offline browser restart" }).getByRole("button", { name: "Go to passage", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Highlights and notes", exact: true })
+      .click();
+    await expect(
+      page.getByText("Retained across an offline browser restart"),
+    ).toBeVisible();
+    await page
+      .locator(".annotation-card")
+      .filter({ hasText: "Retained across an offline browser restart" })
+      .getByRole("button", { name: "Go to passage", exact: true })
+      .click();
     await expect(page.locator(".pdf-highlight").first()).toBeVisible();
     await page.getByRole("button", { name: "Page notes", exact: true }).click();
-    await expect(page.getByRole("textbox", { name: "Notebook for page 1" })).toContainText("Offline notebook survives restart");
-    await expect(page.getByRole("textbox", { name: "Notebook for page 1" }).locator("li")).toHaveCount(1);
+    await expect(
+      page.getByRole("textbox", { name: "Notebook for page 1" }),
+    ).toContainText("Offline notebook survives restart");
+    await expect(
+      page.getByRole("textbox", { name: "Notebook for page 1" }).locator("li"),
+    ).toHaveCount(1);
+    await expect(page.locator(".passage-bookmark")).toHaveCount(1);
+    await expect(
+      page.getByRole("button", { name: "Remove bookmark", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
     await page.getByRole("button", { name: "Dictionary", exact: true }).click();
     // This word was never looked up in the online browser process.
     const external: string[] = [];
-    page.on("request", request => { if (new URL(request.url()).origin !== new URL(baseURL!).origin) external.push(request.url()); });
+    page.on("request", (request) => {
+      if (new URL(request.url()).origin !== new URL(baseURL!).origin)
+        external.push(request.url());
+    });
     await page.getByLabel("Dictionary word").fill("serendipity");
     await page.getByRole("button", { name: "Look up", exact: true }).click();
-    await expect(page.locator(".dictionary-entry h3").first()).toHaveText("serendipity");
+    await expect(page.locator(".dictionary-entry h3").first()).toHaveText(
+      "serendipity",
+    );
     expect(external).toEqual([]);
     // Exercise both standard font formats even when the fixture embeds its fonts.
     const assets = await page.evaluate(async () => {
@@ -114,10 +168,16 @@ test("saved PDF notes and rendering assets survive a full offline browser restar
         "pdf-assets/cmaps/Adobe-Japan1-UCS2.bcmap",
         "pdf-assets/wasm/openjpeg.wasm",
       ];
-      return Promise.all(files.map(async (file) => {
-        const response = await fetch(new URL(file, document.baseURI));
-        return { file, ok: response.ok, bytes: (await response.arrayBuffer()).byteLength };
-      }));
+      return Promise.all(
+        files.map(async (file) => {
+          const response = await fetch(new URL(file, document.baseURI));
+          return {
+            file,
+            ok: response.ok,
+            bytes: (await response.arrayBuffer()).byteLength,
+          };
+        }),
+      );
     });
     for (const asset of assets) {
       expect(asset.ok, asset.file).toBe(true);
@@ -126,7 +186,8 @@ test("saved PDF notes and rendering assets survive a full offline browser restar
     expect(errors).toEqual([]);
   } finally {
     await offline.close();
-    if (path.dirname(profile) !== profileRoot) throw new Error("Unexpected test profile path");
+    if (path.dirname(profile) !== profileRoot)
+      throw new Error("Unexpected test profile path");
     rmSync(profile, { recursive: true, force: true });
   }
 });

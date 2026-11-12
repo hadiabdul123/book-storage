@@ -69,6 +69,8 @@ export type Annotation = {
   createdAt: string;
 };
 export type Bookmark = {
+  kind?: "place" | "passage";
+  text?: string;
   id: string;
   bookId: string;
   locator: Locator;

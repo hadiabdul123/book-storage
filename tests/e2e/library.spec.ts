@@ -4,107 +4,181 @@ import { readFile } from "node:fs/promises";
 
 async function addPdf(page: Page) {
   await page.goto("/");
-  await page.locator("input[type=file]").setInputFiles(path.resolve("tests/fixtures/tracemonkey.pdf"));
+  await page
+    .locator("input[type=file]")
+    .setInputFiles(path.resolve("tests/fixtures/tracemonkey.pdf"));
   await expect(page.locator(".book-card")).toHaveCount(1, { timeout: 45_000 });
 }
 async function saveNote(page: Page) {
   await page.locator(".book-cover-link").click();
   await expect(page.locator(".pdf-page .textLayer span").first()).toBeVisible();
-  await page.locator(".pdf-page .textLayer").first().evaluate((layer) => {
-    const span = [...layer.querySelectorAll("span")].find((element) => (element.textContent?.length || 0) > 20)!;
-    const range = document.createRange();
-    range.selectNodeContents(span);
-    const selection = document.getSelection()!;
-    selection.removeAllRanges(); selection.addRange(range);
-    document.dispatchEvent(new Event("selectionchange"));
-  });
-  await page.getByRole("textbox", { name: "Note for selected passage" }).fill("Remember this research");
-  await page.getByRole("button", { name: "Save highlight", exact: true }).click();
+  await page
+    .locator(".pdf-page .textLayer")
+    .first()
+    .evaluate((layer) => {
+      const span = [...layer.querySelectorAll("span")].find(
+        (element) => (element.textContent?.length || 0) > 20,
+      )!;
+      const range = document.createRange();
+      range.selectNodeContents(span);
+      const selection = document.getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+      document.dispatchEvent(new Event("selectionchange"));
+    });
+  await page.getByRole("button", { name: "Add note", exact: true }).click();
+  await page
+    .getByRole("textbox", { name: "Note for selected passage" })
+    .fill("Remember this research");
+  await page.getByRole("button", { name: "Save note", exact: true }).click();
   await expect(page.locator(".pdf-highlight").first()).toBeVisible();
   await page.getByRole("link", { name: "Back to library" }).click();
 }
 
-test("metadata, covers, collections, library filters and download protection persist", async ({ page }) => {
+test("metadata, covers, collections, library filters and download protection persist", async ({
+  page,
+}) => {
   await addPdf(page);
   await page.getByRole("button", { name: "New collection" }).click();
-  await page.getByRole("textbox", { name: "Name", exact: true }).fill("Research shelf");
+  await page
+    .getByRole("textbox", { name: "Name", exact: true })
+    .fill("Research shelf");
   await page.getByRole("button", { name: "Create collection" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await page.getByRole("combobox", { name: "Collection", exact: true }).selectOption("");
+  await page
+    .getByRole("combobox", { name: "Collection", exact: true })
+    .selectOption("");
   await page.getByRole("button", { name: /^Details for/ }).click();
   const dialog = page.getByRole("dialog");
-  await dialog.getByRole("textbox", { name: "Title", exact: true }).fill("Research reference");
-  await dialog.getByRole("textbox", { name: "Author", exact: true }).fill("Fixture Author");
-  await dialog.getByRole("textbox", { name: "Description", exact: true }).fill("Edited description");
-  await dialog.getByRole("textbox", { name: "Tags", exact: true }).fill("research, language");
-  await dialog.getByRole("combobox", { name: "Reading status" }).selectOption("finished");
+  await dialog
+    .getByRole("textbox", { name: "Title", exact: true })
+    .fill("Research reference");
+  await dialog
+    .getByRole("textbox", { name: "Author", exact: true })
+    .fill("Fixture Author");
+  await dialog
+    .getByRole("textbox", { name: "Description", exact: true })
+    .fill("Edited description");
+  await dialog
+    .getByRole("textbox", { name: "Tags", exact: true })
+    .fill("research, language");
+  await dialog
+    .getByRole("combobox", { name: "Reading status" })
+    .selectOption("finished");
   await dialog.getByRole("checkbox", { name: "Research shelf" }).click();
-  await expect(dialog.getByRole("checkbox", { name: "Research shelf" })).toBeChecked();
+  await expect(
+    dialog.getByRole("checkbox", { name: "Research shelf" }),
+  ).toBeChecked();
   const originalCover = await dialog.locator(".cover img").getAttribute("src");
-  await dialog.locator("input[type=file]").setInputFiles(path.resolve("public/icon-192.png"));
-  await expect(dialog.locator(".cover img")).not.toHaveAttribute("src", originalCover!);
-  await expect(dialog.locator(".cover img")).toHaveAttribute("src", /^data:image\/webp/);
-  const replacementCover = await dialog.locator(".cover img").getAttribute("src");
+  await dialog
+    .locator("input[type=file]")
+    .setInputFiles(path.resolve("public/icon-192.png"));
+  await expect(dialog.locator(".cover img")).not.toHaveAttribute(
+    "src",
+    originalCover!,
+  );
+  await expect(dialog.locator(".cover img")).toHaveAttribute(
+    "src",
+    /^data:image\/webp/,
+  );
+  const replacementCover = await dialog
+    .locator(".cover img")
+    .getAttribute("src");
   await dialog.getByRole("button", { name: "Remove download" }).click();
   await expect(dialog.getByRole("alert")).toContainText("only local copy");
   await dialog.getByRole("button", { name: "Save changes" }).click();
   await expect(dialog).toHaveCount(0);
   await page.reload();
   await expect(page.locator(".book-card h3")).toHaveText("Research reference");
-  await expect(page.locator(".book-card .cover img")).toHaveAttribute("src", replacementCover!);
+  await expect(page.locator(".book-card .cover img")).toHaveAttribute(
+    "src",
+    replacementCover!,
+  );
   await page.getByRole("textbox", { name: "Search library" }).fill("language");
   await expect(page.locator(".book-card")).toHaveCount(1);
-  await page.getByRole("textbox", { name: "Search library" }).fill("absent keyword");
-  await expect(page.getByRole("heading", { name: "No books found" })).toBeVisible();
+  await page
+    .getByRole("textbox", { name: "Search library" })
+    .fill("absent keyword");
+  await expect(
+    page.getByRole("heading", { name: "No books found" }),
+  ).toBeVisible();
   await page.getByRole("textbox", { name: "Search library" }).fill("");
   await page.getByRole("button", { name: "Unread", exact: true }).click();
   await expect(page.locator(".book-card")).toHaveCount(0);
   await page.getByRole("button", { name: "Finished", exact: true }).click();
   await expect(page.locator(".book-card")).toHaveCount(1);
   await page.getByRole("button", { name: "Downloaded", exact: true }).click();
-  await page.getByRole("combobox", { name: "Collection", exact: true }).selectOption({ label: "Research shelf" });
+  await page
+    .getByRole("combobox", { name: "Collection", exact: true })
+    .selectOption({ label: "Research shelf" });
   await expect(page.locator(".book-card")).toHaveCount(1);
   await page.getByRole("button", { name: "List view" }).click();
   await expect(page.locator(".books-list .book-card")).toHaveCount(1);
   await page.getByRole("button", { name: "Grid view" }).click();
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "Delete collection" }).click();
-  await expect(page.getByRole("combobox", { name: "Collection", exact: true })).not.toContainText("Research shelf");
+  await expect(
+    page.getByRole("combobox", { name: "Collection", exact: true }),
+  ).not.toContainText("Research shelf");
   await expect(page.locator(".book-card")).toHaveCount(1);
   await page.getByRole("button", { name: "All books", exact: true }).click();
-  await page.locator("input[type=file]").setInputFiles(path.resolve("tests/fixtures/jbig2-symbol-offset.pdf"));
+  await page
+    .locator("input[type=file]")
+    .setInputFiles(path.resolve("tests/fixtures/jbig2-symbol-offset.pdf"));
   await expect(page.locator(".book-card")).toHaveCount(2);
-  await page.getByRole("combobox", { name: "Sort books" }).selectOption("title");
+  await page
+    .getByRole("combobox", { name: "Sort books" })
+    .selectOption("title");
   const titles = await page.locator(".book-card h3").allTextContents();
   expect(titles).toEqual([...titles].sort((a, b) => a.localeCompare(b)));
-  await page.getByRole("button", { name: "Details for Research reference" }).click();
-  await expect(dialog.getByRole("textbox", { name: "Description", exact: true })).toHaveValue("Edited description");
+  await page
+    .getByRole("button", { name: "Details for Research reference" })
+    .click();
+  await expect(
+    dialog.getByRole("textbox", { name: "Description", exact: true }),
+  ).toHaveValue("Edited description");
   await dialog.getByRole("button", { name: "Close", exact: true }).focus();
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
 });
 
-test("annotation edits, filters, exports, JSON restore and malformed backups", async ({ page }) => {
+test("annotation edits, filters, exports, JSON restore and malformed backups", async ({
+  page,
+}) => {
   await addPdf(page);
   await saveNote(page);
   await page.goto("/#/notes");
   await expect(page.locator(".annotation-card")).toHaveCount(1);
   await page.getByRole("button", { name: "Edit", exact: true }).click();
   const dialog = page.getByRole("dialog");
-  await dialog.getByRole("textbox", { name: "Your note" }).fill("Updated research note");
-  await dialog.getByRole("textbox", { name: "Tags", exact: true }).fill("review, important");
+  await dialog
+    .getByRole("textbox", { name: "Your note" })
+    .fill("Updated research note");
+  await dialog
+    .getByRole("textbox", { name: "Tags", exact: true })
+    .fill("review, important");
   await dialog.getByRole("button", { name: "green", exact: true }).click();
   await dialog.getByRole("button", { name: "Save changes" }).click();
-  await page.getByRole("textbox", { name: "Search annotations" }).fill("important");
-  await page.getByRole("combobox", { name: "Filter by highlight color" }).selectOption("green");
+  await page
+    .getByRole("textbox", { name: "Search annotations" })
+    .fill("important");
+  await page
+    .getByRole("combobox", { name: "Filter by highlight color" })
+    .selectOption("green");
   await expect(page.locator(".annotation-card")).toHaveCount(1);
-  await page.getByRole("combobox", { name: "Filter by highlight color" }).selectOption("blue");
+  await page
+    .getByRole("combobox", { name: "Filter by highlight color" })
+    .selectOption("blue");
   await expect(page.locator(".annotation-card")).toHaveCount(0);
-  await page.getByRole("combobox", { name: "Filter by highlight color" }).selectOption("green");
+  await page
+    .getByRole("combobox", { name: "Filter by highlight color" })
+    .selectOption("green");
   let backup = Buffer.alloc(0);
   for (const format of ["md", "csv", "json"]) {
     const pending = page.waitForEvent("download");
-    await page.getByRole("combobox", { name: "Export notes" }).selectOption(format);
+    await page
+      .getByRole("combobox", { name: "Export notes" })
+      .selectOption(format);
     const download = await pending;
     const bytes = await readFile((await download.path())!);
     expect(bytes.toString()).toContain("Updated research note");
@@ -114,25 +188,50 @@ test("annotation edits, filters, exports, JSON restore and malformed backups", a
   await dialog.getByRole("button", { name: "Delete annotation" }).click();
   await expect(page.locator(".annotation-card")).toHaveCount(0);
   await page.goto("/#/settings");
-  await page.getByRole("button", { name: "Restore annotations from JSON" }).click();
-  await page.getByLabel("JSON annotation backup").setInputFiles({ name: "bad.json", mimeType: "application/json", buffer: Buffer.from('{"version":0}') });
-  await expect(page.getByText("This is not a Leafmark annotation backup.", { exact: true })).toBeVisible();
-  await page.getByLabel("JSON annotation backup").setInputFiles({ name: "notes.json", mimeType: "application/json", buffer: backup });
+  await page
+    .getByRole("button", { name: "Restore annotations from JSON" })
+    .click();
+  await page
+    .getByLabel("JSON annotation backup")
+    .setInputFiles({
+      name: "bad.json",
+      mimeType: "application/json",
+      buffer: Buffer.from('{"version":0}'),
+    });
+  await expect(
+    page.getByText("This is not a Leafmark annotation backup.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await page
+    .getByLabel("JSON annotation backup")
+    .setInputFiles({
+      name: "notes.json",
+      mimeType: "application/json",
+      buffer: backup,
+    });
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.goto("/#/notes");
-  await expect(page.getByText("Updated research note", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("Updated research note", { exact: true }),
+  ).toBeVisible();
   await page.getByRole("link", { name: "Go to passage" }).click();
   await expect(page.locator(".pdf-highlight").first()).toBeVisible();
 });
 
-test("book trash, restore and permanent file deletion operate on disposable imports", async ({ page }) => {
+test("book trash, restore and permanent file deletion operate on disposable imports", async ({
+  page,
+}) => {
   page.on("dialog", (dialog) => dialog.accept());
   await addPdf(page);
   await page.getByRole("button", { name: /^Details for/ }).click();
   await page.getByRole("button", { name: "Trash book" }).click();
   await expect(page.locator(".book-card")).toHaveCount(0);
   await page.goto("/#/settings");
-  await page.locator(".trash-row").getByRole("button", { name: "Restore", exact: true }).click();
+  await page
+    .locator(".trash-row")
+    .getByRole("button", { name: "Restore", exact: true })
+    .click();
   await expect(page.locator(".trash-row")).toHaveCount(0);
   await page.goto("/");
   await expect(page.locator(".book-card")).toHaveCount(1);
@@ -141,12 +240,18 @@ test("book trash, restore and permanent file deletion operate on disposable impo
   await page.goto("/#/settings");
   await page.getByRole("button", { name: "Delete files", exact: true }).click();
   await expect(page.locator(".trash-row")).toContainText("Permanently removed");
-  await expect(page.locator(".trash-row").getByRole("button", { name: "Restore", exact: true })).toHaveCount(0);
+  await expect(
+    page
+      .locator(".trash-row")
+      .getByRole("button", { name: "Restore", exact: true }),
+  ).toHaveCount(0);
   await page.reload();
   await expect(page.locator(".trash-row")).toContainText("Permanently removed");
 });
 
-test("reader search, bookmarks, page layout, theme and region notes survive reload", async ({ page }) => {
+test("reader search, bookmarks, page layout, theme and region notes survive reload", async ({
+  page,
+}) => {
   await addPdf(page);
   await page.locator(".book-cover-link").click();
   await expect(page.locator(".pdf-page canvas").first()).toBeVisible();
@@ -159,24 +264,37 @@ test("reader search, bookmarks, page layout, theme and region notes survive relo
   await page.getByRole("button", { name: "Contents", exact: true }).click();
   await expect(page.locator(".bookmark-row")).toHaveCount(1);
   await page.locator(".bookmark-row button").first().click();
-  await page.getByRole("button", { name: "Reading settings", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Reading settings", exact: true })
+    .click();
   await page.getByRole("button", { name: "dark", exact: true }).click();
-  await page.getByRole("combobox", { name: "Navigation", exact: true }).selectOption("paginated");
+  await page
+    .getByRole("combobox", { name: "Navigation", exact: true })
+    .selectOption("paginated");
   await expect(page.locator(".pdf-page:visible")).toHaveCount(1);
-  await page.getByRole("button", { name: "Select a region", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Select a region", exact: true })
+    .click();
   const bounds = await page.locator(".pdf-page:visible").first().boundingBox();
   expect(bounds).not.toBeNull();
   await page.mouse.move(bounds!.x + 40, bounds!.y + 55);
   await page.mouse.down();
   await page.mouse.move(bounds!.x + 160, bounds!.y + 120, { steps: 6 });
   await page.mouse.up();
-  await page.getByRole("textbox", { name: "Note for selected passage" }).fill("A scanned region note");
-  await page.getByRole("button", { name: "Save highlight", exact: true }).click();
+  await page.getByRole("button", { name: "Add note", exact: true }).click();
+  await page
+    .getByRole("textbox", { name: "Note for selected passage" })
+    .fill("A scanned region note");
+  await page.getByRole("button", { name: "Save note", exact: true }).click();
   await expect(page.locator(".pdf-highlight")).toHaveCount(1);
   await page.reload();
   await expect(page.locator(".reader-shell")).toHaveClass(/theme-dark/);
-  await page.getByRole("button", { name: "Highlights and notes", exact: true }).click();
-  await expect(page.getByText("A scanned region note", { exact: true })).toBeVisible();
+  await page
+    .getByRole("button", { name: "Highlights and notes", exact: true })
+    .click();
+  await expect(
+    page.getByText("A scanned region note", { exact: true }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Go to passage" }).click();
   await expect(page.locator(".pdf-highlight").first()).toBeVisible();
   await page.getByRole("button", { name: "Contents", exact: true }).click();

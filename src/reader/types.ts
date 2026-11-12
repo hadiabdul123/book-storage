@@ -12,7 +12,15 @@ export interface Selection {
   locator: Locator;
   text: string;
 }
+export type ScreenRect = {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+};
 export interface ReaderEvents {
+  onReaderPointerDown?: () => void;
+  onShortcut?: (event: KeyboardEvent) => void;
   onPageNote?: (page: number) => void;
   onRegionMode?: (enabled: boolean) => void;
   onLayoutFallback?: (fallback: boolean) => void;
@@ -22,6 +30,8 @@ export interface ReaderEvents {
   onError: (message: string) => void;
 }
 export interface ReaderAdapter {
+  bounds: (locator: Locator) => ScreenRect[];
+  intersects: (a: Locator, b: Locator) => boolean;
   open: (source: Blob, derived?: Blob) => Promise<void>;
   goTo: (locator: Locator | string) => Promise<void>;
   next: () => Promise<void>;

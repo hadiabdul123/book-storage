@@ -7,6 +7,7 @@ import type {
   RenderTask,
 } from "pdfjs-dist";
 import { normalizeRect } from "../anchors";
+import { overlap } from "./geometry";
 import {
   type Book,
   type Annotation,
@@ -713,6 +714,54 @@ export class PdfReader implements ReaderAdapter {
   }
   clearSelection() {
     document.getSelection()?.removeAllRanges();
+  }
+  bounds(locator: Locator) {
+    if (locator.type !== "pdf" || locator.hash !== this.book.hash) return [];
+    const regions = locator.regions?.length
+      ? locator.regions
+      : [{ page: locator.page, rects: [] }];
+    return regions.flatMap((region) => {
+      const state = this.pages[region.page - 1];
+      if (!state || state.element.hidden || !state.element.isConnected)
+        return [];
+      const box = state.element.getBoundingClientRect();
+      if (!box.height) return [];
+      if (!region.rects.length)
+        return [
+          {
+            left: box.left,
+            right: box.right,
+            top: box.top + locator.y * box.height,
+            bottom: box.top + locator.y * box.height + 2,
+          },
+        ];
+      return region.rects.map((rect) => {
+        const [x1, y1, x2, y2] = viewportRect(state.viewport, rect);
+        return {
+          left: box.left + x1,
+          top: box.top + y1,
+          right: box.left + x2,
+          bottom: box.top + y2,
+        };
+      });
+    });
+  }
+  intersects(a: Locator, b: Locator) {
+    if (a.type !== "pdf" || b.type !== "pdf" || a.hash !== b.hash) return false;
+    return !!a.regions?.some((ar) =>
+      b.regions?.some(
+        (br) =>
+          ar.page === br.page &&
+          ar.rects.some((x) =>
+            br.rects.some((y) =>
+              overlap(
+                { left: x[0], top: x[1], right: x[2], bottom: x[3] },
+                { left: y[0], top: y[1], right: y[2], bottom: y[3] },
+              ),
+            ),
+          ),
+      ),
+    );
   }
   destroy() {
     this.disposed = true;

@@ -1,5 +1,17 @@
 # Verification and release gates
 
+## Floating selection tools and reversible bookmarks on 2026-11-12
+
+- Selection tools now anchor to text in PDF, EPUB, and DOCX. Meaning expands in the popup, with compact definitions and an optional editable lookup. Geometry is transient: PDF document coordinates, DOCX ranges, and EPUB CFIs remain the persisted anchors. Popup positioning accounts for iframe offsets, scrolling, zoom, reflow, viewport edges, and the visual viewport.
+- Color choices save immediately; an existing highlight's selected color removes it, while another color recolors it. Partial selections target whole annotations, and overlapping marks require choosing one. Attached notes are preserved by undo and deletion-to-Trash. Unfinished passage-note drafts persist privately in IndexedDB and can be recovered after closing the popup or reloading.
+- A shared reader history covers highlight/note/bookmark changes, retains 50 actions per open reader session, preserves native undo in editors, forwards shortcuts from EPUB frames, and performs grouped changes atomically. Undo/redo and stale edits check current data before writing and respect existing sync conflicts.
+- The current page/place bookmark icon toggles and fills when active. Passage bookmarks retain quoted text, have clickable markers, and remain distinct from page bookmarks. Existing records default to place bookmarks; no database migration is required. PDF matching tolerates sub-point selection rounding after zoom.
+- Fixed two timing failures found by the new tests: a stale passage marker during deletion, and recovery-draft navigation before PDF loading completed. Also fixed EPUB settings being reapplied unnecessarily after opening, which could reset a restored reading location to the beginning. EPUB geometry resolves CFIs only in the matching spine section.
+- Typechecking and all 36 unit tests pass. The complete 46-case desktop/mobile browser suite passes (2.7 minutes), covering prior workflows plus floating lookup, one-click colors, partial reselection, keyboard/button undo-redo, editor-local undo, draft recovery, both bookmark kinds, EPUB/DOCX reflow and reload, overlap choice, and failed removal during a real database conflict.
+- The production offline-restart test passes (1.4 minutes including build). Highlights, rich page notes, page and passage bookmarks survive a fresh offline Chromium process after ordinary HTTP cache clearing; an unseen dictionary word and PDF rendering assets remain available.
+- A follow-up four-case desktop/mobile run passes for compact definitions, changing the lookup word without changing the selection, and recognizing an existing passage bookmark after PDF zoom. The private 317-page PDF sample test also passes again (9.6 seconds including startup), without external requests or committing the book.
+- Visually reviewed floating tools in all three formats, including mobile EPUB and desktop PDF/DOCX. The expanded popup flips or reduces its scrollable height to keep the selected word visible. Native Android selection handles and live Supabase behavior still require the separate device/service checks below.
+
 ## Page notebooks, PDF layouts, and offline dictionary on 2026-11-12
 
 - Added one rich notebook per physical PDF page, including headings, bold/italic, lists/checklists, tags, autosave, recovery drafts, and explicit save-failure feedback. Active writing stays pinned while reading moves; closing or changing the panel flushes pending edits. Book-local search and the global note-type filter include page notes.
