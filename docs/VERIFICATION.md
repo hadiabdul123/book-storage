@@ -6,6 +6,7 @@
 - Phone PDFs use four-pixel outer margins and vertically centered paginated pages; note buttons overlay the page instead of reserving a blank row. EPUB phone side padding is reduced. Original printed PDF margins remain part of the source document.
 - The phone passage popup uses two compact action rows, smaller color swatches with 44-pixel touch targets, a shorter bookmark label, and an explicit eraser button. Expanded meaning/note views retain their actions and bounded scrolling.
 - New regression cases exercise automatic OCR without user interaction, actual desktop mouse dragging/highlight persistence, cached text reopening without the OCR engine, blank scans, phone page bounds/centering, and compact popup dimensions. Private original-book checks cover both mouse and touch selection after automatic recognition.
+- The first full CI run stopped after 65 browser passes and one mobile bookmark-state failure after zoom. Reproduced it three times and measured native text-box height drift of about 1.9 PDF points. Matching now permits bounded font-metric drift only for identical quoted text in the same region; nearby lines, partial quotes, and unquoted region geometry remain distinct. Added three unit regressions.
 
 ## Mobile gesture responsiveness and page animation on 2026-11-12
 

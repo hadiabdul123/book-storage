@@ -1,3 +1,4 @@
+import { samePassage } from "./reader/passages";
 import {
   forwardRef,
   useEffect,
@@ -38,28 +39,6 @@ export type InteractionHandle = {
 type Draft = { selection: Selection; text: string; annotationId?: string };
 const selectionKey = (selection: Selection) =>
   JSON.stringify(selection.locator);
-const samePassage = (a: Locator, b: Locator) => {
-  if (a.type !== b.type || a.hash !== b.hash) return false;
-  if (a.type === "docx" && b.type === "docx")
-    return a.start === b.start && a.end === b.end;
-  if (a.type === "epub" && b.type === "epub") return a.cfi === b.cfi;
-  if (a.type === "pdf" && b.type === "pdf")
-    return (
-      a.page === b.page &&
-      a.regions?.length === b.regions?.length &&
-      !!a.regions?.every((region, i) => {
-        const other = b.regions![i];
-        return (
-          region.page === other.page &&
-          region.rects.length === other.rects.length &&
-          region.rects.every((r, j) =>
-            r.every((v, k) => Math.abs(v - other.rects[j][k]) < 1),
-          )
-        );
-      })
-    );
-  return false;
-};
 export const ReaderInteractions = forwardRef<
   InteractionHandle,
   {
