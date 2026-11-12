@@ -302,7 +302,7 @@ export class EpubReader implements ReaderAdapter {
         "line-height": `${p.lineHeight} !important`,
         color: `${palette[1]} !important`,
         background: `${palette[0]} !important`,
-        padding: "20px 24px !important",
+        padding: `${window.matchMedia("(max-width: 700px)").matches ? "12px 12px" : "20px 24px"} !important`,
       },
       p: { "line-height": `${p.lineHeight} !important` },
       a: { color: "#5689b9" },

@@ -132,7 +132,7 @@ test("phone swipe preference persists and avoids selection, vertical scrolling a
   await expect(page.locator(".reader-progress")).toContainText("Page 1");
 });
 
-test("scanned pages recognize locally, touch-select with handles, and retain highlights and text on reload", async ({
+test("scanned pages recognize automatically, touch-select with handles, and retain highlights and text on reload", async ({
   page,
 }, info) => {
   test.skip(info.project.name !== "mobile-layout");
@@ -154,8 +154,10 @@ test("scanned pages recognize locally, touch-select with handles, and retain hig
   await expect(page.locator(".book-card")).toHaveCount(1);
   await page.locator(".book-cover-link").click();
   await expect(page.locator(".pdf-page canvas")).toBeVisible();
+  // No click or long press is needed to start recognition.
+  await expect(page.locator(".ocr-text-layer span").first()).toBeVisible({ timeout: 60000 });
   const box = await page.locator(".pdf-page").boundingBox();
-  // Long-press the image itself: recognition must start without a settings detour.
+  // Long-press now selects the automatically recognized word.
   await stroke(
     page,
     box!.x + box!.width * 0.16,
@@ -319,4 +321,75 @@ test("page buttons animate once, preserve rendered pages and respect reduced mot
   await expect(page.locator(".reader-progress")).toContainText("Page 2");
   await expect(page.locator(".reader-host")).not.toHaveAttribute("data-page-turning", /.+/);
   await expect(page.locator(".reader-progress")).toContainText("Page 2");
+});
+
+
+test("desktop mouse selection works on automatically recognized scans and survives reload", async ({ page }, info) => {
+  test.skip(info.project.name !== "desktop");
+  test.setTimeout(90000);
+  await page.goto("/");
+  await page.locator("input[type=file]").setInputFiles({
+    name: "Automatic scan.pdf", mimeType: "application/pdf", buffer: await scanPdf(page),
+  });
+  await expect(page.locator(".book-card")).toHaveCount(1);
+  await page.locator(".book-cover-link").click();
+  const words = page.locator(".ocr-text-layer span");
+  await expect(words.first()).toBeVisible({ timeout: 60000 });
+  const first = (await words.first().boundingBox())!;
+  const second = (await words.nth(1).boundingBox())!;
+  await page.mouse.move(first.x + 2, first.y + first.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(second.x + second.width - 2, second.y + second.height / 2, { steps: 12 });
+  await page.mouse.up();
+  await expect(page.locator(".selection-excerpt")).toContainText("Reading opens");
+  await page.getByRole("button", { name: "blue highlight", exact: true }).click();
+  await expect(page.locator(".pdf-highlight").first()).toBeVisible();
+  // Recognized text is cached locally; reopening does not need the OCR worker.
+  await page.route("**/ocr/**", route => route.abort());
+  await page.reload();
+  await expect(words.first()).toBeVisible();
+  await expect(page.locator(".pdf-highlight").first()).toBeVisible();
+});
+
+test("phone pages use the screen width and center vertically with compact selection tools", async ({ page }, info) => {
+  test.skip(info.project.name !== "mobile-layout");
+  await openPdf(page);
+  await clickTool(page, "Reading settings");
+  await page.getByLabel("Swipe to turn pages").click();
+  await page.getByRole("button", { name: "Close panel" }).click();
+  await expect(page.locator(".reader-host")).toHaveAttribute("data-navigation", "paginated");
+  const host = (await page.locator(".reader-host").boundingBox())!;
+  const paper = (await page.locator('.pdf-page[data-page="1"]').boundingBox())!;
+  expect(host.width - paper.width).toBeLessThan(10);
+  expect(Math.abs((paper.x + paper.width / 2) - (host.x + host.width / 2))).toBeLessThan(2);
+  expect(Math.abs((paper.y + paper.height / 2) - (host.y + host.height / 2))).toBeLessThan(4);
+  await page.locator('.pdf-page[data-page="1"] .textLayer span').first().evaluate(el => {
+    const range = document.createRange(); range.selectNodeContents(el);
+    const selection = document.getSelection()!; selection.removeAllRanges(); selection.addRange(range);
+  });
+  const popup = page.locator(".passage-popup");
+  await expect(popup).toBeVisible();
+  expect((await popup.boundingBox())!.height).toBeLessThan(150);
+  const button = (await page.getByRole("button", { name: "yellow highlight", exact: true }).boundingBox())!;
+  expect(button.width).toBeGreaterThanOrEqual(44);
+  expect(button.height).toBeGreaterThanOrEqual(44);
+  await page.screenshot({ path: ".local/compact-phone-page.png" });
+});
+
+
+test("a blank scanned page does not interrupt reading or retry recognition endlessly", async ({ page }, info) => {
+  test.skip(info.project.name !== "desktop");
+  test.setTimeout(90000);
+  await page.goto("/");
+  await page.locator("input[type=file]").setInputFiles({
+    name: "Blank scan.pdf", mimeType: "application/pdf", buffer: await scanPdf(page, true),
+  });
+  await expect(page.locator(".book-card")).toHaveCount(1);
+  await page.locator(".book-cover-link").click();
+  await expect(page.locator(".pdf-ocr-button")).toHaveText("Retry text recognition", { timeout: 60000 });
+  await page.waitForTimeout(900);
+  await expect(page.locator(".pdf-ocr-button")).toHaveText("Retry text recognition");
+  await expect(page.locator(".pdf-ocr-button")).toBeEnabled();
+  await expect(page.locator(".reader-error")).toHaveCount(0);
+  await expect(page.locator(".pdf-page canvas")).toBeVisible();
 });

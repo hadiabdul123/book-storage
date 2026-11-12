@@ -1,8 +1,8 @@
 import type { Page } from "@playwright/test";
 // Original generated scan: no copyrighted book or private content in fixtures.
-export async function scanPdf(page: Page) {
+export async function scanPdf(page: Page, blank = false) {
   const jpeg = Buffer.from(
-    await page.evaluate(() => {
+    await page.evaluate((blank) => {
       const c = document.createElement("canvas");
       c.width = 1000;
       c.height = 1300;
@@ -11,11 +11,13 @@ export async function scanPdf(page: Page) {
       ctx.fillRect(0, 0, 1000, 1300);
       ctx.fillStyle = "black";
       ctx.font = "48px Arial";
+      if (!blank) {
       ctx.fillText("Reading opens new doors.", 100, 180);
       ctx.fillText("Every reader can make notes.", 100, 270);
       ctx.fillText("Clear words are easy to select.", 100, 360);
+      }
       return c.toDataURL("image/jpeg", 0.95).split(",")[1];
-    }),
+    }, blank),
     "base64",
   );
   const stream = Buffer.from("q 500 0 0 650 0 0 cm /Im0 Do Q");

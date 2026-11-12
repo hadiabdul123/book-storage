@@ -215,11 +215,7 @@ test("saved PDF notes and rendering assets survive a full offline browser restar
       .filter({ hasText: "Original scan" })
       .locator(".book-cover-link")
       .click();
-    await openTools(page);
-    // OCR has never been run in this profile: its worker/model must load offline.
-    await page
-      .getByRole("button", { name: "Recognize text on page 1", exact: true })
-      .click();
+    // Automatic OCR has never run in this profile: its worker/model must load offline.
     await expect(page.locator(".ocr-text-layer")).toContainText(
       "Reading opens",
       { timeout: 30000 },

@@ -1,5 +1,12 @@
 # Verification and release gates
 
+## Automatic recognition and compact phone reading on 2026-11-12
+
+- Scanned pages now start local English recognition automatically after becoming visible and scrolling settling. One visible page is processed at a time; cached results are reused, hidden pages are not queued, and background failures/blank scans do not interrupt reading or retry endlessly. Recognized overlays remain in original PDF coordinates for saved highlights.
+- Phone PDFs use four-pixel outer margins and vertically centered paginated pages; note buttons overlay the page instead of reserving a blank row. EPUB phone side padding is reduced. Original printed PDF margins remain part of the source document.
+- The phone passage popup uses two compact action rows, smaller color swatches with 44-pixel touch targets, a shorter bookmark label, and an explicit eraser button. Expanded meaning/note views retain their actions and bounded scrolling.
+- New regression cases exercise automatic OCR without user interaction, actual desktop mouse dragging/highlight persistence, cached text reopening without the OCR engine, blank scans, phone page bounds/centering, and compact popup dimensions. Private original-book checks cover both mouse and touch selection after automatic recognition.
+
 ## Mobile gesture responsiveness and page animation on 2026-11-12
 
 - Removed the 320 ms double-tap delay from reading-control taps. Collapsed selection notifications no longer cancel taps; actual text selection, scrolling, long presses, and multi-touch still take precedence.

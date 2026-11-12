@@ -8,7 +8,7 @@ import {
   type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
-import { Bookmark as BookmarkIcon, Undo2, Redo2, X } from "lucide-react";
+import { Bookmark as BookmarkIcon, Undo2, Redo2, X, Eraser } from "lucide-react";
 import { db } from "./db";
 import {
   colors,
@@ -399,10 +399,11 @@ export const ReaderInteractions = forwardRef<
       const rect = state.selected
         ? visible(state.selected.locator)[0]
         : undefined;
+      const popupLimit = innerWidth <= 700 ? Math.min(420, innerHeight * 0.5) : 520;
       const width =
           popup.current?.offsetWidth || Math.min(360, innerWidth - 16),
         desiredHeight = Math.min(
-          520,
+          popupLimit,
           popup.current
             ? popup.current.scrollHeight +
                 popup.current.offsetHeight -
@@ -434,7 +435,7 @@ export const ReaderInteractions = forwardRef<
         (belowSpace < desiredHeight && aboveSpace > belowSpace);
       const maxHeight = Math.max(
         80,
-        Math.min(520, above ? aboveSpace : belowSpace),
+        Math.min(popupLimit, above ? aboveSpace : belowSpace),
       );
       // offsetHeight may still be constrained by the previous selection's
       // maxHeight. Use the natural content height for both size and position.
@@ -785,15 +786,7 @@ export const ReaderInteractions = forwardRef<
                   {target?.color === color ? "✓" : ""}
                 </button>
               ))}
-              {target && (
-                <button
-                  className="remove-highlight"
-                  disabled={busy}
-                  onClick={() => void attempt(() => colorAction(target.color))}
-                >
-                  Remove highlight
-                </button>
-              )}
+
             </div>
           )}
           <div className="passage-actions">
@@ -819,6 +812,7 @@ export const ReaderInteractions = forwardRef<
             </button>
             <button
               disabled={busy}
+              aria-label={selectedBookmark ? "Remove passage bookmark" : "Bookmark passage"}
               aria-pressed={!!selectedBookmark}
               onPointerDown={(e) => e.preventDefault()}
               onClick={() => void attempt(togglePassage)}
@@ -827,10 +821,20 @@ export const ReaderInteractions = forwardRef<
                 size={15}
                 fill={selectedBookmark ? "currentColor" : "none"}
               />
-              {selectedBookmark
-                ? "Remove passage bookmark"
-                : "Bookmark passage"}
+              {selectedBookmark ? "Unbookmark" : "Bookmark"}
             </button>
+            {target && (
+              <button
+                className="remove-highlight"
+                aria-label="Remove highlight"
+                title="Remove highlight"
+                disabled={busy}
+                onPointerDown={(event) => event.preventDefault()}
+                onClick={() => void attempt(() => colorAction(target.color))}
+              >
+                <Eraser size={17} />
+              </button>
+            )}
           </div>
           {mode === "note" && (
             <div className="passage-note">

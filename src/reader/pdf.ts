@@ -58,6 +58,9 @@ export class PdfReader implements ReaderAdapter {
   private resizeObserver?: ResizeObserver;
   private hostWidth = 0;
   private hostHeight = 0;
+  private autoOcrTimer?: ReturnType<typeof setTimeout>;
+  private autoOcrBusy = false;
+  private autoOcrAttempted = new Set<number>();
   private marks: Annotation[] = [];
   private disposed = false;
   private zoom = 1;
@@ -111,7 +114,7 @@ export class PdfReader implements ReaderAdapter {
       });
       const ocrButton = document.createElement("button");
       ocrButton.className = "pdf-ocr-button";
-      ocrButton.textContent = "Enable text selection";
+      ocrButton.textContent = "Text recognition starts automatically";
       ocrButton.setAttribute("aria-label", `Recognize text on page ${n}`);
       ocrButton.hidden = true;
       ocrButton.addEventListener(
@@ -158,6 +161,7 @@ export class PdfReader implements ReaderAdapter {
       if (state?.hasText === false) await this.recognizePage(state);
     });
     this.host.addEventListener("scroll", this.onScroll, { passive: true });
+    document.addEventListener("visibilitychange", this.scheduleRecognition);
     document.addEventListener("selectionchange", this.selection);
     this.host.addEventListener("pointerdown", this.pointerDown);
     this.host.addEventListener("pointermove", this.pointerMove);
@@ -186,17 +190,18 @@ export class PdfReader implements ReaderAdapter {
     this.resizeObserver.observe(this.host);
   }
   private size(state: PageState) {
+    const phone = window.matchMedia("(max-width: 700px)").matches;
     const base = state.page.getViewport({ scale: 1, rotation: this.rotation });
     const available = Math.max(
       160,
-      (this.host.clientWidth - 32 - (this.columns - 1) * 20) / this.columns,
+      (this.host.clientWidth - (phone ? 8 : 32) - (this.columns - 1) * 20) / this.columns,
     );
     const widthScale = Math.min(available / base.width, 1.6);
     const scale =
       (this.layout.fit === "page"
         ? Math.min(
             widthScale,
-            Math.max(160, this.host.clientHeight - 80) / base.height,
+            Math.max(160, this.host.clientHeight - (phone ? 8 : 80)) / base.height,
           )
         : widthScale) * this.zoom;
     state.viewport = state.page.getViewport({ scale, rotation: this.rotation });
@@ -263,12 +268,38 @@ export class PdfReader implements ReaderAdapter {
       }
       state.loaded = true;
       this.drawPage(state);
+      this.scheduleRecognition();
     } catch (error: any) {
       if (error?.name !== "RenderingCancelledException") throw error;
     } finally {
       state.rendering = false;
     }
   }
+  // Only recognize pages actually on screen, after scrolling has settled.
+  // Never enqueue a whole book or allocate several OCR canvases at once.
+  private scheduleRecognition = () => {
+    clearTimeout(this.autoOcrTimer);
+    if (this.disposed || this.autoOcrBusy) return;
+    this.autoOcrTimer = setTimeout(() => {
+      if (this.disposed || document.hidden || this.layingOut) return;
+      if (this.pages.some(p => p.recognizing)) return;
+      const viewport = this.host.getBoundingClientRect();
+      const visible = this.pages.filter(p => {
+        if (!p.loaded || p.hasText !== false || p.ocrWords?.length ||
+            p.element.hidden || this.autoOcrAttempted.has(p.n)) return false;
+        const box = p.element.getBoundingClientRect();
+        return box.width > 0 && box.bottom > viewport.top && box.top < viewport.bottom;
+      });
+      const state = visible.sort((a, b) => Math.abs(a.n - this.current) - Math.abs(b.n - this.current))[0];
+      if (!state) return;
+      this.autoOcrAttempted.add(state.n);
+      this.autoOcrBusy = true;
+      void this.recognizePage(state, true).catch(() => {}).finally(() => {
+        this.autoOcrBusy = false;
+        this.scheduleRecognition();
+      });
+    }, 350);
+  };
   private renderOcr(state: PageState) {
     const layer = state.element.querySelector<HTMLElement>(".textLayer");
     if (!layer || state.hasText) return;
@@ -306,7 +337,7 @@ export class PdfReader implements ReaderAdapter {
       layer.append(span);
     }
   }
-  private recognizePage(state: PageState): Promise<void> {
+  private recognizePage(state: PageState, automatic = false): Promise<void> {
     if (state.hasText || state.ocrWords?.length) return Promise.resolve();
     if (state.recognizing) return state.recognizing;
     state.recognizing = (async () => {
@@ -346,9 +377,10 @@ export class PdfReader implements ReaderAdapter {
       } catch (error) {
         if (!this.disposed) {
           state.ocrButton.textContent = "Retry text recognition";
-          this.events.onError(
-            `Text recognition: ${error instanceof Error ? error.message : String(error)}`,
-          );
+          const message = error instanceof Error ? error.message : String(error);
+          state.ocrButton.title = message;
+          // A blank page or failed background recognition must not interrupt reading.
+          if (!automatic) this.events.onError(`Text recognition: ${message}`);
         }
         throw error;
       } finally {
@@ -356,6 +388,7 @@ export class PdfReader implements ReaderAdapter {
         state.ocrButton.disabled = false;
         state.ocrButton.classList.remove("recognizing");
         state.recognizing = undefined;
+        this.scheduleRecognition();
       }
     })();
     return state.recognizing;
@@ -429,6 +462,7 @@ export class PdfReader implements ReaderAdapter {
   };
   private onScroll = () => {
     if (this.layingOut) return;
+    this.scheduleRecognition();
     clearTimeout(this.timer);
     this.timer = setTimeout(() => {
       if (this.disposed) return;
@@ -911,6 +945,8 @@ export class PdfReader implements ReaderAdapter {
   destroy() {
     this.turn.destroy();
     this.disposed = true;
+    clearTimeout(this.autoOcrTimer);
+    document.removeEventListener("visibilitychange", this.scheduleRecognition);
     this.touch?.destroy();
     this.ocr.destroy();
     clearTimeout(this.timer);

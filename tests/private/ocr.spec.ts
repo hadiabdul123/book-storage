@@ -1,10 +1,12 @@
 import { test, expect } from "@playwright/test";
+for (const phone of [false, true]) test.describe(phone ? "phone" : "desktop", () => {
 test.use({
-  viewport: { width: 412, height: 850 },
-  isMobile: true,
-  hasTouch: true,
+  viewport: phone ? { width: 412, height: 850 } : { width: 1440, height: 1000 },
+  isMobile: phone,
+  hasTouch: phone,
 });
-test("private scanned PDF gains local selectable text and a persistent touch highlight", async ({
+
+test("private scanned PDF gains automatic text selection and a persistent highlight", async ({
   page,
 }) => {
   test.setTimeout(180000);
@@ -25,12 +27,7 @@ test("private scanned PDF gains local selectable text and a persistent touch hig
   const target = page.locator('.pdf-page[data-page="20"]');
   await target.scrollIntoViewIfNeeded();
   await expect(target.locator(".textLayer")).toBeAttached();
-  await expect(target.locator(".textLayer span")).toHaveCount(0);
-  await page.getByRole("button", { name: "Show reading controls" }).focus();
-  await page.keyboard.press("Enter");
-  await page
-    .getByRole("button", { name: "Recognize text on page 20", exact: true })
-    .click();
+  // Visible scanned pages are recognized without pressing an enable button.
   await expect(target.locator(".ocr-text-layer span").first()).toBeVisible({
     timeout: 90000,
   });
@@ -41,6 +38,7 @@ test("private scanned PDF gains local selectable text and a persistent touch hig
   const word = target.locator(".ocr-text-layer span").nth(25);
   await word.scrollIntoViewIfNeeded();
   const r = await word.boundingBox();
+  if (phone) {
   const session = await page.context().newCDPSession(page);
   await session.send("Input.dispatchTouchEvent", {
     type: "touchStart",
@@ -51,14 +49,23 @@ test("private scanned PDF gains local selectable text and a persistent touch hig
     type: "touchEnd",
     touchPoints: [],
   });
+    await session.detach();
+  } else {
+    await page.mouse.move(r!.x + 1, r!.y + r!.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(r!.x + r!.width - 1, r!.y + r!.height / 2, { steps: 10 });
+    await page.mouse.up();
+  }
   await expect(page.locator(".passage-popup")).toBeVisible();
-  await page
-    .getByRole("button", { name: "yellow highlight", exact: true })
-    .tap();
+  const highlight = page.getByRole("button", { name: "yellow highlight", exact: true });
+  if (phone) await highlight.tap();
+  else await highlight.click();
   await expect(target.locator(".pdf-highlight").first()).toBeVisible();
   await page.reload();
   await target.scrollIntoViewIfNeeded();
   await expect(target.locator(".ocr-text-layer span").first()).toBeAttached();
   await expect(target.locator(".pdf-highlight").first()).toBeVisible();
   expect(external).toEqual([]);
+});
+
 });

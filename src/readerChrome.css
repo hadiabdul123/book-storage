@@ -223,3 +223,53 @@
   user-select: text;
   -webkit-user-select: text;
 }
+
+/* Phone pages fill the available width; note controls overlay instead of adding gaps. */
+@media (max-width: 700px) {
+  .reader-shell .pdf-reader { padding: 4px 0; }
+  .reader-shell .pdf-page-frame { position: relative; }
+  .reader-shell .pdf-page-frame .pdf-page { margin: 0; }
+  .reader-shell .page-note-indicator {
+    position: absolute;
+    right: 4px;
+    top: 4px;
+    z-index: 5;
+    margin: 0;
+  }
+  .reader-shell .pdf-spread { margin-bottom: 8px; }
+  .reader-shell .pdf-reader[data-navigation="paginated"] .pdf-spread {
+    min-height: calc(var(--reader-height, 100dvh) - 8px);
+    align-items: center;
+    margin-bottom: 0;
+  }
+  .reader-shell .passage-popup { width: min(328px, calc(100vw - 16px)); padding: 8px; }
+  .reader-shell .passage-popup[data-mode="tools"] .passage-popup-top {
+    position: absolute;
+    right: 4px;
+    top: 8px;
+  }
+  .reader-shell .passage-popup[data-mode="tools"] .passage-popup-top > span,
+  .reader-shell .passage-popup[data-mode="tools"] .selection-excerpt { display: none; }
+  .reader-shell .passage-popup[data-mode="tools"] .passage-popup-top button { width: 44px; height: 44px; }
+  .reader-shell .passage-colors { gap: 2px; padding-right: 44px; }
+  .reader-shell .passage-colors > button {
+    padding: 7px;
+    background-clip: content-box !important;
+    border-color: transparent;
+  }
+  .reader-shell .passage-actions { margin-top: 4px; padding-top: 4px; gap: 2px; }
+  .reader-shell .passage-actions > button { padding: 6px; font-size: 13px; }
+  .reader-shell .passage-actions .remove-highlight { min-width: 44px; justify-content: center; }
+  .reader-shell .passage-popup .dictionary-entry h3 { font-size: 20px; margin: 4px 0; }
+  .reader-shell .passage-popup .meaning-panel { margin-top: 4px; padding-top: 4px; }
+  .reader-shell .passage-popup .selection-excerpt { max-height: 22px; margin-bottom: 4px; }
+  .reader-shell .pdf-ocr-button.recognizing {
+    top: auto;
+    bottom: 4px;
+    left: 4px;
+    min-height: 24px;
+    padding: 3px 7px;
+    font-size: 12px;
+    pointer-events: none;
+  }
+}
