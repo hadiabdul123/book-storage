@@ -73,6 +73,8 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   const savedPrefs = useLiveQuery(() => get("preferences", "reader"), []);
   const pdfPrefs = useLiveQuery(() => get("preferences", `pdf:${id}`), [id]);
   const localView = useLiveQuery(() => readDeviceReading(id), [id]);
+  const [swipeToTurn, setSwipeToTurn] = useState(false);
+  useEffect(() => setSwipeToTurn(!!localView?.swipeToTurn), [id, localView?.swipeToTurn]);
   const [hidePageControls, setHidePageControls] = useState(false);
   useEffect(() => setHidePageControls(!!localView?.hidePageControls), [id, localView?.hidePageControls]);
   const togglePageControls = (hidden: boolean) => {
@@ -175,7 +177,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
     !!panel || !!editing || region,
   );
   const swipeEnabled =
-    !!localView?.swipeToTurn &&
+    swipeToTurn &&
     phone &&
     !loading &&
     !panel &&
@@ -932,9 +934,10 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
                         <label className="pin-controls">
                           <input
                             type="checkbox"
-                            checked={!!localView?.swipeToTurn}
+                            checked={swipeToTurn}
                             onChange={(e) => {
                               const enabled = e.target.checked;
+                              setSwipeToTurn(enabled);
                               void writeDeviceReading(id, {
                                 swipeToTurn: enabled,
                                 ...(book.format === "pdf"
@@ -950,7 +953,10 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
                                   : {
                                       flow: enabled ? "paginated" : "scrolled",
                                     }),
-                              }).catch((e) => notify(messageOf(e)));
+                              }).catch((error) => {
+                                setSwipeToTurn(current => current === enabled ? !enabled : current);
+                                notify(messageOf(error));
+                              });
                             }}
                           />
                           Swipe to turn pages

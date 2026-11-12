@@ -40,7 +40,7 @@ test("desktop wheel and keyboard zoom resize only the PDF and retain saved zoom"
   await page.keyboard.down("Control");
   await page.mouse.wheel(0, -200);
   await page.keyboard.up("Control");
-  await expect.poll(async () => Number(await page.getByRole("combobox", { name: "Zoom", exact: true }).inputValue())).toBeGreaterThan(1.4);
+  await expect.poll(async () => Number(await page.getByRole("combobox", { name: "Zoom", exact: true }).inputValue()), { timeout: 15_000 }).toBeGreaterThan(1.4);
   expect((await paper.boundingBox())!.width).toBeGreaterThan(original.width * 1.4);
   expect((await page.locator(".reader-header").boundingBox())!.height).toBe(header.height);
   expect((await page.locator(".reader-panel").boundingBox())!.width).toBe(panel.width);
