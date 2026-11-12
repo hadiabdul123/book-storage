@@ -20,6 +20,7 @@ export type ScreenRect = {
 };
 export interface ReaderEvents {
   onReaderTap?: () => void;
+  onZoom?: (zoom: number) => void;
   canSwipe?: () => boolean;
   onReaderSwipe?: (direction: "next" | "previous") => void;
   onShortcut?: (event: KeyboardEvent) => void;

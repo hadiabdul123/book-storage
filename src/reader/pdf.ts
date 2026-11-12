@@ -1,3 +1,4 @@
+import { bindPdfZoom } from "./pdfZoom";
 import { PageTurn } from "./pageTurn";
 import { db } from "../db";
 import { PageOcr } from "./ocr";
@@ -67,6 +68,7 @@ export class PdfReader implements ReaderAdapter {
   private marks: Annotation[] = [];
   private disposed = false;
   private zoom = 1;
+  private unbindZoom?: () => void;
   private rotation = 0;
   private current = 1;
   private region = false;
@@ -201,6 +203,43 @@ export class PdfReader implements ReaderAdapter {
       }
     });
     this.resizeObserver.observe(this.host);
+    this.unbindZoom = bindPdfZoom(this.host, {
+      value: () => this.zoom,
+      preview: (ratio, point) => {
+        const paper = this.host.querySelector<HTMLElement>(".pdf-document");
+        if (!paper) return;
+        if (!paper.style.transform) {
+          const box = paper.getBoundingClientRect();
+          paper.style.transformOrigin = `${point.x - box.left}px ${point.y - box.top}px`;
+        }
+        paper.style.transform = `scale(${ratio})`;
+        this.host.classList.add("pdf-zooming");
+      },
+      clear: () => {
+        const paper = this.host.querySelector<HTMLElement>(".pdf-document");
+        if (paper) { paper.style.transform = ""; paper.style.transformOrigin = ""; }
+        this.host.classList.remove("pdf-zooming");
+      },
+      commit: async (zoom, point) => {
+        this.clearSelection();
+        const state = this.pages.find(p => {
+          const box = p.element.getBoundingClientRect();
+          return !p.element.hidden && point.x >= box.left && point.x <= box.right &&
+            point.y >= box.top && point.y <= box.bottom;
+        }) || this.pages[this.current - 1];
+        const box = state.element.getBoundingClientRect();
+        const pdfPoint = state.viewport.convertToPdfPoint(point.x - box.left, point.y - box.top);
+        await this.setView(zoom, this.rotation);
+        if (this.disposed) return;
+        const next = state.element.getBoundingClientRect();
+        const [x, y] = state.viewport.convertToViewportPoint(pdfPoint[0], pdfPoint[1]);
+        this.host.scrollLeft += next.left + x - point.x;
+        this.host.scrollTop += next.top + y - point.y;
+        this.onScroll();
+        this.events.onZoom?.(zoom);
+      },
+      error: error => this.events.onError(error instanceof Error ? error.message : String(error)),
+    });
   }
   private size(state: PageState) {
     const phone = window.matchMedia("(max-width: 700px)").matches;
@@ -503,11 +542,11 @@ export class PdfReader implements ReaderAdapter {
     });
   };
   private onScroll = () => {
-    if (this.layingOut) return;
+    if (this.layingOut || this.host.classList.contains("pdf-zooming")) return;
     this.scheduleRecognition();
     clearTimeout(this.timer);
     this.timer = setTimeout(() => {
-      if (this.disposed) return;
+      if (this.disposed || this.host.classList.contains("pdf-zooming")) return;
       const top = this.host.getBoundingClientRect().top;
       let state =
         this.pages.find(
@@ -647,7 +686,10 @@ export class PdfReader implements ReaderAdapter {
       }
       fragment.append(row);
     }
-    this.host.replaceChildren(fragment);
+    const paper = document.createElement("div");
+    paper.className = "pdf-document";
+    paper.append(fragment);
+    this.host.replaceChildren(paper);
     this.host.dataset.columns = String(this.columns);
     this.host.dataset.navigation = this.layout.navigation;
   }
@@ -996,6 +1038,7 @@ export class PdfReader implements ReaderAdapter {
   destroy() {
     this.turn.destroy();
     this.disposed = true;
+    this.unbindZoom?.();
     clearTimeout(this.autoOcrTimer);
     document.removeEventListener("visibilitychange", this.scheduleRecognition);
     this.touch?.destroy();

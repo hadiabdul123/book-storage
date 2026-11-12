@@ -17,11 +17,12 @@ it("keeps phone defaults independent of legacy desktop preferences", () => {
 });
 it("saves layout and zoom locally without creating a cloud operation", async () => {
   await writeDeviceReading("book", { pdfLayout: defaultPdfLayout });
-  await writeDeviceReading("book", { zoom: 1.5, rotation: 90 });
+  await writeDeviceReading("book", { zoom: 1.5, rotation: 90, hidePageControls: true });
   expect(await readDeviceReading("book")).toEqual({
     pdfLayout: defaultPdfLayout,
     zoom: 1.5,
     rotation: 90,
+    hidePageControls: true,
   });
   expect(await db.outbox.count()).toBe(0);
 });

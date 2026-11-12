@@ -292,3 +292,11 @@
 .reader-shell .pdf-ocr-button.ocr-failed {
   top: calc(76px + env(safe-area-inset-top));
 }
+
+/* Page gestures never scale the surrounding reader chrome. */
+.reader-shell .reader-host.pdf-reader { touch-action: pan-x pan-y; }
+.reader-shell.swipe-pages .reader-host.pdf-reader { touch-action: pan-y; }
+.reader-shell.hide-page-controls .reader-panel { bottom: max(8px, env(safe-area-inset-bottom)); }
+.pdf-document { min-width: 100%; width: max-content; }
+.pdf-zooming .pdf-document { will-change: transform; }
+.pdf-zooming .textLayer { pointer-events: none; }

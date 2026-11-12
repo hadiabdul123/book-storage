@@ -73,6 +73,15 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   const savedPrefs = useLiveQuery(() => get("preferences", "reader"), []);
   const pdfPrefs = useLiveQuery(() => get("preferences", `pdf:${id}`), [id]);
   const localView = useLiveQuery(() => readDeviceReading(id), [id]);
+  const [hidePageControls, setHidePageControls] = useState(false);
+  useEffect(() => setHidePageControls(!!localView?.hidePageControls), [id, localView?.hidePageControls]);
+  const togglePageControls = (hidden: boolean) => {
+    setHidePageControls(hidden);
+    void writeDeviceReading(id, { hidePageControls: hidden }).catch(error => {
+      setHidePageControls(current => current === hidden ? !hidden : current);
+      notify(messageOf(error));
+    });
+  };
   const [phone] = useState(
     () => window.matchMedia("(max-width: 700px)").matches,
   );
@@ -259,6 +268,11 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
       reader = new ctor(host.current!, book, {
         onShortcut: (event) => interactions.current?.shortcut(event),
         onReaderTap: () => chromeRef.current.tap(),
+        onZoom: (value) => {
+          if (cancelled) return;
+          setZoom(value);
+          void writeDeviceReading(id, { zoom: value }).catch(e => notifyRef.current(messageOf(e)));
+        },
         canSwipe,
         onReaderSwipe: turnSwipe,
         onPageNote: (page) => openNotebookRef.current(page),
@@ -461,7 +475,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   return (
     <main
       ref={shell}
-      className={`reader-shell theme-${prefs.theme}${chrome.visible ? " controls-visible" : " reading-mode"}${chrome.menu ? " controls-menu-open" : ""}${swipeEnabled ? " swipe-pages" : ""}`}
+      className={`reader-shell theme-${prefs.theme}${chrome.visible ? " controls-visible" : " reading-mode"}${chrome.menu ? " controls-menu-open" : ""}${swipeEnabled ? " swipe-pages" : ""}${hidePageControls ? " hide-page-controls" : ""}`}
       onPointerMoveCapture={(event) => {
         if (
           event.pointerType === "mouse" &&
@@ -907,6 +921,11 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
                     />{" "}
                     Keep controls visible on this device
                   </label>
+                  <label className="pin-controls">
+                    <input type="checkbox" checked={hidePageControls}
+                      onChange={event => togglePageControls(event.target.checked)} />
+                    Hide bottom page controls
+                  </label>
                   {phone &&
                     (book.format === "pdf" || book.format === "epub") && (
                       <>
@@ -1103,6 +1122,8 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
                             void setPdfView(Number(e.target.value), rotation)
                           }
                         >
+                          {![1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3].includes(zoom) &&
+                            <option value={zoom}>{Math.round(zoom * 100)}%</option>}
                           <option value="1">100% of fit</option>
                           <option value="1.25">125%</option>
                           <option value="1.5">150%</option>
@@ -1114,6 +1135,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
                           <option value="3">300%</option>
                         </select>
                       </label>
+                      <p className="muted">Pinch the page, use Ctrl + mouse wheel, or press Ctrl/Cmd + plus, minus or 0. Only the PDF page zooms.</p>
                       <button
                         className="secondary"
                         onClick={() =>
@@ -1145,6 +1167,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
                   <button
                     className="text-button"
                     onClick={() => {
+                      togglePageControls(false);
                       void configure(defaults);
                       if (book.format === "pdf")
                         void configurePdf(defaultPdfLayout);
@@ -1158,7 +1181,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
           </aside>
         )}
       </div>
-      <footer
+      {!hidePageControls && <footer
         className="reader-footer"
         onPointerDownCapture={chrome.reveal}
         onPointerEnter={chrome.reveal}
@@ -1242,7 +1265,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
         >
           <ChevronRight size={22} />
         </button>
-      </footer>
+      </footer>}
       <ReaderInteractions
         key={book.id}
         ref={interactions}
