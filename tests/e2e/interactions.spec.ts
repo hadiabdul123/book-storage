@@ -361,23 +361,20 @@ test("overlapping highlights require a choice and failed removal keeps the mark"
   await page.evaluate(async () => {
     const { db } = await import(/* @vite-ignore */ "/src/db.ts");
     const row = await db.rows.get("annotation:overlapping-copy");
-    await db.conflicts.put({
-      key: row.key,
-      local: row,
-      remote: { ...row, revision: 8 },
-      detectedAt: new Date().toISOString(),
-    });
+    const fail = () => { throw new Error("Storage temporarily unavailable"); };
+    (window as any).__storageFailure = fail;
+    db.outbox.hook("creating", fail);
   });
   await page
     .getByRole("button", { name: "Remove highlight", exact: true })
     .click();
   await expect(
-    page.getByText(/Resolve the conflicting versions/),
+    page.getByText(/Storage temporarily unavailable/),
   ).toBeVisible();
   await expect(page.locator(".pdf-highlight")).toHaveCount(2);
   await page.evaluate(async () => {
     const { db } = await import(/* @vite-ignore */ "/src/db.ts");
-    await db.conflicts.clear();
+    db.outbox.hook("creating").unsubscribe((window as any).__storageFailure);
   });
   await page
     .getByRole("button", { name: "Remove highlight", exact: true })

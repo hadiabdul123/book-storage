@@ -297,12 +297,9 @@ test("page following pins active writing and failed saves retain the notebook", 
     const row = (await db.rows.toArray()).find(
       (r: any) => r.value.type === "page-note" && r.value.locator.page === 2,
     );
-    await db.conflicts.put({
-      key: row.key,
-      local: row,
-      remote: { ...row, revision: 5 },
-      detectedAt: new Date().toISOString(),
-    });
+    const fail = () => { throw new Error("Storage temporarily unavailable"); };
+    (window as any).__storageFailure = fail;
+    db.outbox.hook("creating", fail);
   });
   await page
     .getByRole("textbox", { name: "Notebook for page 2", exact: true })
@@ -316,7 +313,7 @@ test("page following pins active writing and failed saves retain the notebook", 
   ).toContainText("Keep this unsaved writing");
   await page.evaluate(async () => {
     const { db } = await import(/* @vite-ignore */ "/src/db.ts");
-    await db.conflicts.clear();
+    db.outbox.hook("creating").unsubscribe((window as any).__storageFailure);
   });
   await page.getByRole("button", { name: "Save now", exact: true }).click();
   await expect(page.locator(".notebook-status")).toHaveText(

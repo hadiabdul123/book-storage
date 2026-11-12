@@ -1,3 +1,4 @@
+import { compareEdits } from "../../src/syncOrder";
 import { openTools, clickTool } from "../e2e/controls";
 import { expect, test, type BrowserContext } from "@playwright/test";
 import { readFileSync } from "node:fs";
@@ -73,8 +74,12 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
         const op = request.postDataJSON().p_operation;
         if (receipts.has(op.opId)) return json(receipts.get(op.opId));
         const prior = rows.get(op.key);
-        if ((prior?.revision || 0) !== op.baseRevision)
-          return json({ conflict: true, row: prior });
+        const candidate = { ...op, editedAt: op.createdAt, editId: op.opId, updatedAt: op.createdAt };
+        if (prior && compareEdits(candidate, prior) <= 0) {
+          const result = { conflict: false, superseded: true, row: prior };
+          receipts.set(op.opId, result);
+          return json(result);
+        }
         const row = {
           key: op.key,
           kind: op.kind,
@@ -83,6 +88,8 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
           deleted: op.deleted,
           revision: ++revision,
           updatedAt: new Date().toISOString(),
+          editedAt: op.createdAt,
+          editId: op.opId,
         };
         rows.set(op.key, row);
         const result = { conflict: false, row };
@@ -249,6 +256,58 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
       second.getByRole("textbox", { name: "Notebook for page 1", exact: true }),
     ).toContainText("Automatic sync on return");
     await second.getByRole("button", { name: "Close panel" }).click();
+    // Two isolated devices edit the same highlight offline. Exercise both
+    // upload orders: the later removal must win without a Settings visit.
+    await first.getByRole("button", { name: "Close panel" }).click();
+    await first.getByRole("link", { name: "Back to library", exact: true }).click();
+    await second.getByRole("link", { name: "Back to library", exact: true }).click();
+    for (const deleteUploadsFirst of [true, false]) {
+      const id = `hello-${deleteUploadsFirst}`;
+      await first.evaluate(async (id) => {
+        const { list, save } = await import("/src/db.ts");
+        const book = (await list("book"))[0];
+        await save("annotation", { id, bookId: book.id, text: "hello", note: "", color: "yellow", tags: [],
+          createdAt: new Date().toISOString(), locator: { v: 1, type: "pdf", hash: book.hash, page: 1, y: 0 } });
+      }, id);
+      await expect.poll(() => rows.has(`annotation:${id}`)).toBe(true);
+      await second.evaluate(() => window.dispatchEvent(new Event("focus")));
+      await expect.poll(() => second.evaluate(async (id) => {
+        const { db } = await import("/src/db.ts"); return !!(await db.rows.get(`annotation:${id}`));
+      }, id)).toBe(true);
+      for (const device of [first, second]) await device.evaluate(() => {
+        Object.defineProperty(navigator, "onLine", { configurable: true, get: () => false });
+        window.dispatchEvent(new Event("offline"));
+      });
+      await first.evaluate(async (id) => {
+        const { get, save } = await import("/src/db.ts");
+        await save("annotation", { ...(await get("annotation", id))!, color: "blue" });
+      }, id);
+      await second.evaluate(async (id) => {
+        const { db, get, save } = await import("/src/db.ts");
+        const row = (await db.rows.get(`annotation:${id}`))!;
+        // An old-version conflict must not block this new explicit removal.
+        await db.conflicts.put({ key: row.key, local: row, remote: row, detectedAt: new Date().toISOString() });
+        await save("annotation", (await get("annotation", id))!, true);
+      }, id);
+      for (const device of deleteUploadsFirst ? [second, first] : [first, second]) {
+        await device.evaluate(() => {
+          Object.defineProperty(navigator, "onLine", { configurable: true, get: () => true });
+          window.dispatchEvent(new Event("online"));
+        });
+        await expect.poll(() => device.evaluate(async () => {
+          const { db } = await import("/src/db.ts"); return db.outbox.count();
+        })).toBe(0);
+      }
+      expect(rows.get(`annotation:${id}`).deleted).toBe(true);
+      for (const device of [first, second]) {
+        await device.evaluate(() => window.dispatchEvent(new Event("focus")));
+        await expect.poll(() => device.evaluate(async (id) => {
+          const { db } = await import("/src/db.ts");
+          return { deleted: (await db.rows.get(`annotation:${id}`))?.deleted, conflicts: await db.conflicts.count() };
+        }, id)).toEqual({ deleted: true, conflicts: 0 });
+      }
+    }
+    await second.locator(".book-cover-link").click();
     // Offline authorization with an expired/missing session; asset persistence
     // across a real offline browser restart is covered separately by test:pwa.
     await second.evaluate(() => {

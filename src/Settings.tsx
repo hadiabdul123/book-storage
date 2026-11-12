@@ -10,7 +10,7 @@ import {
   Check,
   AlertCircle,
 } from "lucide-react";
-import { db, list, save, resolveConflict, clearPrivateData } from "./db";
+import { db, list, save, clearPrivateData } from "./db";
 import { cloud, synchronize } from "./sync";
 import { type Book, type Annotation, readingSeconds, now } from "./model";
 import { exportAnnotations } from "./export";
@@ -20,7 +20,6 @@ import { restoreAnnotationBackup } from "./backup";
 export function Settings({ notify }: { notify: (m: string) => void }) {
   const books = useLiveQuery(() => list("book"), []) || [],
     sessions = useLiveQuery(() => list("session"), []) || [],
-    conflicts = useLiveQuery(() => db.conflicts.toArray(), []) || [],
     trash =
       useLiveQuery(
         () =>
@@ -54,6 +53,9 @@ export function Settings({ notify }: { notify: (m: string) => void }) {
           throw new Error(
             "The deletion must synchronize first. Resolve pending changes, then retry deleting the files.",
           );
+        const confirmed = await db.rows.get(`book:${book.id}`);
+        if (!confirmed?.deleted || !(confirmed.value as Book).purgedAt)
+          throw new Error("A newer book change was synced. Review the book before permanently deleting its files.");
         const {
           data: { session },
         } = await cloud.auth.getSession();
@@ -197,65 +199,11 @@ export function Settings({ notify }: { notify: (m: string) => void }) {
           </>
         )}
       </section>
-      {!!conflicts.length && (
-        <section className="settings-section">
-          <h2>Changes to review</h2>
-          <p className="muted">
-            Both devices changed the same item while disconnected. Neither
-            version has been discarded.
-          </p>
-          {conflicts.map((c) => (
-            <div className="conflict" key={c.key}>
-              <h3>
-                {c.local.kind === "position"
-                  ? "Choose where to resume"
-                  : `Conflicting ${c.local.kind}`}
-              </h3>
-              <div className="conflict-versions">
-                <div>
-                  <strong>This device</strong>
-                  <p>{describe(c.local.value, c.local.deleted)}</p>
-                </div>
-                <div>
-                  <strong>Other device</strong>
-                  <p>{describe(c.remote.value, c.remote.deleted)}</p>
-                </div>
-              </div>
-              <div className="button-row">
-                {(
-                  [
-                    "local",
-                    "remote",
-                    ...(c.local.kind === "annotation" &&
-                    !c.remote.deleted &&
-                    !c.local.deleted
-                      ? ["both"]
-                      : []),
-                  ] as ("local" | "remote" | "both")[]
-                ).map((choice) => (
-                  <button
-                    className="secondary"
-                    key={choice}
-                    onClick={() =>
-                      void resolveConflict(c, choice).catch((e) =>
-                        notify(messageOf(e)),
-                      )
-                    }
-                  >
-                    {
-                      {
-                        local: "Keep this device",
-                        remote: "Keep other device",
-                        both: "Keep both annotations",
-                      }[choice]
-                    }
-                  </button>
-                ))}
-              </div>
-            </div>
-          ))}
-        </section>
-      )}
+      <section className="settings-section">
+        <h2>Automatic saving and sync</h2>
+        <p>Changes save on this device and sync automatically when connected.
+          If the same item changes on two devices, the latest edit wins, including removals.</p>
+      </section>
       <section className="settings-section">
         <h2>Offline storage</h2>
         <p>
@@ -388,11 +336,4 @@ export function Settings({ notify }: { notify: (m: string) => void }) {
       )}
     </div>
   );
-}
-function describe(value: any, deleted: boolean) {
-  if (deleted) return "Deleted";
-  if (value.note !== undefined) return value.note || value.text;
-  if (value.locator)
-    return `${Math.round((value.progress || 0) * 100)}% · ${new Date(value.readAt).toLocaleString()}`;
-  return value.title || value.name || JSON.stringify(value);
 }

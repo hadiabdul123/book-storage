@@ -35,13 +35,16 @@ it("matches file hashes and skips duplicates within a backup and existing notes"
   expect(await db.outbox.count()).toBe(2);
 });
 
-it("rolls back all writes when a later note has an unresolved sync conflict", async () => {
-  const row: Row = { key: "annotation:conflict", id: "conflict", kind: "annotation", value: { ...annotation, id: "conflict" }, deleted: false, revision: 1, updatedAt: annotation.createdAt };
-  await db.conflicts.put({ key: row.key, local: row, remote: row, detectedAt: annotation.createdAt });
-  await expect(restoreAnnotationBackup(backup([annotation, row.value]), [book])).rejects.toThrow("conflicting");
-  expect(await db.rows.count()).toBe(0);
-  expect(await db.outbox.count()).toBe(0);
-  expect(await db.meta.count()).toBe(0);
+it("rolls back all writes when a later note cannot be stored", async () => {
+  const add = db.outbox.add.bind(db.outbox);
+  const write = vi.spyOn(db.outbox, "add").mockImplementationOnce(add)
+    .mockRejectedValueOnce(new Error("Storage full"));
+  try {
+    await expect(restoreAnnotationBackup(backup([annotation, { ...annotation, id: "second" }]), [book])).rejects.toThrow("Storage full");
+    expect(await db.rows.count()).toBe(0);
+    expect(await db.outbox.count()).toBe(0);
+    expect(await db.meta.count()).toBe(0);
+  } finally { write.mockRestore(); }
 });
 
 it("restores deleted annotations and rejects malformed backup envelopes", async () => {

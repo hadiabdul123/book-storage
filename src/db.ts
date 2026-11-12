@@ -6,12 +6,10 @@ import {
   type Kind,
   type Operation,
   type Row,
-  type Annotation,
   keyOf,
-  now,
   uid,
 } from "./model";
-import { combineDocuments, plainText, emptyDocument } from "./richText";
+import { compareEdits, editTime } from "./syncOrder";
 
 class LibraryDB extends Dexie {
   rows!: Table<Row, string>;
@@ -59,11 +57,17 @@ export async function save<K extends Kind>(
     [db.rows, db.outbox, db.conflicts, db.meta],
     async () => {
       const prior = await db.rows.get(key);
-      if (await db.conflicts.get(key))
-        throw new Error(
-          "Resolve the conflicting versions before editing this item.",
-        );
-      const revision = prior?.revision || 0;
+      const conflict = await db.conflicts.get(key);
+      if (!conflict && prior?.deleted === deleted &&
+          JSON.stringify(prior.value) === JSON.stringify(value)) return;
+      // A hidden/closing reader must not publish its old location as a new edit.
+      const readTime = kind === "position" ? Date.parse((value as EntityMap["position"]).readAt) : undefined;
+      if (readTime !== undefined && prior && readTime <= editTime(prior)) return;
+      const editedAt = new Date(readTime ?? Math.max(Date.now(), editTime(prior) + 1,
+        editTime(conflict?.remote) + 1)).toISOString();
+      const opId = uid();
+      const revision = Math.max(prior?.revision || 0, conflict?.remote.revision || 0);
+      await db.conflicts.delete(key);
       const row: Row = {
         key,
         kind,
@@ -71,98 +75,52 @@ export async function save<K extends Kind>(
         value,
         revision,
         deleted,
-        updatedAt: now(),
+        updatedAt: editedAt,
+        editedAt,
+        editId: opId,
       };
       await db.rows.put(row);
       await db.outbox.add({
-        opId: uid(),
+        opId,
         key,
         kind,
         id: value.id,
         value,
         baseRevision: revision,
         deleted,
-        createdAt: now(),
+        createdAt: editedAt,
         sequence: await nextSequence(),
       });
     },
   );
   window.dispatchEvent(new Event("leafmark-sync"));
 }
-export async function acceptRemote(row: Row) {
+export async function acceptRemote(row: Row, acknowledgedOpId?: string) {
   await db.transaction("rw", [db.rows, db.conflicts, db.outbox], async () => {
-    const pending = await db.outbox.where("key").equals(row.key).count();
+    if (acknowledgedOpId) await db.outbox.delete(acknowledgedOpId);
     const local = await db.rows.get(row.key);
-    if (pending && local && row.revision > local.revision) {
-      await db.conflicts.put({
-        key: row.key,
-        local,
-        remote: row,
-        detectedAt: now(),
-      });
-    } else if (!pending && (!local || row.revision > local.revision))
+    if (local && row.revision < local.revision) {
+      await db.conflicts.delete(row.key);
+      return;
+    }
+    const pending = await db.outbox.where("key").equals(row.key).sortBy("sequence");
+    const last = pending.at(-1);
+    // Old stored rows did not include their operation's edit timestamp.
+    const candidate = local && last ? { ...local, editedAt: last.createdAt, editId: last.opId } : local;
+    if (candidate && last && compareEdits(candidate, row) > 0) {
+      await db.rows.put({ ...candidate, revision: row.revision });
+      for (const op of pending) await db.outbox.update(op.opId, { baseRevision: row.revision });
+    } else {
+      await db.outbox.where("key").equals(row.key).delete();
       await db.rows.put(row);
+    }
+    await db.conflicts.delete(row.key);
   });
 }
-export async function resolveConflict(
-  conflict: Conflict,
-  choice: "local" | "remote" | "both",
-) {
-  const { local, remote, key } = conflict;
-  await db.transaction(
-    "rw",
-    [db.rows, db.outbox, db.conflicts, db.meta],
-    async () => {
-      await db.outbox.where("key").equals(key).delete();
-      await db.rows.put(remote);
-      await db.conflicts.delete(key);
-      if (choice !== "remote") {
-        const pageBoth =
-          choice === "both" &&
-          local.kind === "annotation" &&
-          (local.value as Annotation).type === "page-note" &&
-          (remote.value as Annotation).type === "page-note";
-        let value =
-          choice === "both" ? { ...local.value, id: uid() } : local.value;
-        if (pageBoth) {
-          const document = combineDocuments(
-            (local.value as Annotation).content?.document || emptyDocument(),
-            (remote.value as Annotation).content?.document || emptyDocument(),
-          );
-          value = {
-            ...local.value,
-            id: local.id,
-            content: { version: 1, document },
-            note: plainText(document),
-            updatedAt: now(),
-          } as Annotation;
-        }
-        const id = value.id,
-          chosenKey = keyOf(local.kind, id);
-        const revision = choice === "both" && !pageBoth ? 0 : remote.revision;
-        await db.rows.put({
-          ...local,
-          id,
-          key: chosenKey,
-          value,
-          revision,
-          deleted: choice === "both" ? false : local.deleted,
-        });
-        await db.outbox.add({
-          opId: uid(),
-          key: chosenKey,
-          kind: local.kind,
-          id,
-          value,
-          baseRevision: revision,
-          deleted: choice === "both" ? false : local.deleted,
-          createdAt: now(),
-          sequence: await nextSequence(),
-        });
-      }
-    },
-  );
-  window.dispatchEvent(new Event("leafmark-sync"));
+
+// Upgrade conflicts left by older app versions, including while offline.
+export async function resolveStoredConflicts() {
+  for (const conflict of await db.conflicts.toArray()) await acceptRemote(conflict.remote);
 }
 export async function clearPrivateData() {
   await db.transaction("rw", db.tables, async () => {

@@ -193,7 +193,7 @@ it("verifies downloaded bytes before retaining an offline copy", async () => {
     id: book.id,
   });
 });
-it("does not lose a newer remote change when the local upload failed", async () => {
+it("retains a newer local edit when upload fails and an older remote arrives", async () => {
   await addBook();
   fake.upload.mockRejectedValue(new Error("Offline"));
   fake.rpc.mockResolvedValue({
@@ -211,7 +211,8 @@ it("does not lose a newer remote change when the local upload failed", async () 
     error: null,
   });
   await synchronize();
-  expect((await db.conflicts.get(`book:${book.id}`))?.remote.revision).toBe(9);
+  expect(await db.conflicts.count()).toBe(0);
+  expect((await db.rows.get(`book:${book.id}`))?.revision).toBe(9);
   expect((await db.rows.get(`book:${book.id}`))?.value).toEqual(book);
   expect(await db.outbox.count()).toBe(1);
 });

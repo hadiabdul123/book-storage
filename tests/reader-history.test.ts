@@ -46,7 +46,7 @@ it("undoes and redoes create, recolor, note edit and removal without losing meta
   expect(await get("annotation", "mark")).toEqual(mark);
   expect(await db.outbox.count()).toBeGreaterThan(5);
 });
-it("refuses newer edits and conflicts while keeping history intact", async () => {
+it("refuses stale undo but lets explicit new changes clear legacy conflicts", async () => {
   const h = new ReaderHistory();
   await h.perform("create", [{ kind: "annotation", value: mark }]);
   await save("annotation", { ...mark, note: "Other tab" });
@@ -66,8 +66,9 @@ it("refuses newer edits and conflicts while keeping history intact", async () =>
     h.perform("conflict", [
       { kind: "annotation", value: row.value as Annotation },
     ]),
-  ).rejects.toThrow("conflicting");
-  expect(h.undoStack).toHaveLength(1);
+  ).resolves.toBeUndefined();
+  expect(h.undoStack).toHaveLength(2);
+  expect(await db.conflicts.count()).toBe(0);
 });
 it("removes duplicate page bookmarks as one atomic undoable operation", async () => {
   const first: Bookmark = {

@@ -1,6 +1,6 @@
 import "fake-indexeddb/auto";
 import { beforeEach, expect, it, vi } from "vitest";
-import { db, get, save, acceptRemote, resolveConflict } from "../src/db";
+import { db, get, save, acceptRemote } from "../src/db";
 import { savePageNote, pageNoteId } from "../src/pageNotes";
 import {
   paragraph,
@@ -57,7 +57,7 @@ it("restores rich notebooks by file hash without duplicating the page or overwri
     skipped: 2,
   });
 });
-it("keeps both conflict versions in one page notebook at the remote revision", async () => {
+it("uses the newer page notebook without creating duplicate notes", async () => {
   const note = (await savePageNote(book, 1, document("Local writing")))!;
   const remote: Row = {
     key: `annotation:${note.id}`,
@@ -71,14 +71,14 @@ it("keeps both conflict versions in one page notebook at the remote revision", a
     revision: 3,
     deleted: false,
     updatedAt: note.createdAt,
+    editedAt: "2099-01-01T00:00:00Z",
   };
   await acceptRemote(remote);
-  await resolveConflict((await db.conflicts.toArray())[0], "both");
   expect(await db.rows.count()).toBe(1);
   const merged = (await get("annotation", note.id))!;
-  expect(merged.note).toContain("Local writing");
   expect(merged.note).toContain("Other writing");
-  expect((await db.outbox.toArray())[0].baseRevision).toBe(3);
+  expect(await db.outbox.count()).toBe(0);
+  expect(await db.conflicts.count()).toBe(0);
 });
 it("preserves lists and checkboxes in export and rejects unsupported imported content", async () => {
   const rich: RichNode = {

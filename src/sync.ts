@@ -1,7 +1,7 @@
 import { downloadFreshBlob } from "./bookDownload";
 import { createClient } from "@supabase/supabase-js";
 import { Upload } from "tus-js-client";
-import { db, acceptRemote } from "./db";
+import { db, acceptRemote, resolveStoredConflicts } from "./db";
 import { type Book, type Row } from "./model";
 
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
@@ -117,6 +117,7 @@ async function upload(
 
 async function runSync() {
   if (!cloud || stopped) return;
+  await resolveStoredConflicts();
   if (!navigator.onLine) {
     report({
       state: "offline",
@@ -203,18 +204,7 @@ async function runSync() {
           await acceptRemote(remote);
           continue;
         }
-        await db.transaction("rw", [db.rows, db.outbox], async () => {
-          await db.outbox.delete(operation.opId);
-          const remaining = await db.outbox
-            .where("key")
-            .equals(operation.key)
-            .toArray();
-          for (const op of remaining)
-            await db.outbox.update(op.opId, { baseRevision: remote.revision });
-          if (remaining.length)
-            await db.rows.update(operation.key, { revision: remote.revision });
-          else await db.rows.put(remote);
-        });
+        await acceptRemote(remote, operation.opId);
         if (operation.kind === "book") transferStatus(operation.id);
       } catch (error: any) {
         if (operation.kind === "book")
@@ -237,8 +227,7 @@ async function runSync() {
     if (error) throw error;
     const rows = data as Row[];
     for (const row of rows) {
-      // Preserve remote revisions even when an upload failed; acceptRemote
-      // retains pending local edits as conflicts instead of losing either side.
+      // Keep the newest edit even if its upload is still pending.
       await acceptRemote(row);
       cursor = Math.max(cursor, row.revision);
     }
@@ -253,7 +242,7 @@ async function runSync() {
       : {
           state: "idle",
           message: conflicts
-            ? `${conflicts} conflict${conflicts === 1 ? "" : "s"} to review`
+            ? "Applying latest changes"
             : pendingChanges
               ? `${pendingChanges} changes waiting to sync`
               : "Synced",

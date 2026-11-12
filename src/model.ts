@@ -150,6 +150,8 @@ export interface Row<T = Entity> {
   revision: number;
   deleted: boolean;
   updatedAt: string;
+  editedAt?: string;
+  editId?: string;
 }
 export interface Operation {
   opId: string;

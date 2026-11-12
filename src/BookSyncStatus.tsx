@@ -31,7 +31,7 @@ export function BookSyncStatus({ id }: { id: string }) {
   const label = !cloud
     ? "Saved on this device"
     : saved.conflict
-      ? "Sync conflict · review in Settings"
+      ? "Applying latest changes"
       : confirmed
         ? "Synced"
         : transfer?.state === "error"

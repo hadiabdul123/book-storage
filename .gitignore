@@ -26,3 +26,6 @@ backups/
 !tests/fixtures/jbig2-symbol-offset.pdf
 
 public/ocr/
+
+# Generated Supabase CLI state
+supabase/.temp/
