@@ -217,3 +217,5 @@ The owner reported `Failed to fetch` while opening Flow in normal PC Chrome. Sup
 - Four isolated browser regression cases passed: interrupted transfer recovery with fresh URLs, desktop and phone retry controls with restored position/retained notes, and access-denied/corrupt-byte rejection. Live owner verification follows deployment.
 
 - Before release: typecheck, all 52 unit tests, and all 11 cloud/auth/download browser tests passed.
+
+- Release `caa8ea0` deployed successfully in [GitHub Actions run 43227739734](https://github.com/hadiabdul123/book-storage/actions/runs/43227739734): 52 unit tests, 68 reader browser cases (10 platform-specific skips), 11 cloud/auth/download cases, and the production update/offline restart case passed. Live HTTPS verification at 360, 412 and 1440 pixels passed with no page errors, failed site assets or horizontal overflow. The deployed application bundle contains the fresh-download and retry recovery code. The owner has been asked to reopen Flow in normal PC Chrome; confirmation of that existing-session recovery is still pending.
