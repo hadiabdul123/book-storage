@@ -1,4 +1,10 @@
-import { cpSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  writeFileSync,
+  readdirSync,
+} from "node:fs";
 import "./prepare-dictionary.mjs";
 import { deflateSync } from "node:zlib";
 
@@ -8,6 +14,24 @@ for (const folder of ["cmaps", "standard_fonts", "wasm"]) {
   if (existsSync(source))
     cpSync(source, `public/pdf-assets/${folder}`, { recursive: true });
 }
+// Local English OCR: no page images or text are sent to an external service.
+mkdirSync("public/ocr", { recursive: true });
+cpSync(
+  "node_modules/tesseract.js/dist/worker.min.js",
+  "public/ocr/worker.min.js",
+);
+for (const file of readdirSync("node_modules/tesseract.js-core")) {
+  if (/^tesseract-core.*lstm\.wasm(?:\.js)?$/.test(file))
+    cpSync(`node_modules/tesseract.js-core/${file}`, `public/ocr/${file}`);
+}
+cpSync(
+  "node_modules/@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz",
+  "public/ocr/eng.traineddata.gz",
+);
+cpSync("node_modules/tesseract.js/LICENSE.md", "public/ocr/LICENSE.txt");
+cpSync("node_modules/tesseract.js-core/LICENSE", "public/ocr/CORE-LICENSE.txt");
+cpSync("vendor/ocr/DATA-LICENSE.txt", "public/ocr/DATA-LICENSE.txt");
+cpSync("vendor/ocr/README.md", "public/ocr/NOTICE.txt");
 // Small original app icon, generated without an image tool or runtime dependency.
 function crc(bytes) {
   let n = 0xffffffff;

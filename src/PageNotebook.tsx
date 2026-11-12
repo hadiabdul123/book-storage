@@ -145,7 +145,8 @@ export function PageNotebook({
         saved: 0,
       };
       editor.commands.setContent(document, { emitUpdate: false });
-      editor.setEditable(true);
+      // Enabling the editor is not a document edit. Tiptap emits update by default.
+      editor.setEditable(true, false);
       setTags(nextTags.join(", "));
       setLoaded(true);
       setStatus(

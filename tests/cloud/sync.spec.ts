@@ -213,6 +213,41 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
     await expect(
       second.getByRole("textbox", { name: "Notebook for page 1", exact: true }),
     ).toContainText("A note shared between devices");
+    // No manual sync button: a new PC edit uploads on save, and returning to
+    // the phone pulls it for the notebook reopened below.
+    await first.locator(".book-cover-link").click();
+    await openTools(first);
+    if (
+      (await first.locator(".reader-progress").innerText()).includes("Page 2")
+    )
+      await first
+        .getByRole("button", { name: "Previous page", exact: true })
+        .click();
+    await clickTool(first, "Page notes");
+    await first
+      .getByRole("textbox", { name: "Notebook for page 1", exact: true })
+      .fill("Automatic sync on return");
+    await first.getByRole("button", { name: "Save now" }).click();
+    await expect(first.locator(".notebook-status")).toHaveText(
+      "Saved on this device",
+    );
+    await expect
+      .poll(
+        () =>
+          [...rows.values()].some(
+            (row) =>
+              row.kind === "annotation" &&
+              JSON.stringify(row.value).includes("Automatic sync on return"),
+          ),
+        { timeout: 20000 },
+      )
+      .toBe(true);
+    await second.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await second.getByRole("button", { name: "Close panel" }).click();
+    await clickTool(second, "Page notes");
+    await expect(
+      second.getByRole("textbox", { name: "Notebook for page 1", exact: true }),
+    ).toContainText("Automatic sync on return");
     await second.getByRole("button", { name: "Close panel" }).click();
     // Offline authorization with an expired/missing session; asset persistence
     // across a real offline browser restart is covered separately by test:pwa.

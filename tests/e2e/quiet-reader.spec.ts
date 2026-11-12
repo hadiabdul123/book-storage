@@ -90,14 +90,17 @@ test("simple meanings are compact and expandable without network lookup", async 
   expect(await page.locator(".dictionary-entry li").count()).toBeGreaterThan(1);
 });
 
-test("browser touch long press does not reveal controls but a following tap does", async ({
+test("browser touch long press selects text without revealing reading controls", async ({
   page,
 }, info) => {
   test.skip(info.project.name !== "mobile-layout");
   await open(page);
-  const r = await page.locator(".reader-host").boundingBox();
+  const r = await page
+    .locator(".pdf-page .textLayer span")
+    .first()
+    .boundingBox();
   if (!r) throw new Error("Reader not laid out");
-  const point = { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+  const point = { x: r.x + 20, y: r.y + r.height / 2 };
   const session = await page.context().newCDPSession(page);
   await session.send("Input.dispatchTouchEvent", {
     type: "touchStart",
@@ -110,7 +113,7 @@ test("browser touch long press does not reveal controls but a following tap does
   });
   await page.waitForTimeout(400);
   await expect(page.locator(".reader-header")).toBeHidden();
-  await page.touchscreen.tap(point.x, point.y);
-  await expect(page.locator(".reader-header")).toBeVisible();
+  await expect(page.locator(".passage-popup")).toBeVisible();
+  await expect(page.locator(".selection-excerpt")).not.toBeEmpty();
   await session.detach();
 });

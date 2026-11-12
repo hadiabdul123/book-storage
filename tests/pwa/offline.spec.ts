@@ -1,3 +1,4 @@
+import { scanPdf } from "../helpers/scanned-pdf";
 import { openTools, clickTool } from "../e2e/controls";
 import { chromium, expect, test } from "@playwright/test";
 import path from "node:path";
@@ -103,6 +104,15 @@ test("saved PDF notes and rendering assets survive a full offline browser restar
       "Saved on this device",
     );
     await page.getByRole("button", { name: "Close panel" }).click();
+    await page.getByRole("link", { name: "Back to library" }).click();
+    await page
+      .locator("input[type=file]")
+      .setInputFiles({
+        name: "Original scan.pdf",
+        mimeType: "application/pdf",
+        buffer: await scanPdf(page),
+      });
+    await expect(page.locator(".book-card")).toHaveCount(2);
     // Keep IndexedDB/CacheStorage, but prevent the ordinary HTTP cache from
     // concealing missing service-worker assets during the offline restart.
     const session = await online.newCDPSession(page);
@@ -125,8 +135,12 @@ test("saved PDF notes and rendering assets survive a full offline browser restar
       localStorage.setItem("leafmark-controls-pinned", "true"),
     );
     await page.goto(baseURL!);
-    await expect(page.locator(".book-card")).toHaveCount(1);
-    await page.locator(".book-cover-link").click();
+    await expect(page.locator(".book-card")).toHaveCount(2);
+    await page
+      .locator(".book-card")
+      .filter({ hasText: "tracemonkey" })
+      .locator(".book-cover-link")
+      .click();
     await openTools(page);
     await expect(
       page.locator(".pdf-page .textLayer span").first(),
@@ -194,6 +208,23 @@ test("saved PDF notes and rendering assets survive a full offline browser restar
       expect(asset.ok, asset.file).toBe(true);
       expect(asset.bytes, asset.file).toBeGreaterThan(0);
     }
+    await page.getByRole("button", { name: "Close panel" }).click();
+    await page.getByRole("link", { name: "Back to library" }).click();
+    await page
+      .locator(".book-card")
+      .filter({ hasText: "Original scan" })
+      .locator(".book-cover-link")
+      .click();
+    await openTools(page);
+    // OCR has never been run in this profile: its worker/model must load offline.
+    await page
+      .getByRole("button", { name: "Recognize text on page 1", exact: true })
+      .click();
+    await expect(page.locator(".ocr-text-layer")).toContainText(
+      "Reading opens",
+      { timeout: 30000 },
+    );
+    expect(external).toEqual([]);
     expect(errors).toEqual([]);
   } finally {
     await offline.close();

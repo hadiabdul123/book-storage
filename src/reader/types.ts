@@ -20,6 +20,8 @@ export type ScreenRect = {
 };
 export interface ReaderEvents {
   onReaderTap?: () => void;
+  canSwipe?: () => boolean;
+  onReaderSwipe?: (direction: "next" | "previous") => void;
   onShortcut?: (event: KeyboardEvent) => void;
   onPageNote?: (page: number) => void;
   onRegionMode?: (enabled: boolean) => void;

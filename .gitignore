@@ -24,3 +24,5 @@ backups/
 !tests/fixtures/tracemonkey.pdf
 !tests/fixtures/alice.epub
 !tests/fixtures/jbig2-symbol-offset.pdf
+
+public/ocr/

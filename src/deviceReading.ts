@@ -2,6 +2,7 @@ import { db } from "./db";
 import { defaultPdfLayout, type PdfLayout, type Preferences } from "./model";
 
 export type DeviceReading = {
+  swipeToTurn?: boolean;
   pdfLayout?: PdfLayout;
   zoom?: number;
   rotation?: number;

@@ -1,3 +1,6 @@
+import { db } from "../db";
+import { PageOcr } from "./ocr";
+import { bindPdfTouch } from "./pdfTouch";
 import { pdfLibrary, pdfOptions, pdfOpenError } from "../pdf";
 import type {
   PDFDocumentLoadingTask,
@@ -20,7 +23,12 @@ import {
 } from "../model";
 import type { ReaderAdapter, ReaderEvents, SearchHit, Section } from "./types";
 
+type OcrWord = { text: string; rect: Rect };
 type PageState = {
+  ocrButton: HTMLButtonElement;
+  ocrWords?: OcrWord[];
+  hasText?: boolean;
+  recognizing?: Promise<void>;
   n: number;
   element: HTMLDivElement;
   frame: HTMLDivElement;
@@ -39,6 +47,8 @@ function viewportRect(viewport: PageViewport, rect: Rect): Rect {
 }
 export class PdfReader implements ReaderAdapter {
   private pdf!: PDFDocumentProxy;
+  private ocr = new PageOcr();
+  private touch?: ReturnType<typeof bindPdfTouch>;
   private loadingTask?: PDFDocumentLoadingTask;
   private lib!: Awaited<ReturnType<typeof pdfLibrary>>;
   private pages: PageState[] = [];
@@ -94,12 +104,23 @@ export class PdfReader implements ReaderAdapter {
         this.onScroll();
         this.events.onPageNote?.(n);
       });
+      const ocrButton = document.createElement("button");
+      ocrButton.className = "pdf-ocr-button";
+      ocrButton.textContent = "Enable text selection";
+      ocrButton.setAttribute("aria-label", `Recognize text on page ${n}`);
+      ocrButton.hidden = true;
+      ocrButton.addEventListener(
+        "click",
+        () => void this.recognizePage(this.pages[n - 1]).catch(() => {}),
+      );
+      element.append(ocrButton);
       frame.append(noteButton, element);
       const state: PageState = {
         n,
         element,
         frame,
         noteButton,
+        ocrButton,
         page,
         viewport: page.getViewport({ scale: 1 }),
         loaded: false,
@@ -127,6 +148,10 @@ export class PdfReader implements ReaderAdapter {
       { root: this.host, rootMargin: "1200px" },
     );
     this.pages.forEach((p) => this.observer!.observe(p.element));
+    this.touch = bindPdfTouch(this.host, async (element) => {
+      const state = this.pages[Number(element.dataset.page) - 1];
+      if (state?.hasText === false) await this.recognizePage(state);
+    });
     this.host.addEventListener("scroll", this.onScroll, { passive: true });
     document.addEventListener("selectionchange", this.selection);
     this.host.addEventListener("pointerdown", this.pointerDown);
@@ -211,6 +236,21 @@ export class PdfReader implements ReaderAdapter {
         container: layer,
         viewport: state.viewport,
       }).render();
+      state.hasText = text.items.some(
+        (item) => "str" in item && item.str.trim(),
+      );
+      if (!state.hasText) {
+        if (!state.ocrWords) {
+          const cached = await db.meta.get(`ocr-v1:${this.book.id}:${state.n}`);
+          if (cached) {
+            try {
+              state.ocrWords = JSON.parse(cached.value);
+            } catch {}
+          }
+        }
+        if (this.disposed || generation !== state.generation) return;
+        this.renderOcr(state);
+      }
       state.loaded = true;
       this.drawPage(state);
     } catch (error: any) {
@@ -218,6 +258,97 @@ export class PdfReader implements ReaderAdapter {
     } finally {
       state.rendering = false;
     }
+  }
+  private renderOcr(state: PageState) {
+    const layer = state.element.querySelector<HTMLElement>(".textLayer");
+    if (!layer || state.hasText) return;
+    const words = state.ocrWords;
+    state.ocrButton.hidden = !!words?.length;
+    if (!state.ocrButton.isConnected) state.element.append(state.ocrButton);
+    if (!words?.length) return;
+    layer.classList.add("ocr-text-layer");
+    layer.replaceChildren();
+    const measure = document.createElement("canvas").getContext("2d")!;
+    for (const word of words) {
+      const [left, top, right, bottom] = viewportRect(
+        state.viewport,
+        word.rect,
+      );
+      const rotation = ((this.rotation % 360) + 360) % 360;
+      const vertical = rotation === 90 || rotation === 270;
+      const span = document.createElement("span"),
+        height = vertical ? right - left : bottom - top;
+      const length = vertical ? bottom - top : right - left;
+      const originX = rotation === 90 || rotation === 180 ? right : left;
+      const originY = rotation === 180 || rotation === 270 ? bottom : top;
+      const fontSize = Math.max(1, height);
+      span.textContent = word.text + " ";
+      measure.font = `${fontSize}px sans-serif`;
+      const width = measure.measureText(word.text).width || 1;
+      Object.assign(span.style, {
+        left: `${originX}px`,
+        top: `${originY}px`,
+        fontSize: `${fontSize}px`,
+        fontFamily: "sans-serif",
+        height: `${height}px`,
+        transform: `rotate(${rotation}deg) scaleX(${length / width})`,
+      });
+      layer.append(span);
+    }
+  }
+  private recognizePage(state: PageState): Promise<void> {
+    if (state.hasText || state.ocrWords?.length) return Promise.resolve();
+    if (state.recognizing) return state.recognizing;
+    state.recognizing = (async () => {
+      state.ocrButton.hidden = false;
+      state.ocrButton.disabled = true;
+      state.ocrButton.classList.add("recognizing");
+      state.ocrButton.textContent = "Preparing text recognition...";
+      const canvas = document.createElement("canvas");
+      try {
+        const base = state.page.getViewport({ scale: 1, rotation: 0 });
+        const viewport = state.page.getViewport({
+          scale: Math.min(2.5, 1800 / base.width, 2400 / base.height),
+          rotation: 0,
+        });
+        canvas.width = Math.ceil(viewport.width);
+        canvas.height = Math.ceil(viewport.height);
+        await state.page.render({ canvas, viewport }).promise;
+        if (this.disposed) return;
+        const recognized = await this.ocr.recognize(canvas, (percent) => {
+          state.ocrButton.textContent = `Recognizing text: ${percent}%`;
+        });
+        if (this.disposed) return;
+        state.ocrWords = recognized.map(({ text, box }) => {
+          const a = viewport.convertToPdfPoint(box.x0, box.y0),
+            b = viewport.convertToPdfPoint(box.x1, box.y1);
+          return { text, rect: normalizeRect([a[0], a[1], b[0], b[1]]) };
+        });
+        if (!state.ocrWords.length)
+          throw new Error(
+            "No readable English text found. Try selecting a region in Reading settings.",
+          );
+        await db.meta.put({
+          key: `ocr-v1:${this.book.id}:${state.n}`,
+          value: JSON.stringify(state.ocrWords),
+        });
+        if (!this.disposed) this.renderOcr(state);
+      } catch (error) {
+        if (!this.disposed) {
+          state.ocrButton.textContent = "Retry text recognition";
+          this.events.onError(
+            `Text recognition: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+        throw error;
+      } finally {
+        canvas.width = canvas.height = 0;
+        state.ocrButton.disabled = false;
+        state.ocrButton.classList.remove("recognizing");
+        state.recognizing = undefined;
+      }
+    })();
+    return state.recognizing;
   }
   private selectionFrame?: number;
   private selection = () => {
@@ -722,6 +853,7 @@ export class PdfReader implements ReaderAdapter {
     });
   }
   clearSelection() {
+    this.touch?.clear();
     document.getSelection()?.removeAllRanges();
   }
   bounds(locator: Locator) {
@@ -774,6 +906,8 @@ export class PdfReader implements ReaderAdapter {
   }
   destroy() {
     this.disposed = true;
+    this.touch?.destroy();
+    this.ocr.destroy();
     clearTimeout(this.timer);
     this.observer?.disconnect();
     this.resizeObserver?.disconnect();

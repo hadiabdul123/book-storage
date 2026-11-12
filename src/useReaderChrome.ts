@@ -25,6 +25,10 @@ export function useReaderChrome(
     current.current.locked ||
     current.current.pinned ||
     current.current.menu ||
+    (window.matchMedia("(hover: hover)").matches &&
+      !!shell.current?.querySelector(
+        ".reader-header:hover,.reader-footer:hover,.reader-reveal:hover",
+      )) ||
     !!shell.current?.querySelector(".passage-popup") ||
     !!shell.current?.querySelector(
       ".reader-header :focus-visible,.reader-footer :focus-visible",
@@ -93,7 +97,7 @@ export function useReaderChrome(
     tap: () => tap.current(),
     leave: () => {
       clearTimeout(hideTimer.current);
-      hideTimer.current = setTimeout(hide, 300);
+      hideTimer.current = setTimeout(hide, 1100);
     },
     conceal: () => {
       setMenu(false);

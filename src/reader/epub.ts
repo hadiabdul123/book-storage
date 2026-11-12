@@ -1,3 +1,4 @@
+import { bindPageSwipes } from "./swipes";
 import { bindReadingTaps } from "./gestures";
 import ePub, {
   EpubCFI,
@@ -133,6 +134,11 @@ export class EpubReader implements ReaderAdapter {
     };
     doc.addEventListener("selectionchange", selection);
     doc.addEventListener("pointerup", selection);
+    const unbindSwipes = bindPageSwipes(
+      doc,
+      () => this.events.canSwipe?.() || false,
+      (direction) => this.events.onReaderSwipe?.(direction),
+    );
     const unbindTaps = bindReadingTaps(doc, () => this.events.onReaderTap?.());
     const key = (event: KeyboardEvent) => {
       this.events.onShortcut?.(event);
@@ -151,6 +157,7 @@ export class EpubReader implements ReaderAdapter {
       doc.removeEventListener("selectionchange", selection);
       doc.removeEventListener("pointerup", selection);
       unbindTaps();
+      unbindSwipes();
       doc.removeEventListener("keydown", key);
     });
   }

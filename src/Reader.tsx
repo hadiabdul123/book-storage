@@ -1,3 +1,4 @@
+import { bindPageSwipes } from "./reader/swipes";
 import { useEffect, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Link, useParams, useSearchParams } from "react-router-dom";
@@ -161,6 +162,34 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
     ready,
     !!panel || !!editing || region,
   );
+  const swipeEnabled =
+    !!localView?.swipeToTurn &&
+    phone &&
+    !panel &&
+    !editing &&
+    !region &&
+    (book?.format === "pdf"
+      ? pdfLayout.navigation === "paginated" && zoom <= 1
+      : book?.format === "epub" && prefs.flow === "paginated");
+  const swipe = useRef({ enabled: false, turning: false });
+  swipe.current.enabled = swipeEnabled;
+  const canSwipe = () =>
+    swipe.current.enabled &&
+    !swipe.current.turning &&
+    !shell.current?.querySelector(".passage-popup,.pdf-selection-handle") &&
+    (host.current?.scrollWidth || 0) <= (host.current?.clientWidth || 0) + 4;
+  const turnSwipe = (direction: "next" | "previous") => {
+    if (!canSwipe()) return;
+    swipe.current.turning = true;
+    void adapter.current?.[direction]()
+      .catch((e) => notify(messageOf(e)))
+      .finally(() => {
+        swipe.current.turning = false;
+      });
+  };
+  useEffect(() => {
+    if (host.current) return bindPageSwipes(host.current, canSwipe, turnSwipe);
+  }, [ready]);
   const chromeRef = useRef(chrome);
   chromeRef.current = chrome;
   const notifyRef = useRef(notify);
@@ -223,6 +252,8 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
       reader = new ctor(host.current!, book, {
         onShortcut: (event) => interactions.current?.shortcut(event),
         onReaderTap: () => chromeRef.current.tap(),
+        canSwipe,
+        onReaderSwipe: turnSwipe,
         onPageNote: (page) => openNotebookRef.current(page),
         onRegionMode: setRegion,
         onLayoutFallback: setLayoutFallback,
@@ -420,7 +451,15 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   return (
     <main
       ref={shell}
-      className={`reader-shell theme-${prefs.theme}${chrome.visible ? " controls-visible" : " reading-mode"}${chrome.menu ? " controls-menu-open" : ""}`}
+      className={`reader-shell theme-${prefs.theme}${chrome.visible ? " controls-visible" : " reading-mode"}${chrome.menu ? " controls-menu-open" : ""}${swipeEnabled ? " swipe-pages" : ""}`}
+      onPointerMoveCapture={(event) => {
+        if (
+          event.pointerType === "mouse" &&
+          event.clientY <=
+            (shell.current?.getBoundingClientRect().top || 0) + 28
+        )
+          chrome.reveal();
+      }}
       onClickCapture={(event) => {
         const anchor = (event.target as HTMLElement).closest<HTMLAnchorElement>(
           'a[href^="#/"]',
@@ -473,6 +512,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
       )}
       <header
         className="reader-header"
+        onPointerDownCapture={chrome.reveal}
         onPointerEnter={chrome.reveal}
         onPointerLeave={chrome.leave}
       >
@@ -845,6 +885,41 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
                     />{" "}
                     Keep controls visible on this device
                   </label>
+                  {phone &&
+                    (book.format === "pdf" || book.format === "epub") && (
+                      <>
+                        <label className="pin-controls">
+                          <input
+                            type="checkbox"
+                            checked={!!localView?.swipeToTurn}
+                            onChange={(e) => {
+                              const enabled = e.target.checked;
+                              void writeDeviceReading(id, {
+                                swipeToTurn: enabled,
+                                ...(book.format === "pdf"
+                                  ? {
+                                      pdfLayout: {
+                                        ...pdfLayout,
+                                        navigation: enabled
+                                          ? "paginated"
+                                          : "continuous",
+                                        fit: enabled ? "page" : "width",
+                                      },
+                                    }
+                                  : {
+                                      flow: enabled ? "paginated" : "scrolled",
+                                    }),
+                              }).catch((e) => notify(messageOf(e)));
+                            }}
+                          />
+                          Swipe to turn pages
+                        </label>
+                        <p className="muted">
+                          Swipe left for the next page, right to go back. Uses
+                          page turns; zoomed PDF pages can still be panned.
+                        </p>
+                      </>
+                    )}
                   <label>
                     Page theme
                     <div className="theme-options">
@@ -1067,6 +1142,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
       </div>
       <footer
         className="reader-footer"
+        onPointerDownCapture={chrome.reveal}
         onPointerEnter={chrome.reveal}
         onPointerLeave={chrome.leave}
       >

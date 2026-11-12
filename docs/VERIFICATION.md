@@ -1,5 +1,16 @@
 # Verification and release gates
 
+## Toolbar, scanned-page selection, swipes, and sync patch on 2026-11-12
+
+- Desktop controls now wait 1.1 seconds after pointer departure and check actual hover before hiding. Pointer-down keeps controls available through clicks. Popup geometry excludes visible toolbars, and the bookmark action preserves selection.
+- Diagnosed the user's original PDF locally: sampled opening pages contain text, but pages 10, 20, and 159 have zero text items. Native selection cannot select words from those page images. No private PDF or extracted text was committed.
+- Added bounded, on-demand English OCR using bundled same-origin Tesseract.js workers/model. Long-pressing a scan or choosing Enable text selection recognizes one page, overlays selectable word boxes, and caches them in account-bound IndexedDB. Native selection remains supported; a touch fallback selects a word and provides draggable handles when the browser creates no range. Original page images and PDF-coordinate annotation anchors are preserved.
+- Added phone-only, per-book swipe preference for PDF/EPUB. Horizontal short swipes turn pages; vertical movement, selected text, panels, region mode, pinches, and zoomed PDF panning take priority.
+- The expanded auto-sync regression exposed notebook initialization emitting an editor update. Merely opening a notebook could save unchanged content and create false conflicts on another device. Enabling editing now suppresses this synthetic update. The two-context test verifies automatic upload and a pull on return-to-app; no manual sync button is used.
+- Local checks: 48 unit tests and typechecking passed. Generated scanned-page OCR, browser touch selection/handle extension, saved highlight/text reload, desktop bookmark/hover, and phone PDF swipe regressions passed. The actual private PDF's page 20 passed recognition, touch highlighting, and reload with all external requests blocked.
+- Production offline browser restart passed, including first-ever recognition of a saved generated scan with networking disabled. OCR assets were loaded through the installed service worker, with no previous engine or model initialization in that browser profile.
+- Physical Chrome/Android confirmation remains necessary for device-specific gesture behavior and performance. Earlier native-only limitations are addressed by a tested in-app fallback, but desktop touch emulation is not a physical-phone test.
+
 ## Immersive reading and simpler vocabulary on 2026-11-12
 
 - Added hidden-by-default overlay toolbars, mobile tap toggling, desktop top-edge hover, keyboard reveal/Escape, and a persistent device-local pin setting. Toolbars no longer resize the document viewport. Phone tools use a compact menu and touch-sized controls; PDF pages retain their original layout.

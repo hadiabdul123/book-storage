@@ -289,7 +289,7 @@ export const ReaderInteractions = forwardRef<
       if (host.current?.contains(element)) return;
       if (
         !element.closest?.(
-          ".passage-popup, .passage-bookmark, .reader-action-buttons, .reader-feedback",
+          ".passage-popup, .passage-bookmark, .reader-action-buttons, .reader-feedback, .pdf-selection-handle",
         )
       ) {
         setOpen(false);
@@ -373,6 +373,19 @@ export const ReaderInteractions = forwardRef<
           (vv?.offsetTop || 0) + (vv?.height || innerHeight),
         ),
       };
+      const shell = host.current.closest(".reader-shell");
+      const header = shell?.querySelector<HTMLElement>(".reader-header");
+      const footer = shell?.querySelector<HTMLElement>(".reader-footer");
+      if (header && getComputedStyle(header).visibility !== "hidden")
+        clip.top = Math.max(
+          clip.top,
+          header.getBoundingClientRect().bottom + 8,
+        );
+      if (footer && getComputedStyle(footer).visibility !== "hidden")
+        clip.bottom = Math.min(
+          clip.bottom,
+          footer.getBoundingClientRect().top - 8,
+        );
       const visible = (locator: Locator) =>
         reader.bounds(locator).filter((r) => overlap(r, clip));
       const state = latest.current;
@@ -391,8 +404,17 @@ export const ReaderInteractions = forwardRef<
             ),
           )
         : 8;
-      const aboveSpace = rect ? Math.max(0, rect.top - clip.top - 14) : 0,
-        belowSpace = rect ? Math.max(0, clip.bottom - rect.bottom - 14) : 0;
+      const handleGap = host.current
+        .closest(".reader-shell")
+        ?.querySelector(".pdf-selection-handle")
+        ? 48
+        : 14;
+      const aboveSpace = rect
+          ? Math.max(0, rect.top - clip.top - handleGap)
+          : 0,
+        belowSpace = rect
+          ? Math.max(0, clip.bottom - rect.bottom - handleGap)
+          : 0;
       const above =
         aboveSpace >= desiredHeight ||
         (belowSpace < desiredHeight && aboveSpace > belowSpace);
@@ -406,13 +428,10 @@ export const ReaderInteractions = forwardRef<
             clip.top + 4,
             Math.min(
               clip.bottom - height - 4,
-              above ? rect.top - height - 10 : rect.bottom + 10,
+              above ? rect.top - height - handleGap : rect.bottom + handleGap,
             ),
           )
         : 0;
-      const shell = host.current.closest(".reader-shell");
-      const header = shell?.querySelector<HTMLElement>(".reader-header");
-      const footer = shell?.querySelector<HTMLElement>(".reader-footer");
       const markerTop =
         header && getComputedStyle(header).visibility !== "hidden"
           ? Math.max(clip.top, header.getBoundingClientRect().bottom + 8)
@@ -451,7 +470,11 @@ export const ReaderInteractions = forwardRef<
         popup.current.matches(":hover");
       setLayout((previous) => {
         const placed =
-          holdTools && previous.visible && next.visible
+          holdTools &&
+          previous.visible &&
+          next.visible &&
+          previous.top >= clip.top &&
+          previous.top + (popup.current?.offsetHeight || 0) <= clip.bottom
             ? {
                 ...next,
                 left: previous.left,
@@ -614,6 +637,7 @@ export const ReaderInteractions = forwardRef<
               }
               aria-pressed={!!placeBookmarks.length}
               disabled={!current || busy}
+              onPointerDown={(e) => e.preventDefault()}
               onClick={() => void attempt(togglePlace)}
             >
               <BookmarkIcon

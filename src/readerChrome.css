@@ -179,3 +179,47 @@
     flex-wrap: wrap;
   }
 }
+
+.pdf-ocr-button {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  z-index: 5;
+  padding: 8px 12px;
+  min-height: 44px;
+  border: 1px solid #b7c9da;
+  border-radius: 6px;
+  background: #fff;
+  color: #315c86;
+}
+.reading-mode .pdf-ocr-button:not(.recognizing) {
+  visibility: hidden;
+}
+.pdf-selection-handle {
+  position: fixed;
+  z-index: 44;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  touch-action: none;
+  user-select: none;
+  background: transparent;
+}
+.pdf-selection-handle::after {
+  content: "";
+  display: block;
+  width: 16px;
+  height: 16px;
+  margin: 14px;
+  border: 2px solid white;
+  border-radius: 50%;
+  background: #315c86;
+  box-shadow: 0 1px 4px #0005;
+}
+.swipe-pages .reader-host {
+  touch-action: pan-y pinch-zoom;
+}
+.pdf-page .ocr-text-layer span {
+  user-select: text;
+  -webkit-user-select: text;
+}
