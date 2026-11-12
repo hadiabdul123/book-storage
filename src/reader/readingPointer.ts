@@ -49,10 +49,17 @@ export function bindReadingPointer(host: HTMLElement, settings: ReadingPointerSe
     for (let i = 1; i < points.length; i++) {
       const a = points[i - 1], b = points[i];
       const line = doc.createElementNS(ns, "path");
-      line.setAttribute("d", `M${a.x} ${a.y} L${b.x} ${b.y}`);
+      // Meet on straight mid-segments: rounded caps on every sample would
+      // overlap translucent strokes and leave bright dots along the trail.
+      const start = i === 1 ? a : { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      const next = points[i + 1];
+      const end = next ? { x: (b.x + next.x) / 2, y: (b.y + next.y) / 2 } : b;
+      line.setAttribute("d", `M${start.x} ${start.y} L${b.x} ${b.y} L${end.x} ${end.y}`);
       line.setAttribute("stroke", settings.color);
       line.setAttribute("stroke-width", String(settings.thickness));
-      line.setAttribute("stroke-linecap", "round");
+      line.setAttribute("stroke-linecap", "butt");
+      line.setAttribute("stroke-linejoin", "round");
+      line.setAttribute("fill", "none");
       line.setAttribute("opacity", String((settings.opacity / 100) * (i / points.length) * Math.max(0, 1 - (now - b.time) / settings.fade)));
       segments.append(line);
     }
@@ -93,7 +100,11 @@ export function bindReadingPointer(host: HTMLElement, settings: ReadingPointerSe
     }
     last = point;
   };
-  const selection = () => { if (!doc.getSelection()?.isCollapsed) clear(); };
+  const selection = () => { if (!preview && !doc.getSelection()?.isCollapsed) clear(); };
+  const scroll = (event: Event) => {
+    const target = event.target;
+    if (target === doc || (activePage && target instanceof Element && target.contains(activePage))) clear();
+  };
   const observer = new MutationObserver(() => {
     if (host.matches(".region-mode,.pdf-zooming") || (activePage && !host.contains(activePage))) clear();
   });
@@ -101,7 +112,7 @@ export function bindReadingPointer(host: HTMLElement, settings: ReadingPointerSe
   host.addEventListener("pointermove", move, { passive: true });
   host.addEventListener("pointerleave", clear);
   host.addEventListener("pointerdown", clear, { passive: true });
-  doc.addEventListener("scroll", clear, true);
+  doc.addEventListener("scroll", scroll, true);
   doc.addEventListener("wheel", clear, { passive: true });
   doc.addEventListener("keydown", clear);
   doc.addEventListener("selectionchange", selection);
@@ -111,7 +122,7 @@ export function bindReadingPointer(host: HTMLElement, settings: ReadingPointerSe
   return () => {
     clear(); observer.disconnect(); svg.remove();
     host.removeEventListener("pointermove", move); host.removeEventListener("pointerleave", clear);
-    host.removeEventListener("pointerdown", clear); doc.removeEventListener("scroll", clear, true);
+    host.removeEventListener("pointerdown", clear); doc.removeEventListener("scroll", scroll, true);
     doc.removeEventListener("wheel", clear); doc.removeEventListener("keydown", clear);
     doc.removeEventListener("selectionchange", selection); doc.removeEventListener("visibilitychange", clear);
     win.removeEventListener("blur", clear); win.removeEventListener("resize", clear);

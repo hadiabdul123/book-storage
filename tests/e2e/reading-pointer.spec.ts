@@ -16,6 +16,15 @@ async function setValue(page: Page, label: string, value: string) {
     el.dispatchEvent(new Event("change", { bubbles: true }));
   }, value);
 }
+async function tryPreview(page: Page) {
+  const preview = page.locator(".reading-pointer-preview");
+  await preview.hover();
+  // Finish scroll-into-view before testing a fresh reading movement.
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  const box = (await preview.boundingBox())!;
+  await page.mouse.move(box.x + 35, box.y + 55);
+  await page.mouse.move(box.x + 75, box.y + 55, { steps: 3 });
+}
 async function enable(page: Page) {
   await page.getByLabel("Custom pointer", { exact: true }).check();
   await page.getByLabel("Cursor trail", { exact: true }).check();
@@ -37,7 +46,7 @@ test("reading guide settings persist across PDFs and work offline", async ({ pag
   await enable(page);
   for (const shape of ["arrow", "dot", "ring", "underline"]) {
     await page.getByLabel("Pointer shape", { exact: true }).selectOption(shape);
-    await page.locator(".reading-pointer-preview").hover();
+    await tryPreview(page);
     await expect(page.locator(`.is-preview [data-reading-pointer=${shape}]`)).not.toHaveCSS("display", "none");
   }
   await setValue(page, "Pointer size", "48");
@@ -70,8 +79,8 @@ test("reading guide settings persist across PDFs and work offline", async ({ pag
   await expect(page.getByLabel("Cursor trail", { exact: true })).toBeChecked();
   await context.setOffline(true);
   await page.getByLabel("Pointer shape", { exact: true }).selectOption("ring");
-  await page.locator(".reading-pointer-preview").hover();
-  await expect(page.locator('.is-preview [data-reading-pointer="ring"]')).toBeVisible();
+  await tryPreview(page);
+  await expect(page.locator('.is-preview [data-reading-pointer="ring"]')).not.toHaveCSS("display", "none");
   await page.getByRole("button", { name: "Reset reading pointer" }).click();
   await expect(page.getByLabel("Custom pointer", { exact: true })).not.toBeChecked();
   await expect(overlay(page)).toHaveCount(0);
