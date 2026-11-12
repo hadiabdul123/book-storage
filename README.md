@@ -4,7 +4,11 @@ A personal React + TypeScript reading PWA for Windows and Android. EPUB, PDF, an
 
 ## Current verification status
 
-Dependency installation has been repaired after the move to the C drive. The reader now includes formatted PDF page notebooks, one/two-page reading modes, and a bundled offline English dictionary. See [verification notes](docs/VERIFICATION.md) for test results and remaining release gates. The live private Supabase schema and owner allowlist are configured; database access controls and anonymous API rejection have passed. Owner-session uploads, cross-device synchronization, and physical Android touch behavior still need verification.
+Dependency installation has been repaired after the move to the C drive. The reader now includes formatted PDF page notebooks, one/two-page reading modes, and a bundled offline English dictionary. See [verification notes](docs/VERIFICATION.md) for test results and remaining release gates. The live private Supabase schema and owner allowlist are configured; database access controls and anonymous API rejection have passed. Owner sign-in and a real book upload are verified. Cross-device download/synchronization and physical Android touch behavior still need verification.
+
+## Open the hosted reader
+
+The deployed app is [Leafmark](https://hadiabdul123.github.io/book-storage/). Sign in with the configured reader account; the public source and app shell do not expose the private library. On Android Chrome, open the link and use the menu to install the app. Open a book while online to download its offline copy. On first use, leave the app open until it reports that the reader and dictionary are ready offline; the initial asset download can take a few minutes.
 
 ## Run on your PC
 
@@ -69,7 +73,7 @@ The repository can be public; private books, notes, and account credentials must
 
 The workflow sets the repository base path automatically. Hash routing preserves deep links on static Pages hosting. For a root `username.github.io` repository, change `VITE_BASE_PATH` in the workflow to `/`.
 
-The public source repository does not contain the personal library. Environment files, browser profiles, private test output, book files, and note exports are ignored. Only explicitly named, credited interoperability fixtures are tracked. Public deployment remains gated until live owner access and privacy checks are completed.
+The public source repository does not contain the personal library. Environment files, browser profiles, private test output, book files, and note exports are ignored. Only explicitly named, credited interoperability fixtures are tracked. The initial deployment followed successful live owner sign-in/upload and anonymous API/object denial checks; subsequent deployments remain gated by the test workflow.
 
 ## Install and use
 

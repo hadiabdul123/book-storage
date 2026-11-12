@@ -8,7 +8,10 @@
 - Live HTTP requests with the publishable key receive 401 for anonymous library reads and owner RPC execution; bucket metadata is hidden. The library bucket exists and is private.
 - Remaining advisor findings are intentional [authenticated SECURITY DEFINER RPC exposure](https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable), checked inside each RPC against the private allowlist, and [default-deny internal RLS without policies](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy). [Leaked-password protection](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection) is disabled; Auth configuration and signup settings were not changed through the database tools.
 - Enabled cloud configuration for local development, preserving the original browser database and ignored environment files. Configured GitHub Pages to build through Actions and stored only the Supabase URL/publishable key in repository variables.
-- Pending: owner password-session sign-in, actual file upload/download across sessions, deployed HTTPS reader verification, and physical Android installation. Earlier entries below describe historical blockers superseded by this setup.
+- Owner password sign-in succeeded and the user reported Synced. Independently verified the real book record and its 14,486,132-byte original in private storage. Anonymous attempts against standard, public, and authenticated object download routes all failed. No private book contents or credentials were added to the repository.
+- Deployed the HTTPS reader through [GitHub Actions run 43164771662](https://github.com/hadiabdul123/book-storage/actions/runs/43164771662). Dependency installation, all unit tests, the full desktop/mobile browser suite, simulated two-context cloud transport, offline restart, configured production build, and Pages deployment passed.
+- Live hosted sign-in layout passed at 360, 412, and 1440 pixels: HTTP 200, no horizontal overflow, no page errors, valid standalone manifest, and available icons. Visually reviewed the phone and desktop screenshots. The app registers its worker after sign-in; the isolated signed-out smoke check explicitly registered the deployed worker to test its assets. All 530 assets cached, activation completed after about three minutes on this connection, and the public app shell reopened with networking disabled. This is not a test of authenticated book reading on a physical phone.
+- Pending: authenticated download in a second device/session and physical Android installation. Earlier entries below describe historical blockers superseded by this setup.
 
 
 ## Cloud save visibility and Android reading on 2026-11-12
@@ -101,8 +104,8 @@ The source was committed and pushed to the public `hadiabdul123/book-storage` re
 
 ## Not yet verified
 
-- Owner password-session sign-in, real Storage HTTP upload/download, actual cross-device synchronization, and concurrent-device recovery. The administrative connection, owner allowlist, migration, SQL RLS tests, and anonymous API denial are verified above.
-- Physical Android touch selection, installed-PWA behavior on actual devices, authenticated offline recovery, the complete visual review matrix, and GitHub deployment. Local-device-mode offline browser restart is now covered by the production test above.
+- Real authenticated Storage download on a second device, actual cross-device synchronization, and concurrent-device recovery. The administrative connection, owner sign-in/upload, migration, SQL RLS tests, and anonymous API/object denial are verified above.
+- Physical Android touch selection, installed-PWA behavior on actual devices, authenticated offline recovery, and the complete visual review matrix. GitHub deployment and the hosted app-shell offline check are verified above. Local-device-mode offline browser restart is now covered by the production test above.
 - Earlier network/executor restrictions recorded during initial development are no longer blocking installation and local checks. Passing local tests does not establish the live-service or physical-device results above.
 
 ## Required before calling the app release-ready
