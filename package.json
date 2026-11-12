@@ -12,6 +12,7 @@
     "test": "vitest run",
     "pretest": "node scripts/prepare-dictionary.mjs",
     "test:e2e": "playwright test",
+    "test:cloud": "playwright test --config playwright.cloud.config.ts",
     "test:pwa": "playwright test --config playwright.production.config.ts",
     "test:private": "playwright test --config playwright.private.config.ts",
     "typecheck": "tsc -b"

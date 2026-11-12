@@ -16,7 +16,8 @@ import {
 } from "lucide-react";
 import { db, get, list, save } from "./db";
 import { importBook } from "./import";
-import { downloadBook } from "./sync";
+import { downloadBook, removeDownload } from "./sync";
+import { BookSyncStatus } from "./BookSyncStatus";
 import { type Book, type Collection, uid } from "./model";
 import { BookCard, Cover, Dialog, Empty, messageOf } from "./components";
 
@@ -83,7 +84,9 @@ export function Library({ notify }: { notify: (message: string) => void }) {
       setImporting(file.name);
       try {
         const result = await importBook(file);
-        notices.push(...result.warnings.map((warning) => `${file.name}: ${warning}`));
+        notices.push(
+          ...result.warnings.map((warning) => `${file.name}: ${warning}`),
+        );
       } catch (error) {
         failures.push(`${file.name}: ${messageOf(error)}`);
       }
@@ -152,7 +155,11 @@ export function Library({ notify }: { notify: (message: string) => void }) {
       )}
       {warnings.length > 0 && (
         <div className="notice" role="status" aria-label="Import warnings">
-          <div>{warnings.map((warning, index) => <p key={index}>{warning}</p>)}</div>
+          <div>
+            {warnings.map((warning, index) => (
+              <p key={index}>{warning}</p>
+            ))}
+          </div>
         </div>
       )}
       {recent && !query && !collection && filter === "all" && (
@@ -519,6 +526,7 @@ function BookDetails({
             ))}
           </fieldset>
         )}
+        <BookSyncStatus id={book.id} />
         <div className="download-row">
           <span>
             {file ? (
@@ -541,11 +549,7 @@ function BookDetails({
               setBusy(true);
               try {
                 if (file) {
-                  if (!file.uploaded)
-                    throw new Error(
-                      "Sync this book before removing its only local copy.",
-                    );
-                  await db.files.delete(book.id);
+                  await removeDownload(book);
                 } else await downloadBook(book);
               } catch (e) {
                 setError(messageOf(e));

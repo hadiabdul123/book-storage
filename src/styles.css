@@ -1161,7 +1161,8 @@
     display: block;
   }
   .reader-shell {
-    height: 100dvh;
+    position: relative;
+    height: var(--reader-height, 100dvh);
     display: flex;
     flex-direction: column;
     background: var(--page-bg, #fff);
@@ -1209,6 +1210,54 @@
   .reader-tools {
     display: flex;
     gap: 7px;
+  }
+  .book-sync-status {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin: 8px 0;
+    font-size: 12px;
+  }
+  .book-sync-status[data-state="error"] > span:first-child,
+  .sync-error-detail {
+    color: #a23526;
+  }
+  .sync-error-detail {
+    font-size: 11px;
+    overflow-wrap: anywhere;
+  }
+  .book-sync-status .text-button {
+    align-self: flex-start;
+  }
+  .reader-zoom-controls {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+  }
+  .reader-zoom-controls .text-button {
+    min-width: 42px;
+  }
+  .reading-mode .reader-header,
+  .reading-mode .reader-footer {
+    display: none;
+  }
+  .reading-mode-exit {
+    position: absolute;
+    top: max(8px, env(safe-area-inset-top));
+    right: max(10px, env(safe-area-inset-right));
+    z-index: 12;
+    min-height: 44px;
+    opacity: 0.85;
+  }
+  .resume-reading {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    padding: 10px 16px;
+    background: var(--page-bg);
+    border-bottom: 1px solid var(--line);
+    font-size: 13px;
   }
   .reader-workspace {
     flex: 1;
@@ -1794,7 +1843,9 @@
       gap: 15px;
     }
     .reader-header {
-      height: 58px;
+      height: auto;
+      min-height: 58px;
+      flex-wrap: wrap;
       gap: 7px;
       padding: 8px 10px;
     }
@@ -1806,16 +1857,21 @@
     }
     .reader-tools {
       gap: 0;
+      width: 100%;
+      justify-content: space-between;
+      overflow-x: auto;
+      scrollbar-width: thin;
     }
     .reader-tools .icon-button {
-      width: 33px;
-      height: 34px;
+      min-width: 44px;
+      width: 44px;
+      height: 44px;
     }
     .reader-tools svg {
       width: 18px;
     }
     .reader-title {
-      max-width: calc(100vw - 215px);
+      max-width: calc(100vw - 80px);
     }
     .desktop-only {
       display: none !important;
@@ -1832,10 +1888,11 @@
       min-height: 49px;
       padding-left: 14px;
       padding-right: 14px;
-      gap: 18px;
+      gap: 4px;
+      flex-wrap: wrap;
     }
     .reader-progress {
-      width: 170px;
+      width: 110px;
     }
     .selection-toolbar {
       left: 12px;

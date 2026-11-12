@@ -8,12 +8,17 @@ insert into auth.users(id,email) values
   ('10000000-0000-4000-8000-000000000001','leafmark-owner-test@example.invalid'),
   ('10000000-0000-4000-8000-000000000002','leafmark-denied-test@example.invalid');
 insert into private.owners values('10000000-0000-4000-8000-000000000001');
+-- Metadata-only storage fixture; the whole transaction rolls back, with no blob uploaded.
+insert into storage.objects(bucket_id,name) values
+  ('library','10000000-0000-4000-8000-000000000001/leafmark-policy-test/source.pdf');
 set local role authenticated;
 select set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000001',true);
 do $$
 declare first_result jsonb; retry jsonb; conflict jsonb; op jsonb;
 begin
   if not public.is_library_owner() then raise exception 'Owner rejected'; end if;
+  if not exists(select 1 from storage.objects where bucket_id='library' and name='10000000-0000-4000-8000-000000000001/leafmark-policy-test/source.pdf')
+    then raise exception 'Owner cannot read private storage'; end if;
   op:=jsonb_build_object('opId','20000000-0000-4000-8000-000000000001','kind','book','id','test-book','baseRevision',0,'deleted',false,
     'value',jsonb_build_object('id','test-book','title','Test','format','epub','hash',repeat('a',64),'sourcePath','test-book/source.epub'));
   first_result:=public.apply_change(op);
@@ -32,6 +37,11 @@ select set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000002'
 do $$ begin
   if public.is_library_owner() then raise exception 'Unapproved account accepted'; end if;
   if exists(select 1 from public.library_entries) then raise exception 'Another account can read private data'; end if;
+  if exists(select 1 from storage.objects where bucket_id='library') then raise exception 'Another account can read private storage'; end if;
+  begin
+    insert into storage.objects(bucket_id,name) values('library','10000000-0000-4000-8000-000000000002/leafmark-policy-test/source.pdf');
+    raise exception 'Unapproved storage upload accepted';
+  exception when insufficient_privilege then null; end;
   begin perform public.pull_changes(0);raise exception 'Unapproved pull accepted';exception when insufficient_privilege then null;end;
   begin perform public.apply_change('{"opId":"20000000-0000-4000-8000-000000000003"}'::jsonb);raise exception 'Unapproved write accepted';exception when insufficient_privilege then null;end;
 end $$;
@@ -39,5 +49,8 @@ reset role;
 set local role anon;
 do $$ begin
   begin perform 1 from public.library_entries;raise exception 'Anonymous read accepted';exception when insufficient_privilege then null;end;
+  begin
+    if exists(select 1 from storage.objects where bucket_id='library') then raise exception 'Anonymous storage read accepted'; end if;
+  exception when insufficient_privilege then null; end;
 end $$;
 rollback;

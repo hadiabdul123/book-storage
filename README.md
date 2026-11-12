@@ -114,6 +114,18 @@ There are no application book-count or monthly upload limits. Supabase’s actua
 
 ## Checks
 
+### Private cloud and Android reading
+
+Each book reports local saving, queued upload, upload percentage, upload failure with retry, or confirmed sync. Offline availability is shown separately. Files are retained locally when uploads fail or exceed `VITE_UPLOAD_LIMIT_MB` (50 by default; match your actual Supabase project/bucket limit). Removing a download requires both an uploaded original and acknowledged book metadata, with no pending book change or conflict.
+
+Open a cloud book once to download and retain it for offline reading. Sync runs while the app is open, on reconnection, and when returning to the app; closing Android suspends ongoing work until reopening. Signing out removes the account's local library. Browser storage can still be evicted, so wait for confirmed cloud sync before relying on another device.
+
+Use **Enter reading mode** to hide the toolbars and **Controls** to restore them. PDF zoom is available below the page. PDF layout, zoom, rotation, and device layout overrides stay on this browser; phone defaults are one page, fit width, and continuous scrolling. Notes, bookmarks, and reading position continue to sync. A newly received reading position is offered rather than jumping an active reader automatically.
+
+Before moving an existing local library to GitHub Pages, configure and authenticate the app at its **original PC URL and browser profile** first. Confirm every book has synced, then open the hosted URL on the phone and sign in with the same owner account. IndexedDB is isolated by origin: `localhost`, `127.0.0.1`, and the hosted site have separate libraries. Do not clear the original browser data during migration. GitHub Pages serves only the application; Supabase keeps the private books.
+
+The Pages workflow's deployment gate must stay closed until owner login and database/storage isolation have been verified. A publishable key alone does not initialize the backend: apply `supabase/migrations/001_library.sql` once to the dedicated project, configure the owner account, run `supabase/tests/security.sql`, and verify two authenticated sessions before deployment.
+
 ```powershell
 npm.cmd run typecheck
 npm.cmd test
@@ -121,10 +133,13 @@ npm.cmd run build
 $env:PLAYWRIGHT_BROWSERS_PATH = Join-Path (Get-Location) '.local\playwright'
 npx.cmd playwright install chromium
 npm.cmd run test:e2e
+npm.cmd run test:cloud
 npm.cmd run test:pwa
 ```
 
 The browser suite imports actual upstream EPUB/PDF fixtures and a generated DOCX. It covers saved notes, reloads, typography changes, PDF zoom/rotation, and passage navigation in desktop and Android-sized Chromium contexts. Programmatically constructed browser selections do **not** prove native touch-handle reliability. Follow the physical Android and two-device test matrix in [verification notes](docs/VERIFICATION.md).
+
+`test:cloud` uses two isolated browser contexts and an intercepted Supabase-compatible HTTP/TUS service. It verifies original-byte transfer and hash matching, notes, bookmarks, position restoration, and cached-owner access without an online session. Every external request is intercepted; this checks the client protocol, not the live database's security policies. Run the SQL security checks and authenticated live-device verification separately before enabling deployment.
 
 To check a private PDF without adding it to the repository, set `LEAFMARK_TEST_PDF` to its absolute local path and run `npm.cmd run test:private`. The test blocks external requests, uses an isolated browser, and keeps screenshots under ignored `.local/private-test-results`. Never copy private books into `tests/fixtures`.
 

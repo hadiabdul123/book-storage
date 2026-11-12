@@ -41,6 +41,17 @@ export default function App() {
     if (!cloud) return;
     let active = true;
     const verify = async () => {
+      const bound = await db.meta.get("owner");
+      // This origin was previously authorized and retains its private library.
+      // Do not require a network token refresh just to reopen downloaded books.
+      if (!navigator.onLine && bound?.value) {
+        if (active) {
+          setAuthenticated(true);
+          setChecking(false);
+          setAuthError("");
+        }
+        return;
+      }
       const {
         data: { session },
       } = await cloud!.auth.getSession();
@@ -51,7 +62,6 @@ export default function App() {
         }
         return;
       }
-      const bound = await db.meta.get("owner");
       if (bound && bound.value !== session.user.id) {
         if (active) {
           setAuthError(
@@ -138,7 +148,8 @@ function Shell() {
     updateServiceWorker,
   } = useRegisterSW({
     onOfflineReady: () => notify("Reader and dictionary are ready offline."),
-    onRegisterError: (error) => console.error("Leafmark offline setup failed:", error),
+    onRegisterError: (error) =>
+      console.error("Leafmark offline setup failed:", error),
   });
   return (
     <div className={reading ? "app reading" : "app"}>

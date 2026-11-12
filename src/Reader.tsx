@@ -16,6 +16,9 @@ import {
   Download,
   NotebookPen,
   BookA,
+  Eye,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import { db, get, list, save } from "./db";
 import {
@@ -40,6 +43,11 @@ import { pageNoteId, savePageNote } from "./pageNotes";
 import { emptyDocument, paragraph } from "./richText";
 import "./notebooks.css";
 import {
+  readDeviceReading,
+  writeDeviceReading,
+  devicePdfLayout,
+} from "./deviceReading";
+import {
   ReaderInteractions,
   type InteractionHandle,
 } from "./ReaderInteractions";
@@ -60,8 +68,42 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
     ) || [];
   const savedPrefs = useLiveQuery(() => get("preferences", "reader"), []);
   const pdfPrefs = useLiveQuery(() => get("preferences", `pdf:${id}`), [id]);
-  const pdfLayout = pdfPrefs?.pdfLayout || defaultPdfLayout;
-  const prefs = { ...(savedPrefs || defaults), pdfLayout };
+  const localView = useLiveQuery(() => readDeviceReading(id), [id]);
+  const [phone] = useState(
+    () => window.matchMedia("(max-width: 700px)").matches,
+  );
+  const pdfLayout = devicePdfLayout(localView, pdfPrefs?.pdfLayout, phone);
+  const prefs = {
+    ...(savedPrefs || defaults),
+    width: localView?.width ?? savedPrefs?.width ?? defaults.width,
+    flow:
+      localView?.flow ??
+      (phone ? "scrolled" : savedPrefs?.flow) ??
+      defaults.flow,
+    spread:
+      localView?.spread ??
+      (phone ? false : savedPrefs?.spread) ??
+      defaults.spread,
+    pdfLayout,
+  };
+  const [readingMode, setReadingMode] = useState(false);
+  const shell = useRef<HTMLElement>(null);
+  const remotePosition = useLiveQuery(() => get("position", id), [id]);
+  const [offeredPosition, setOfferedPosition] = useState<Position>();
+  const seenPosition = useRef("");
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    const resize = () => {
+      if (viewport?.scale === 1)
+        shell.current?.style.setProperty(
+          "--reader-height",
+          `${viewport.height}px`,
+        );
+    };
+    resize();
+    viewport?.addEventListener("resize", resize);
+    return () => viewport?.removeEventListener("resize", resize);
+  }, [book?.id]);
   const notebook = useRef<NotebookHandle | null>(null);
   const [notebookPage, setNotebookPage] = useState(1),
     [pinned, setPinned] = useState(false),
@@ -202,6 +244,16 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
       reader.configure(prefsRef.current);
       await reader.open(files.source, files.derived);
       if (cancelled) return;
+      if (book.format === "pdf") {
+        const view = await readDeviceReading(id);
+        setZoom(view.zoom || 1);
+        setRotation(view.rotation || 0);
+        if (view.zoom || view.rotation)
+          await (reader as import("./reader/pdf").PdfReader).setView(
+            view.zoom || 1,
+            view.rotation || 0,
+          );
+      }
       reader.annotate(annotationsRef.current);
       setSections(await reader.sections());
       const stored = await get("position", id),
@@ -217,6 +269,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
         setError(messageOf(e));
       }
       if (stored) position.current = stored;
+      seenPosition.current = stored?.readAt || "";
       restoring = false;
       setLoading(false);
       setReady((v) => v + 1);
@@ -255,7 +308,19 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   }, [annotations, ready]);
   useEffect(() => {
     adapter.current?.configure(prefs);
-  }, [savedPrefs, pdfPrefs, ready]);
+  }, [savedPrefs, pdfPrefs, localView, ready]);
+  useEffect(() => {
+    if (
+      !loading &&
+      remotePosition &&
+      remotePosition.device !== deviceId() &&
+      remotePosition.readAt > seenPosition.current &&
+      remotePosition.readAt > (position.current?.readAt || "")
+    ) {
+      seenPosition.current = remotePosition.readAt;
+      setOfferedPosition(remotePosition);
+    }
+  }, [remotePosition, loading]);
   useEffect(() => {
     if (
       panel === "page-notes" &&
@@ -267,18 +332,22 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   }, [current?.type === "pdf" ? current.page : 0, pinned, panel]);
   async function configurePdf(patch: Partial<PdfLayout>) {
     try {
-      await save("preferences", {
-        ...defaults,
-        id: `pdf:${id}`,
-        pdfLayout: { ...pdfLayout, ...patch },
-      });
+      await writeDeviceReading(id, { pdfLayout: { ...pdfLayout, ...patch } });
     } catch (e) {
       notify(messageOf(e));
     }
   }
   async function configure(patch: Partial<Preferences>) {
     try {
-      await save("preferences", { ...prefs, ...patch });
+      const { width, flow, spread, pdfLayout: _layout, ...shared } = patch;
+      const local = {
+        ...(width !== undefined ? { width } : {}),
+        ...(flow !== undefined ? { flow } : {}),
+        ...(spread !== undefined ? { spread } : {}),
+      };
+      if (Object.keys(local).length) await writeDeviceReading(id, local);
+      if (Object.keys(shared).length)
+        await save("preferences", { ...(savedPrefs || defaults), ...shared });
     } catch (e) {
       notify(messageOf(e));
     }
@@ -302,6 +371,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
         z,
         r,
       );
+      await writeDeviceReading(id, { zoom: z, rotation: r });
     } catch (e) {
       notify(messageOf(e));
     }
@@ -335,7 +405,8 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   ] as const;
   return (
     <main
-      className={`reader-shell theme-${prefs.theme}`}
+      ref={shell}
+      className={`reader-shell theme-${prefs.theme}${readingMode ? " reading-mode" : ""}`}
       onClickCapture={(event) => {
         const anchor = (event.target as HTMLElement).closest<HTMLAnchorElement>(
           'a[href^="#/"]',
@@ -349,6 +420,37 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
         }
       }}
     >
+      {readingMode && (
+        <button
+          className="reading-mode-exit secondary"
+          aria-label="Show reading controls"
+          onClick={() => setReadingMode(false)}
+        >
+          <Eye size={18} /> Controls
+        </button>
+      )}
+      {offeredPosition && (
+        <div className="resume-reading" role="status">
+          <span>
+            A newer reading position is available from your other device.
+          </span>
+          <button
+            className="text-button"
+            onClick={async () => {
+              await goTo(offeredPosition.locator);
+              setOfferedPosition(undefined);
+            }}
+          >
+            Resume there
+          </button>
+          <button
+            className="text-button"
+            onClick={() => setOfferedPosition(undefined)}
+          >
+            Stay here
+          </button>
+        </div>
+      )}
       <header className="reader-header">
         <Link to="/" className="icon-button" aria-label="Back to library">
           <ArrowLeft size={21} />
@@ -358,6 +460,23 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
           <span>{book.author}</span>
         </div>
         <div className="reader-tools">
+          <button
+            className="icon-button"
+            aria-label="Enter reading mode"
+            onClick={async () => {
+              if (!(await flushNotebook())) return;
+              setPanel("");
+              setRegion(false);
+              if (book.format === "pdf")
+                (
+                  adapter.current as import("./reader/pdf").PdfReader
+                )?.setRegionMode(false);
+              interactions.current?.dismiss();
+              setReadingMode(true);
+            }}
+          >
+            <Eye size={20} />
+          </button>
           {tools.map(([name, Icon, label]) => (
             <button
               className={`icon-button ${panel === name ? "active" : ""}`}
@@ -438,7 +557,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
           )}
           <div
             ref={host}
-            className={`reader-host ${jumped ? "passage-arrived" : ""}`}
+            className={`reader-host ${book.format === "pdf" ? "pdf-reader" : book.format === "docx" ? "docx-reader" : ""} ${region ? "region-mode" : ""} ${jumped ? "passage-arrived" : ""}`}
             aria-label="Book content"
             tabIndex={0}
           />
@@ -852,7 +971,12 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
                           <option value="1">100% of fit</option>
                           <option value="1.25">125%</option>
                           <option value="1.5">150%</option>
+                          <option value="1.75">175%</option>
                           <option value="2">200%</option>
+                          <option value="2.25">225%</option>
+                          <option value="2.5">250%</option>
+                          <option value="2.75">275%</option>
+                          <option value="3">300%</option>
                         </select>
                       </label>
                       <button
@@ -900,6 +1024,41 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
         )}
       </div>
       <footer className="reader-footer">
+        {book.format === "pdf" && (
+          <div
+            className="reader-zoom-controls"
+            role="group"
+            aria-label="Page zoom"
+          >
+            <button
+              className="icon-button"
+              aria-label="Zoom out"
+              disabled={zoom <= 1}
+              onClick={() =>
+                void setPdfView(Math.max(1, zoom - 0.25), rotation)
+              }
+            >
+              <ZoomOut size={18} />
+            </button>
+            <button
+              className="text-button"
+              aria-label="Reset page zoom"
+              onClick={() => void setPdfView(1, rotation)}
+            >
+              {Math.round(zoom * 100)}%
+            </button>
+            <button
+              className="icon-button"
+              aria-label="Zoom in"
+              disabled={zoom >= 3}
+              onClick={() =>
+                void setPdfView(Math.min(3, zoom + 0.25), rotation)
+              }
+            >
+              <ZoomIn size={18} />
+            </button>
+          </div>
+        )}
         <button
           className="icon-button"
           aria-label="Previous page"

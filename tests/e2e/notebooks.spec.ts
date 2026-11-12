@@ -117,7 +117,7 @@ test("meaning lookup preserves selection and adds definitions to the page notebo
   await page.getByRole("button", { name: "Look up", exact: true }).click();
   await expect(page.locator(".dictionary-entry h3").first()).toHaveText("go");
 });
-test("PDF layout settings remain synchronized and continuous scrolling resumes", async ({
+test("PDF layout settings persist on this device and continuous scrolling resumes", async ({
   page,
 }, testInfo) => {
   await page.setViewportSize({ width: 1440, height: 1000 });

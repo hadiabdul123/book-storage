@@ -61,9 +61,9 @@ export async function importBook(file: File): Promise<ImportResult> {
     .map((x) => x.toString(16).padStart(2, "0"))
     .join("");
   const duplicate = (await list("book")).find((b) => b.hash === hash);
-  if (duplicate)
+  if (duplicate && (await db.files.get(duplicate.id)))
     throw new Error(`“${duplicate.title}” is already in your library.`);
-  const id = uid();
+  const id = duplicate?.id || uid();
   const book: Book = {
     id,
     title: file.name.replace(/\.[^.]+$/, ""),
@@ -95,7 +95,9 @@ export async function importBook(file: File): Promise<ImportResult> {
           book.cover = await thumbnail(cover);
         } catch (error) {
           console.warn("EPUB cover generation failed", error);
-          warnings.push("Book added, but its cover could not be created. You can still read it.");
+          warnings.push(
+            "Book added, but its cover could not be created. You can still read it.",
+          );
         }
       }
     } finally {
@@ -116,7 +118,9 @@ export async function importBook(file: File): Promise<ImportResult> {
         book.author = info.Author || book.author;
       } catch (error) {
         console.warn("PDF metadata extraction failed", error);
-        warnings.push("Book added using its filename because its metadata could not be read.");
+        warnings.push(
+          "Book added using its filename because its metadata could not be read.",
+        );
       }
       try {
         const page = await document.getPage(1),
@@ -128,11 +132,17 @@ export async function importBook(file: File): Promise<ImportResult> {
         book.cover = await thumbnail(canvas.toDataURL());
       } catch (error) {
         console.warn("PDF cover generation failed", error);
-        warnings.push("Book added, but its cover could not be created. You can still open it to read the available pages.");
+        warnings.push(
+          "Book added, but its cover could not be created. You can still open it to read the available pages.",
+        );
       }
     } finally {
       // Cleanup must not discard a successfully loaded book or mask its error.
-      await task.destroy().catch((error: unknown) => console.warn("PDF import cleanup failed", error));
+      await task
+        .destroy()
+        .catch((error: unknown) =>
+          console.warn("PDF import cleanup failed", error),
+        );
     }
   } else {
     const mammoth = await import("mammoth");
@@ -142,11 +152,15 @@ export async function importBook(file: File): Promise<ImportResult> {
   }
   await db.files.put({ id, source: file, derived, uploaded: false });
   try {
-    await save("book", book);
+    await save("book", duplicate || book);
   } catch (error) {
     await db.files.delete(id);
     throw error;
   }
   await navigator.storage?.persist?.().catch(() => false);
-  return { book, warnings };
+  if (duplicate)
+    warnings.push(
+      "Restored the missing local file. Your existing notes and reading position are preserved.",
+    );
+  return { book: duplicate || book, warnings };
 }

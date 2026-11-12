@@ -6,6 +6,7 @@ import { get, save } from "./db";
 import { useLiveQuery } from "dexie-react-hooks";
 import { PageNotebook, type NotebookHandle } from "./PageNotebook";
 import { RichTextView } from "./RichTextView";
+import { BookSyncStatus } from "./BookSyncStatus";
 
 export const messageOf = (error: unknown) =>
   error instanceof Error
@@ -140,6 +141,7 @@ export function BookCard({
               : ""}
         </span>
       </div>
+      <BookSyncStatus id={book.id} />
       {progress > 0 && (
         <div className="progress-line">
           <span style={{ width: `${Math.min(100, progress * 100)}%` }} />
