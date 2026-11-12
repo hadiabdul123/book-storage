@@ -222,3 +222,36 @@ test("phone EPUB swipes turn the displayed reading page", async ({
   await stroke(page, 310, 400, -180, 0);
   await expect(page.locator(".reader-progress")).not.toHaveText(before);
 });
+
+
+test("selection tools keep their initial position after the first measurement", async ({ page }) => {
+  await openPdf(page);
+  const positions = await page.evaluate(() => new Promise<number[]>((resolve, reject) => {
+    const span = Array.from(document.querySelectorAll(".textLayer span")).find(el => {
+      const r = el.getBoundingClientRect();
+      return r.top > 300 && r.bottom < innerHeight - 180 && (el.textContent?.length || 0) > 10;
+    });
+    if (!span) return reject(new Error("No visible text for placement test"));
+    const positions: number[] = [];
+    let started = 0;
+    const deadline = performance.now() + 5000;
+    const sample = (time: number) => {
+      const popup = document.querySelector<HTMLElement>(".passage-popup");
+      if (popup && getComputedStyle(popup).visibility === "visible") {
+        started ||= time;
+        positions.push(popup.getBoundingClientRect().top);
+      }
+      if (started && time - started > 240) return resolve(positions);
+      if (time > deadline) return reject(new Error("Selection tools did not appear"));
+      requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
+    const range = document.createRange();
+    range.selectNodeContents(span);
+    const selection = document.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }));
+  expect(positions.length).toBeGreaterThan(2);
+  expect(Math.max(...positions) - Math.min(...positions)).toBeLessThan(2);
+});

@@ -106,6 +106,8 @@ export const ReaderInteractions = forwardRef<
     left: number;
     top: number;
     maxHeight: number;
+    popupTop: number;
+    popupBottom: number;
     visible: boolean;
     markers: { id: string; left: number; top: number }[];
     places: string[];
@@ -113,6 +115,8 @@ export const ReaderInteractions = forwardRef<
     left: 0,
     top: 0,
     maxHeight: 520,
+    popupTop: 0,
+    popupBottom: 0,
     visible: false,
     markers: [],
     places: [],
@@ -397,7 +401,14 @@ export const ReaderInteractions = forwardRef<
         : undefined;
       const width =
           popup.current?.offsetWidth || Math.min(360, innerWidth - 16),
-        desiredHeight = Math.min(520, popup.current?.scrollHeight || 110);
+        desiredHeight = Math.min(
+          520,
+          popup.current
+            ? popup.current.scrollHeight +
+                popup.current.offsetHeight -
+                popup.current.clientHeight
+            : 110,
+        );
       const left = rect
         ? Math.max(
             8,
@@ -425,7 +436,9 @@ export const ReaderInteractions = forwardRef<
         80,
         Math.min(520, above ? aboveSpace : belowSpace),
       );
-      const height = Math.min(popup.current?.offsetHeight || 110, maxHeight);
+      // offsetHeight may still be constrained by the previous selection's
+      // maxHeight. Use the natural content height for both size and position.
+      const height = Math.min(desiredHeight, maxHeight);
       const top = rect
         ? Math.max(
             popupTop + 4,
@@ -461,23 +474,28 @@ export const ReaderInteractions = forwardRef<
         left: Math.round(left),
         top: Math.round(top),
         maxHeight,
-        visible: !!rect,
+        popupTop,
+        popupBottom,
+        // Wait for the mounted popup to be measured before exposing buttons.
+        visible: !!rect && !!popup.current,
         markers,
         places: places.map((p) => p.id),
       };
       // EPUB fonts/images can move a range between hover and pointer-down.
       // Keep the action buttons under the pointer until the click is complete;
       // expanded note/meaning views still get their own measured placement.
-      const holdTools =
-        popup.current?.dataset.mode === "tools" &&
-        popup.current.matches(":hover");
       setLayout((previous) => {
+        // Read hover when applying the update too: a pointer may have entered since the
+        // animation frame queued this update. Measuring must not steal a click.
+        const holdTools =
+          popup.current?.dataset.mode === "tools" &&
+          popup.current.matches(":hover");
         const placed =
           holdTools &&
           previous.visible &&
           next.visible &&
-          previous.top >= popupTop &&
-          previous.top + (popup.current?.offsetHeight || 0) <= popupBottom
+          previous.popupTop === popupTop &&
+          previous.popupBottom === popupBottom
             ? {
                 ...next,
                 left: previous.left,

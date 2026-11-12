@@ -78,6 +78,9 @@ test("real EPUB highlight survives reload, typography changes and passage naviga
   });
   await noteAction.hover();
   const actionTop = (await noteAction.boundingBox())!.y;
+  // Keep the pointer down while the document reflows, as a real click may
+  // span more than one geometry update on a busy device.
+  await page.mouse.down();
   await frame.locator("body").evaluate((body) => {
     body.style.setProperty("padding-top", "48px", "important");
   });
@@ -89,7 +92,7 @@ test("real EPUB highlight survives reload, typography changes and passage naviga
       }),
   );
   expect(Math.abs(heldTop - actionTop)).toBeLessThan(2);
-  await page.getByRole("button", { name: "Add note", exact: true }).click();
+  await page.mouse.up();
   await page
     .getByRole("textbox", { name: "Note for selected passage" })
     .fill("A note that must survive.");
