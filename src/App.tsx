@@ -1,4 +1,7 @@
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import type { Session } from "@supabase/supabase-js";
+import { repairSignIn, withDeadline } from "./authRecovery";
+import { UpdateNotice } from "./UpdateNotice";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   HashRouter,
   NavLink,
@@ -18,7 +21,6 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { useRegisterSW } from "virtual:pwa-register/react";
 import {
   cloud,
   startSync,
@@ -34,101 +36,86 @@ import { Reader } from "./Reader";
 import { messageOf } from "./components";
 
 export default function App() {
-  const [authenticated, setAuthenticated] = useState(!cloud),
-    [checking, setChecking] = useState(!!cloud),
-    [authError, setAuthError] = useState("");
+  return <><AccessGate /><UpdateNotice /></>;
+}
+function AccessGate() {
+  const [authenticated, setAuthenticated] = useState(!cloud);
+  const [checking, setChecking] = useState(!!cloud);
+  const [authError, setAuthError] = useState("");
+  const generation = useRef(0);
+  const authorizedUser = useRef<string | null>(null);
+  const verify = useCallback(async (session: Session | null) => {
+    const request = ++generation.current;
+    try {
+      const bound = await db.meta.get("owner");
+      if (request !== generation.current) return;
+      if (!navigator.onLine && bound?.value) {
+        setAuthenticated(true);
+        setAuthError("");
+        return;
+      }
+      if (!session) { authorizedUser.current = null; setAuthenticated(false); return; }
+      if (bound && bound.value !== session.user.id)
+        throw new Error("This device contains another account's private library. Use the original account to keep your saved books.");
+      const { data, error } = await cloud!.rpc("is_library_owner")
+        .abortSignal(AbortSignal.timeout(12000));
+      if (request !== generation.current) return;
+      if (error) throw error;
+      if (data !== true) throw new Error("This account is not the configured library owner.");
+      await db.meta.put({ key: "owner", value: session.user.id });
+      if (request !== generation.current) return;
+      authorizedUser.current = session.user.id;
+      setAuthError("");
+      setAuthenticated(true);
+    } catch (error) {
+      if (request === generation.current) {
+        authorizedUser.current = null;
+        setAuthenticated(false);
+        setAuthError(messageOf(error));
+        throw error;
+      }
+    } finally {
+      if (request === generation.current) setChecking(false);
+    }
+  }, []);
   useEffect(() => {
     if (!cloud) return;
     let active = true;
-    const verify = async () => {
-      const bound = await db.meta.get("owner");
-      // This origin was previously authorized and retains its private library.
-      // Do not require a network token refresh just to reopen downloaded books.
-      if (!navigator.onLine && bound?.value) {
-        if (active) {
-          setAuthenticated(true);
-          setChecking(false);
-          setAuthError("");
+    const check = async () => {
+      const started = generation.current;
+      try {
+        const bound = await db.meta.get("owner");
+        if (!navigator.onLine && bound?.value) {
+          if (active) await verify(null);
+          return;
         }
-        return;
+        const { data: { session }, error } = await withDeadline(cloud!.auth.getSession());
+        if (error) throw error;
+        if (active && started === generation.current) await verify(session);
+      } catch (error) {
+        if (active && started === generation.current) { setAuthError(messageOf(error)); setChecking(false); }
       }
-      const {
-        data: { session },
-      } = await cloud!.auth.getSession();
-      if (!session) {
-        if (active) {
-          setAuthenticated(false);
-          setChecking(false);
-        }
-        return;
-      }
-      if (bound && bound.value !== session.user.id) {
-        if (active) {
-          setAuthError(
-            "This device contains another account’s private library. Sign out before switching accounts.",
-          );
-          setAuthenticated(false);
-          setChecking(false);
-        }
-        return;
-      }
-      if (!navigator.onLine && bound?.value === session.user.id) {
-        if (active) {
-          setAuthenticated(true);
-          setChecking(false);
-        }
-        return;
-      }
-      const { data, error } = await cloud!.rpc("is_library_owner");
-      if (active) {
-        setAuthenticated(data === true && !error);
-        setAuthError(
-          error
-            ? error.message
-            : data !== true
-              ? "This account is not the configured library owner."
-              : "",
-        );
-        setChecking(false);
-      }
-      if (data === true && !error)
-        await db.meta.put({ key: "owner", value: session.user.id });
     };
-    void verify().catch((e) => {
-      setAuthError(messageOf(e));
-      setChecking(false);
+    void check();
+    const { data: { subscription } } = cloud.auth.onAuthStateChange((event, session) => {
+      // Use the supplied session. Re-reading it after every event can race a
+      // newer sign-in, and token refresh must not repeatedly gate the reader.
+      if (event === "INITIAL_SESSION" || event === "TOKEN_REFRESHED") return;
+      if (event === "SIGNED_IN" && session?.user.id === authorizedUser.current) return;
+      setTimeout(() => { if (active) void verify(session).catch(() => {}); }, 0);
     });
-    const {
-      data: { subscription },
-    } = cloud.auth.onAuthStateChange(() => {
-      setTimeout(
-        () => void verify().catch((e) => setAuthError(messageOf(e))),
-        0,
-      );
-    });
-    window.addEventListener("online", verify);
+    window.addEventListener("online", check);
     return () => {
       active = false;
+      generation.current++;
       subscription.unsubscribe();
-      window.removeEventListener("online", verify);
+      window.removeEventListener("online", check);
     };
-  }, []);
-  useEffect(() => {
-    if (authenticated) return startSync();
-  }, [authenticated]);
-  if (checking)
-    return (
-      <div className="boot">
-        <BookOpen size={32} />
-        <p>Opening your reading space…</p>
-      </div>
-    );
-  if (!authenticated) return <SignIn initialError={authError} />;
-  return (
-    <HashRouter>
-      <Shell />
-    </HashRouter>
-  );
+  }, [verify]);
+  useEffect(() => { if (authenticated) return startSync(); }, [authenticated]);
+  if (checking) return <div className="boot"><BookOpen size={32} /><p>Opening your reading space…</p></div>;
+  if (!authenticated) return <SignIn error={authError} setError={setAuthError} onSignIn={verify} />;
+  return <HashRouter><Shell /></HashRouter>;
 }
 function Shell() {
   const location = useLocation(),
@@ -143,14 +130,6 @@ function Shell() {
       return () => clearTimeout(t);
     }
   }, [toast]);
-  const {
-    needRefresh: [needRefresh, setNeedRefresh],
-    updateServiceWorker,
-  } = useRegisterSW({
-    onOfflineReady: () => notify("Reader and dictionary are ready offline."),
-    onRegisterError: (error) =>
-      console.error("Leafmark offline setup failed:", error),
-  });
   return (
     <div className={reading ? "app reading" : "app"}>
       {!reading && (
@@ -242,35 +221,16 @@ function Shell() {
           </button>
         </div>
       )}
-      {needRefresh && (
-        <div className="update-banner">
-          <span>A new version is ready.</span>
-          <button
-            onClick={async () => {
-              if (await db.outbox.count()) {
-                notify("Sync or export your pending changes before updating.");
-                return;
-              }
-              await updateServiceWorker(true);
-            }}
-          >
-            Update
-          </button>
-          <button
-            aria-label="Dismiss update"
-            onClick={() => setNeedRefresh(false)}
-          >
-            <X size={15} />
-          </button>
-        </div>
-      )}
+
     </div>
   );
 }
-function SignIn({ initialError }: { initialError: string }) {
-  const [error, setError] = useState(initialError),
-    [busy, setBusy] = useState(false);
-  useEffect(() => setError(initialError), [initialError]);
+function SignIn({ error, setError, onSignIn }: {
+  error: string;
+  setError: (error: string) => void;
+  onSignIn: (session: Session | null) => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
   return (
     <main className="auth-page">
       <div className="auth-card">
@@ -296,11 +256,12 @@ function SignIn({ initialError }: { initialError: string }) {
             setError("");
             const form = new FormData(e.currentTarget);
             try {
-              const { error } = await cloud!.auth.signInWithPassword({
-                email: String(form.get("email")),
+              const { data, error } = await withDeadline(cloud!.auth.signInWithPassword({
+                email: String(form.get("email")).trim(),
                 password: String(form.get("password")),
-              });
+              }));
               if (error) throw error;
+              await onSignIn(data.session);
             } catch (e) {
               setError(messageOf(e));
             } finally {
@@ -331,6 +292,10 @@ function SignIn({ initialError }: { initialError: string }) {
             <ArrowRight size={18} />
           </button>
         </form>
+        <button type="button" className="text-button" disabled={busy} onClick={repairSignIn}>
+          Repair sign-in on this device
+        </button>
+        <small>Repair keeps downloaded books and notes. You will sign in again.</small>
         <small>Private access · One reader · All your devices</small>
       </div>
     </main>

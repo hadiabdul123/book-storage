@@ -110,3 +110,15 @@ it("bounds history to 50 actions and clears redo on a new action", async () => {
   await h.perform("new", [{ kind: "annotation", value: mark }]);
   expect(h.redoStack).toHaveLength(0);
 });
+
+it("queues rapid create, removal and undo without waiting for cloud sync", async () => {
+  const h = new ReaderHistory();
+  const create = h.perform("create", [{ kind: "annotation", value: mark }]);
+  const remove = h.perform("remove", [{ kind: "annotation", value: mark, expected: mark, deleted: true }]);
+  const undo = h.move("undo");
+  await Promise.all([create, remove, undo]);
+  expect(await get("annotation", mark.id)).toEqual(mark);
+  expect(await db.outbox.count()).toBe(3);
+  await h.move("redo");
+  expect(await get("annotation", mark.id)).toBeUndefined();
+});

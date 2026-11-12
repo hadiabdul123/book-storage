@@ -6,7 +6,26 @@ import { type Book, type Row } from "./model";
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined;
 export const cloud =
-  url && key && !url.includes("YOUR_PROJECT") ? createClient(url, key) : null;
+  url && key && !url.includes("YOUR_PROJECT")
+    ? createClient(url, key, {
+        global: {
+          fetch: (input, init) => {
+            const requestUrl =
+              typeof input === "string"
+                ? input
+                : input instanceof URL ? input.href : input.url;
+            if (!requestUrl.includes("/auth/v1/")) return fetch(input, init);
+            const timeout = AbortSignal.timeout(10000);
+            return fetch(input, {
+              ...init,
+              signal: init?.signal
+                ? AbortSignal.any([init.signal, timeout])
+                : timeout,
+            });
+          },
+        },
+      })
+    : null;
 export type SyncStatus = {
   state: "local" | "idle" | "syncing" | "offline" | "error";
   message: string;

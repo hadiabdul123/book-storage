@@ -27,8 +27,16 @@ export class ReaderHistory {
   undoStack: Action[] = [];
   redoStack: Action[] = [];
   busy = false;
-  async perform(label: string, changes: ReaderChange[]) {
-    if (this.busy) throw new Error("Wait for the current change to finish.");
+  private tail: Promise<unknown> = Promise.resolve();
+  private enqueue<T>(action: () => Promise<T>): Promise<T> {
+    const next = this.tail.then(action, action);
+    this.tail = next.catch(() => {});
+    return next;
+  }
+  perform(label: string, changes: ReaderChange[]) {
+    return this.enqueue(() => this.performNow(label, changes));
+  }
+  private async performNow(label: string, changes: ReaderChange[]) {
     this.busy = true;
     try {
       const entries = await db.transaction(
@@ -65,8 +73,10 @@ export class ReaderHistory {
       this.busy = false;
     }
   }
-  async move(direction: "undo" | "redo") {
-    if (this.busy) throw new Error("Wait for the current change to finish.");
+  move(direction: "undo" | "redo") {
+    return this.enqueue(() => this.moveNow(direction));
+  }
+  private async moveNow(direction: "undo" | "redo") {
     const from = direction === "undo" ? this.undoStack : this.redoStack;
     const to = direction === "undo" ? this.redoStack : this.undoStack;
     const action = from.at(-1);

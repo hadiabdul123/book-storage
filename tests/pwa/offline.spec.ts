@@ -2,7 +2,7 @@ import { scanPdf } from "../helpers/scanned-pdf";
 import { openTools, clickTool } from "../e2e/controls";
 import { chromium, expect, test } from "@playwright/test";
 import path from "node:path";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, readFileSync, writeFileSync } from "node:fs";
 
 test("saved PDF notes and rendering assets survive a full offline browser restart", async ({
   baseURL,
@@ -113,6 +113,33 @@ test("saved PDF notes and rendering assets survive a full offline browser restar
         buffer: await scanPdf(page),
       });
     await expect(page.locator(".book-card")).toHaveCount(2);
+    // A waiting release must activate without waiting for the (offline/local)
+    // outbox to empty. The persisted notes and operations must survive reload.
+    const pendingCount = () => page.evaluate(() => new Promise<number>((resolve, reject) => {
+      const request = indexedDB.open("leafmark-v1");
+      request.onsuccess = () => {
+        const database = request.result;
+        const count = database.transaction("outbox").objectStore("outbox").count();
+        count.onsuccess = () => { resolve(count.result); database.close(); };
+        count.onerror = () => { reject(count.error); database.close(); };
+      };
+      request.onerror = () => reject(request.error);
+    }));
+    const pendingBefore = await pendingCount();
+    expect(pendingBefore).toBeGreaterThan(0);
+    const workerPath = path.resolve(".local/pwa-test-dist/sw.js");
+    const workerSource = readFileSync(workerPath, "utf8");
+    try {
+      writeFileSync(workerPath, workerSource + `\n// update regression ${Date.now()}\n`);
+      await page.evaluate(async () => { await (await navigator.serviceWorker.getRegistration())!.update(); });
+      await expect(page.getByRole("button", { name: "Update", exact: true })).toBeVisible();
+      await Promise.all([
+        page.waitForEvent("load"),
+        page.getByRole("button", { name: "Update", exact: true }).click(),
+      ]);
+      await expect(page.locator(".book-card")).toHaveCount(2);
+      expect(await pendingCount()).toBe(pendingBefore);
+    } finally { writeFileSync(workerPath, workerSource); }
     // Keep IndexedDB/CacheStorage, but prevent the ordinary HTTP cache from
     // concealing missing service-worker assets during the offline restart.
     const session = await online.newCDPSession(page);

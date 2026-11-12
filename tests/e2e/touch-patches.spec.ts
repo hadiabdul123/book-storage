@@ -393,3 +393,19 @@ test("a blank scanned page does not interrupt reading or retry recognition endle
   await expect(page.locator(".reader-error")).toHaveCount(0);
   await expect(page.locator(".pdf-page canvas")).toBeVisible();
 });
+
+test("navigation mode switches reuse rendered pages and keep the current page", async ({ page }) => {
+  await openPdf(page);
+  await clickTool(page, "Reading settings");
+  const navigation = page.getByRole("combobox", { name: "Navigation", exact: true });
+  await navigation.selectOption("paginated");
+  await expect(page.locator(".reader-host")).toHaveAttribute("data-navigation", "paginated");
+  const canvas = await page.locator('.pdf-page[data-page="1"] canvas').elementHandle();
+  expect(canvas).not.toBeNull();
+  for (const mode of ["continuous", "paginated", "continuous"]) {
+    await navigation.selectOption(mode);
+    await expect(page.locator(".reader-host")).toHaveAttribute("data-navigation", mode);
+    expect(await canvas!.evaluate(el => el.isConnected)).toBe(true);
+    await expect(page.locator('.pdf-page[data-page="1"]')).toBeVisible();
+  }
+});

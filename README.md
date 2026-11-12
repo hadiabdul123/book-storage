@@ -10,6 +10,10 @@ Dependency installation has been repaired after the move to the C drive. The rea
 
 The deployed app is [Leafmark](https://hadiabdul123.github.io/book-storage/). Sign in with the configured reader account; the public source and app shell do not expose the private library. On Android Chrome, open the link and use the menu to install the app. Open a book while online to download its offline copy. On first use, leave the app open until it reports that the reader and dictionary are ready offline; the initial asset download can take a few minutes.
 
+If normal Chrome gets stuck signing in while Incognito works, first refresh the hosted page with **Ctrl+Shift+R**. The sign-in screen now offers **Repair sign-in on this device**: it removes only this project's saved login tokens and reloads, preserving downloaded books, account binding, notes, drafts, and queued changes. Sign in again with the same account. Repeated or stalled sign-in attempts show an error instead of silently resetting or spinning forever.
+
+When an update is ready, return from the reader to the library and choose **Update**. Pending cloud changes no longer block installation: they remain in IndexedDB and resume syncing after reload. App updates are also available from the sign-in screen. Switching PDF **Navigation** preserves the selected fit/zoom and existing rendered pages; change **Fit** separately when desired.
+
 ## Run on your PC
 
 Use Node.js 22.18 or newer. In PowerShell, use `npm.cmd` if execution policy blocks `npm.ps1`.

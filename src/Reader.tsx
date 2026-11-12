@@ -1045,10 +1045,6 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
                             void configurePdf({
                               navigation: event.target
                                 .value as PdfLayout["navigation"],
-                              fit:
-                                event.target.value === "paginated"
-                                  ? "page"
-                                  : "width",
                             })
                           }
                         >

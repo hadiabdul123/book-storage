@@ -875,11 +875,20 @@ export class PdfReader implements ReaderAdapter {
     this.host.dataset.theme = p.theme;
     const next = p.pdfLayout || defaultPdfLayout;
     if (JSON.stringify(next) !== JSON.stringify(this.layout)) {
+      const resize =
+        next.fit !== this.layout.fit || next.columns !== this.layout.columns;
+      const anchor = this.pages.length ? this.location() : undefined;
       this.layout = { ...next };
-      if (this.pages.length)
-        void this.setView(this.zoom, this.rotation).catch((e) =>
-          this.events.onError(e.message),
-        );
+      if (anchor) {
+        if (resize)
+          void this.setView(this.zoom, this.rotation).catch((e) =>
+            this.events.onError(e.message),
+          );
+        else {
+          this.host.dataset.navigation = next.navigation;
+          void this.goTo(anchor).catch((e) => this.events.onError(e.message));
+        }
+      }
     }
   }
   annotate(marks: Annotation[]) {

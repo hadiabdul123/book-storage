@@ -185,3 +185,14 @@ Use Chrome stable and the installed PWA on an actual Android phone. Record the m
 Add redistributable fixtures for RTL/non-Latin EPUBs, fixed-layout EPUBs, multi-column and rotated PDFs, scanned pages, image-heavy books, repeated identical quotes, and long documents. Include malformed files and complex DOCX tables/footnotes. Keep fixture provenance and relevant permissions alongside the files.
 
 The initial suite is a starting corpus, not evidence of exhaustive ebook compatibility. Never label mobile highlighting reliable until the physical-device cases have actually passed.
+
+
+## Sign-in recovery and responsiveness patch
+
+- Authentication uses the session returned by sign-in/auth events, rejects stale verification results, skips redundant focus verification for the already authorized account, and bounds stalled authentication requests. A shared error state keeps repeated authorization failures visible.
+- Explicit login repair removes only the configured Supabase project's login keys. Tests verify that owner binding, book bytes, drafts, unrelated settings and pending operations remain, and another account is still refused.
+- Service-worker registration and update UI run before authentication. Updating from the library waits for local transactions, not the cloud outbox. The production test activates a changed worker with pending operations and verifies the same operation count and saved library after reload, followed by a full offline browser restart.
+- PDF navigation changes preserve fit and cached canvas/text layers instead of rebuilding them. Desktop and phone tests switch modes repeatedly and assert the original canvas remains connected.
+- Reader history serializes overlapping local create/delete/undo operations instead of rejecting them with a wait message. Cloud synchronization remains asynchronous.
+- Local verification: typecheck, 52 unit tests, 7 cloud/auth browser cases, 26 desktop/mobile interaction cases (8 platform-specific skips), and the production update + offline restart regression passed. Deployment CI results are recorded below when complete.
+- The normal Chrome sign-in form and working Incognito reader were observed on this PC. Automatic approval review prevented submitting the normal Chrome form; the existing real session failure has not been independently reproduced or verified fixed. Isolated authentication tests use mock transport, not the owner's password. Physical Android behavior still requires a device check.

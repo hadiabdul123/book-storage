@@ -341,7 +341,9 @@ function EditHighlight({
           <button
             type="button"
             className="danger text-button"
+            disabled={busy}
             onClick={async () => {
+              setBusy(true);
               try {
                 if (onSave) await onSave(annotation, true);
                 else await save("annotation", annotation, true);
@@ -349,6 +351,8 @@ function EditHighlight({
                 onClose();
               } catch (e) {
                 setError(messageOf(e));
+              } finally {
+                setBusy(false);
               }
             }}
           >
