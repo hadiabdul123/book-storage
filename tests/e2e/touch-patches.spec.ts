@@ -464,3 +464,78 @@ test("failed OCR startup pauses background processing and manual retry recovers"
   }), { timeout: 60000 }).toBe(3);
   expect(errors).toEqual([]);
 });
+
+
+test("a fully saved scanned book never announces recognition again after refresh", async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as any).__recognitionNotices = [];
+    new MutationObserver(() => {
+      for (const button of document.querySelectorAll(".pdf-ocr-button.recognizing:not([hidden])"))
+        (window as any).__recognitionNotices.push(button.textContent);
+    }).observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
+  });
+  await page.goto("/");
+  await page.locator("input[type=file]").setInputFiles({
+    name: "Already prepared.pdf", mimeType: "application/pdf", buffer: await scanPdf(page, false, 12),
+  });
+  await expect(page.locator(".book-card")).toHaveCount(1);
+  await page.evaluate(async () => {
+    const { db, list } = await import("/src/db.ts");
+    const book = (await list("book"))[0];
+    await db.meta.bulkPut(Array.from({ length: 12 }, (_, n) => ({
+      key: `ocr-v2:${book.id}:${book.hash}:${n + 1}`,
+      value: JSON.stringify([{ text: "Saved recognition", rect: [50, 500, 200, 530] }]),
+    })));
+  });
+  let workerStarts = 0;
+  await page.route("**/ocr/**", route => { workerStarts++; return route.abort(); });
+  await page.locator(".book-cover-link").click();
+  await expect(page.locator('.pdf-page[data-page="1"] .ocr-text-layer')).toContainText("Saved recognition");
+  await page.reload();
+  await expect(page.locator('.pdf-page[data-page="1"] .ocr-text-layer')).toContainText("Saved recognition");
+  await page.waitForTimeout(1200);
+  expect(await page.evaluate(() => (window as any).__recognitionNotices)).toEqual([]);
+  expect(workerStarts).toBe(0);
+  await page.locator('.pdf-page[data-page="12"]').scrollIntoViewIfNeeded();
+  await expect(page.locator('.pdf-page[data-page="12"] .ocr-text-layer')).toContainText("Saved recognition");
+});
+
+
+test("refresh resumes only unfinished scanned pages and retains completed text", async ({ page }) => {
+  test.setTimeout(90000);
+  await page.addInitScript(() => {
+    (window as any).__ocrJobs = 0;
+    const send = Worker.prototype.postMessage;
+    Worker.prototype.postMessage = function(message: any, ...args: any[]) {
+      if (message?.action === "recognize") (window as any).__ocrJobs++;
+      return (send as any).call(this, message, ...args);
+    };
+  });
+  await page.goto("/");
+  await page.locator("input[type=file]").setInputFiles({
+    name: "Partly prepared.pdf", mimeType: "application/pdf", buffer: await scanPdf(page, false, 3),
+  });
+  await expect(page.locator(".book-card")).toHaveCount(1);
+  await page.evaluate(async () => {
+    const { db, list } = await import("/src/db.ts");
+    const book = (await list("book"))[0];
+    await db.meta.bulkPut([1, 2].map(n => ({
+      key: `ocr-v2:${book.id}:${book.hash}:${n}`,
+      value: JSON.stringify([{ text: "Previously saved", rect: [50, 500, 200, 530] }]),
+    })));
+  });
+  await page.locator(".book-cover-link").click();
+  await expect.poll(() => page.evaluate(async () => {
+    const { db } = await import("/src/db.ts");
+    return db.meta.where("key").startsWith("ocr-v2:").count();
+  }), { timeout: 60000 }).toBe(3);
+  expect(await page.evaluate(() => (window as any).__ocrJobs)).toBe(1);
+  await expect(page.locator('.pdf-page[data-page="1"] .ocr-text-layer')).toContainText("Previously saved");
+  await page.reload();
+  await expect(page.locator('.pdf-page[data-page="1"] .ocr-text-layer')).toContainText("Previously saved");
+  await page.locator('.pdf-page[data-page="3"]').scrollIntoViewIfNeeded();
+  await expect(page.locator('.pdf-page[data-page="3"] .ocr-text-layer')).toContainText("Reading opens");
+  await page.waitForTimeout(700);
+  expect(await page.evaluate(() => (window as any).__ocrJobs)).toBe(0);
+  await expect(page.locator('.pdf-ocr-button.recognizing')).toHaveCount(0);
+});

@@ -61,10 +61,14 @@ test("private scanned PDF gains automatic text selection and a persistent highli
   if (phone) await highlight.tap();
   else await highlight.click();
   await expect(target.locator(".pdf-highlight").first()).toBeVisible();
+  // The completed page must remain selectable even when the recognition
+  // engine cannot load again. Other unfinished pages may resume separately.
+  await page.route("**/ocr/**", route => route.abort());
   await page.reload();
   await target.scrollIntoViewIfNeeded();
   await expect(target.locator(".ocr-text-layer span").first()).toBeAttached();
   await expect(target.locator(".pdf-highlight").first()).toBeVisible();
+  await expect(target.locator(".pdf-ocr-button")).toBeHidden();
   expect(external).toEqual([]);
 });
 

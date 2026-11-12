@@ -63,6 +63,7 @@ export class PdfReader implements ReaderAdapter {
   private autoOcrBusy = false;
   private autoOcrBlocked = false;
   private autoOcrAttempted = new Set<number>();
+  private cachedOcrPages = new Set<number>();
   private marks: Annotation[] = [];
   private disposed = false;
   private zoom = 1;
@@ -95,6 +96,16 @@ export class PdfReader implements ReaderAdapter {
       await this.loadingTask.destroy();
       return;
     }
+    // Read only cache keys up front: a completed large book must not enqueue
+    // hundreds of cache-hit "recognition" jobs or load every word into memory.
+    const prefixes = [`ocr-v2:${this.book.id}:${this.book.hash}:`, `ocr-v1:${this.book.id}:`];
+    const savedKeys = await Promise.all(prefixes.map(prefix =>
+      db.meta.where("key").startsWith(prefix).primaryKeys()));
+    savedKeys.forEach((keys, i) => keys.forEach(key => {
+      const n = Number(key.slice(prefixes[i].length));
+      if (Number.isInteger(n) && n >= 1 && n <= this.pdf.numPages) this.cachedOcrPages.add(n);
+    }));
+    if (this.disposed) return;
     this.host.classList.add("pdf-reader");
     for (let n = 1; n <= this.pdf.numPages; n++) {
       const page = await this.pdf.getPage(n);
@@ -116,7 +127,7 @@ export class PdfReader implements ReaderAdapter {
       });
       const ocrButton = document.createElement("button");
       ocrButton.className = "pdf-ocr-button";
-      ocrButton.textContent = "Text recognition starts automatically";
+      ocrButton.textContent = "Prepare this page's text";
       ocrButton.setAttribute("aria-label", `Recognize text on page ${n}`);
       ocrButton.hidden = true;
       ocrButton.addEventListener(
@@ -286,6 +297,8 @@ export class PdfReader implements ReaderAdapter {
       } catch { /* Ignore incomplete old cache entries and recognize again. */ }
     }
     state.ocrChecked = true;
+    if (state.ocrWords !== undefined) this.cachedOcrPages.add(state.n);
+    else this.cachedOcrPages.delete(state.n);
   }
   // Prioritize the visible page, then prepare the rest quietly, one at a time.
   // Completed (including blank) pages survive reopen; hidden tabs stop working.
@@ -297,7 +310,7 @@ export class PdfReader implements ReaderAdapter {
       if (this.pages.some(p => p.recognizing)) return;
       const viewport = this.host.getBoundingClientRect();
       const pending = this.pages.filter(p => !p.hasText &&
-        p.ocrWords === undefined && !this.autoOcrAttempted.has(p.n));
+        p.ocrWords === undefined && !this.cachedOcrPages.has(p.n) && !this.autoOcrAttempted.has(p.n));
       const visible = pending.filter(p => {
         if (!p.loaded || p.element.hidden) return false;
         const box = p.element.getBoundingClientRect();
@@ -317,12 +330,12 @@ export class PdfReader implements ReaderAdapter {
     }, 350);
   };
   private renderOcr(state: PageState) {
-    const layer = state.element.querySelector<HTMLElement>(".textLayer");
-    if (!layer || state.hasText) return;
     const words = state.ocrWords;
-    state.ocrButton.hidden = words !== undefined;
+    state.ocrButton.hidden = !!state.hasText || words !== undefined ||
+      !(state.ocrButton.classList.contains("recognizing") || state.ocrButton.classList.contains("ocr-failed"));
     if (!state.ocrButton.isConnected) state.element.append(state.ocrButton);
-    if (!words?.length) return;
+    const layer = state.element.querySelector<HTMLElement>(".textLayer");
+    if (!layer || state.hasText || !words?.length) return;
     layer.classList.add("ocr-text-layer");
     layer.replaceChildren();
     const measure = document.createElement("canvas").getContext("2d")!;
@@ -357,15 +370,10 @@ export class PdfReader implements ReaderAdapter {
     if (state.hasText || state.ocrWords !== undefined) return Promise.resolve();
     if (state.recognizing) return state.recognizing;
     state.recognizing = (async () => {
-      state.ocrButton.hidden = false;
-      state.ocrButton.disabled = true;
-      state.ocrButton.classList.remove("ocr-failed");
-      state.ocrButton.classList.add("recognizing");
-      state.ocrButton.textContent = "Preparing text recognition...";
       const canvas = document.createElement("canvas");
       try {
         await this.loadOcrCache(state);
-        if (state.hasText === undefined) {
+        if (state.hasText === undefined && state.ocrWords === undefined) {
           const text = await state.page.getTextContent();
           state.hasText = text.items.some(item => "str" in item && item.str.trim());
         }
@@ -375,6 +383,11 @@ export class PdfReader implements ReaderAdapter {
           return;
         }
         if (this.disposed) return;
+        state.ocrButton.hidden = false;
+        state.ocrButton.disabled = true;
+        state.ocrButton.classList.remove("ocr-failed");
+        state.ocrButton.classList.add("recognizing");
+        state.ocrButton.textContent = `Preparing page ${state.n} text...`;
         const base = state.page.getViewport({ scale: 1, rotation: 0 });
         const viewport = state.page.getViewport({
           scale: Math.min(2.5, 1800 / base.width, 2400 / base.height),
@@ -385,7 +398,7 @@ export class PdfReader implements ReaderAdapter {
         await state.page.render({ canvas, viewport }).promise;
         if (this.disposed) return;
         const recognized = await this.ocr.recognize(canvas, (percent) => {
-          state.ocrButton.textContent = `Recognizing text: ${percent}%`;
+          state.ocrButton.textContent = `Page ${state.n} text: ${percent}%`;
         });
         if (this.disposed) return;
         const words = recognized.map(({ text, box }) => {
@@ -398,10 +411,12 @@ export class PdfReader implements ReaderAdapter {
           value: JSON.stringify(words),
         });
         state.ocrWords = words;
+        this.cachedOcrPages.add(state.n);
         this.autoOcrBlocked = false;
         if (!this.disposed) this.renderOcr(state);
       } catch (error) {
         if (!this.disposed) {
+          state.ocrButton.hidden = false;
           state.ocrButton.classList.add("ocr-failed");
           state.ocrButton.textContent = "Retry text recognition";
           const message = error instanceof Error ? error.message : String(error);
