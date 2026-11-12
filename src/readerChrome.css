@@ -300,3 +300,5 @@
 .pdf-document { min-width: 100%; width: max-content; }
 .pdf-zooming .pdf-document { will-change: transform; }
 .pdf-zooming .textLayer { pointer-events: none; }
+
+.reader-shell .reader-host.pdf-reader.region-mode { touch-action: none; }

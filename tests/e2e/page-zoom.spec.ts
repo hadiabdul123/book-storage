@@ -104,4 +104,15 @@ test("phone pinch zoom keeps chrome fixed, allows panning, and does not turn pag
   await openTools(page);
   await expect.poll(async () => (await paper.boundingBox())!.width).toBeGreaterThan(original.width * 1.7);
   expect(await page.evaluate(() => visualViewport!.scale)).toBe(1);
+  await clickTool(page, "Reading settings");
+  await page.getByRole("button", { name: "Select a region", exact: true }).click();
+  expect(await page.locator(".reader-host").evaluate(el => getComputedStyle(el).touchAction)).toBe("none");
+  const regionTouch = await page.context().newCDPSession(page);
+  await regionTouch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: 100, y: 300 }] });
+  for (let step = 1; step <= 5; step++) {
+    await regionTouch.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: 100 + step * 20, y: 300 + step * 20 }] });
+  }
+  await regionTouch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await expect(page.locator(".passage-popup")).toBeVisible();
+  await regionTouch.detach();
 });
