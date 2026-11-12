@@ -6,7 +6,6 @@ export function bindReadingTaps(
   const doc = root.nodeType === 9 ? (root as Document) : root.ownerDocument!;
   let start: { x: number; y: number; time: number; id: number } | undefined;
   let pending: ReturnType<typeof setTimeout> | undefined;
-  let lastUp = -Infinity;
   const cancel = () => {
     start = undefined;
     clearTimeout(pending);
@@ -38,20 +37,17 @@ export function bindReadingTaps(
     const e = event as PointerEvent,
       began = start;
     start = undefined;
-    const now = Date.now(),
-      double = now - lastUp < 320;
-    lastUp = now;
+    const now = Date.now();
     if (
       !began ||
       began.id !== e.pointerId ||
-      now - began.time > 250 ||
-      double ||
+      now - began.time > 350 ||
       selected()
     )
       return;
     pending = setTimeout(() => {
       if (!selected()) onTap();
-    }, 320);
+    }, 32);
   };
   const bindings: [string, EventListener][] = [
     ["pointerdown", down],
@@ -66,12 +62,15 @@ export function bindReadingTaps(
       capture: name === "scroll",
     }),
   );
-  doc.addEventListener("selectionchange", cancel);
+  const selectionChanged = () => {
+    if (selected()) cancel();
+  };
+  doc.addEventListener("selectionchange", selectionChanged);
   return () => {
     cancel();
     bindings.forEach(([name, fn]) =>
       root.removeEventListener(name, fn, name === "scroll"),
     );
-    doc.removeEventListener("selectionchange", cancel);
+    doc.removeEventListener("selectionchange", selectionChanged);
   };
 }

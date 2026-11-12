@@ -165,6 +165,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   const swipeEnabled =
     !!localView?.swipeToTurn &&
     phone &&
+    !loading &&
     !panel &&
     !editing &&
     !region &&
@@ -175,11 +176,11 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   swipe.current.enabled = swipeEnabled;
   const canSwipe = () =>
     swipe.current.enabled &&
-    !swipe.current.turning &&
     !shell.current?.querySelector(".passage-popup,.pdf-selection-handle") &&
     (host.current?.scrollWidth || 0) <= (host.current?.clientWidth || 0) + 4;
   const turnSwipe = (direction: "next" | "previous") => {
-    if (!canSwipe()) return;
+    // A new gesture may start during the preceding animation; decide on release.
+    if (!canSwipe() || swipe.current.turning) return;
     swipe.current.turning = true;
     void adapter.current?.[direction]()
       .catch((e) => notify(messageOf(e)))
@@ -1184,6 +1185,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
         <button
           className="icon-button"
           aria-label="Previous page"
+          disabled={loading}
           onClick={() =>
             void adapter.current?.previous().catch((e) => notify(messageOf(e)))
           }
@@ -1216,6 +1218,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
         <button
           className="icon-button"
           aria-label="Next page"
+          disabled={loading}
           onClick={() =>
             void adapter.current?.next().catch((e) => notify(messageOf(e)))
           }

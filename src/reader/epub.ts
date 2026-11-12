@@ -1,3 +1,4 @@
+import { PageTurn } from "./pageTurn";
 import { bindPageSwipes } from "./swipes";
 import { bindReadingTaps } from "./gestures";
 import ePub, {
@@ -21,6 +22,7 @@ import {
 import type { ReaderAdapter, ReaderEvents, SearchHit, Section } from "./types";
 
 export class EpubReader implements ReaderAdapter {
+  private turn: PageTurn;
   private epub!: EpubBook;
   private rendition!: Rendition;
   private prefs!: Preferences;
@@ -35,7 +37,9 @@ export class EpubReader implements ReaderAdapter {
     private host: HTMLElement,
     private book: Book,
     private events: ReaderEvents,
-  ) {}
+  ) {
+    this.turn = new PageTurn(host);
+  }
   async open(source: Blob) {
     this.epub = ePub(await source.arrayBuffer());
     await this.epub.opened;
@@ -222,11 +226,11 @@ export class EpubReader implements ReaderAdapter {
   }
   async next() {
     if (this.hasSelection()) return;
-    await this.rendition.next();
+    await this.turn.run("next", async () => { await this.rendition.next(); });
   }
   async previous() {
     if (this.hasSelection()) return;
-    await this.rendition.prev();
+    await this.turn.run("previous", async () => { await this.rendition.prev(); });
   }
   private hasSelection() {
     return (
@@ -290,7 +294,9 @@ export class EpubReader implements ReaderAdapter {
           ? ["#f4ecd9", "#443b2c"]
           : ["#fff", "#29333e"];
     this.rendition.themes.default({
+      html: { "touch-action": p.flow === "paginated" ? "pan-y pinch-zoom" : "auto" },
       body: {
+        "touch-action": p.flow === "paginated" ? "pan-y pinch-zoom" : "auto",
         "font-family": `${p.font}, ${p.font === "Literata" ? "Georgia,serif" : "sans-serif"} !important`,
         "font-size": `${p.fontSize}px !important`,
         "line-height": `${p.lineHeight} !important`,
@@ -387,6 +393,7 @@ export class EpubReader implements ReaderAdapter {
     return !!first && !!second && rangeOverlap(first, second);
   }
   destroy() {
+    this.turn.destroy();
     this.disposed = true;
     this.cleanups.forEach((fn) => fn());
     this.rendition?.destroy();

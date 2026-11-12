@@ -1,5 +1,12 @@
 # Verification and release gates
 
+## Mobile gesture responsiveness and page animation on 2026-11-12
+
+- Removed the 320 ms double-tap delay from reading-control taps. Collapsed selection notifications no longer cancel taps; actual text selection, scrolling, long presses, and multi-touch still take precedence.
+- Horizontal swipe intent now locks after initial movement, accepts moderate diagonal motion and slower completion, and explicitly prevents native panning only after horizontal intent is established. EPUB iframe documents receive the same touch-action policy. A gesture can start during the preceding transition and is evaluated on release.
+- Added a shared 180 ms page slide for PDF/EPUB buttons, keyboard turns, and swipes on both devices. Repeated turns cannot overlap; reduced-motion skips animation. PDF navigation waits for pending layout work and renders the destination before hiding the current page. Resize observation avoids rebuilding fit-page canvases when dimensions have not changed.
+- Regression coverage checks prompt taps despite collapsed-selection events, real browser touch taps, slow diagonal swipes, selection/vertical/panning exclusions, single page advancement on rapid clicks, rendered destinations, and reduced-motion behavior. Actual Android performance still needs user confirmation.
+
 ## Toolbar, scanned-page selection, swipes, and sync patch on 2026-11-12
 
 - Desktop controls now wait 1.1 seconds after pointer departure and check actual hover before hiding. Pointer-down keeps controls available through clicks. Popup geometry excludes visible toolbars, and the bookmark action preserves selection.

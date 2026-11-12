@@ -79,7 +79,7 @@ The public source repository does not contain the personal library. Environment 
 
 ### Page notebooks, reading modes, and vocabulary
 
-On a phone, **Reading settings > Swipe to turn pages** enables horizontal page turns for PDF and EPUB. Swipe left for next, right for previous. The setting is saved for this book on this device and selects paginated reading. Vertical gestures, active selections, open panels, pinches, and zoomed PDF panning do not turn pages. Turn the setting off to return to scrolling.
+On a phone, **Reading settings > Swipe to turn pages** enables horizontal page turns for PDF and EPUB. Swipe left for next, right for previous. The setting is saved for this book on this device and selects paginated reading. Vertical gestures, active selections, open panels, pinches, and zoomed PDF panning do not turn pages. Turn the setting off to return to scrolling. PDF and EPUB page turns use a short slide animation on phone and desktop, including buttons and keyboard navigation; the system reduced-motion preference disables it.
 
 Image-only PDF pages need text recognition before words can be selected. Press and hold a word on a scanned page, or reveal controls and choose **Enable text selection** on that page. English recognition runs locally and shows progress; results are cached on this device. Once ready, hold a word to highlight, look up its meaning, or add a note. If native selection is unavailable, two draggable handles let you extend the range. Recognition may misread words; region selection remains available for diagrams or unreadable scans. Original PDF pages are preserved, and saved highlights/notes sync normally. The engine and English model are bundled for offline use after the offline-ready message.
 
@@ -163,7 +163,7 @@ To check a private PDF without adding it to the repository, set `LEAFMARK_TEST_P
 
 ## Boundaries
 
-DOCX is a semantic reading conversion, not a Word layout renderer. PDFs retain fixed typography. Scans support regions without OCR. DRM-protected ebooks, encrypted PDFs, scripted EPUB content, TTS, social reading, and third-party integrations are outside this version. Very large files remain subject to device memory and provider constraints. Fixed-layout/RTL EPUBs and complex multi-column PDF selections need further fixture coverage before broad compatibility can be claimed.
+DOCX is a semantic reading conversion, not a Word layout renderer. PDFs retain fixed typography. Scans support local English text recognition and region annotations. DRM-protected ebooks, encrypted PDFs, scripted EPUB content, TTS, social reading, and third-party integrations are outside this version. Very large files remain subject to device memory and provider constraints. Fixed-layout/RTL EPUBs and complex multi-column PDF selections need further fixture coverage before broad compatibility can be claimed.
 
 ## References and credits
 

@@ -1,3 +1,4 @@
+import { PageTurn } from "./pageTurn";
 import { db } from "../db";
 import { PageOcr } from "./ocr";
 import { bindPdfTouch } from "./pdfTouch";
@@ -47,6 +48,7 @@ function viewportRect(viewport: PageViewport, rect: Rect): Rect {
 }
 export class PdfReader implements ReaderAdapter {
   private pdf!: PDFDocumentProxy;
+  private turn: PageTurn;
   private ocr = new PageOcr();
   private touch?: ReturnType<typeof bindPdfTouch>;
   private loadingTask?: PDFDocumentLoadingTask;
@@ -55,6 +57,7 @@ export class PdfReader implements ReaderAdapter {
   private observer?: IntersectionObserver;
   private resizeObserver?: ResizeObserver;
   private hostWidth = 0;
+  private hostHeight = 0;
   private marks: Annotation[] = [];
   private disposed = false;
   private zoom = 1;
@@ -71,7 +74,9 @@ export class PdfReader implements ReaderAdapter {
     private host: HTMLElement,
     private book: Book,
     private events: ReaderEvents,
-  ) {}
+  ) {
+    this.turn = new PageTurn(host);
+  }
   async open(source: Blob) {
     this.lib = await pdfLibrary();
     this.loadingTask = this.lib.getDocument(
@@ -164,12 +169,15 @@ export class PdfReader implements ReaderAdapter {
     await this.render(this.pages[0]);
     this.onScroll();
     this.hostWidth = this.host.clientWidth;
+    this.hostHeight = this.host.clientHeight;
     this.resizeObserver = new ResizeObserver(() => {
       if (
         Math.abs(this.host.clientWidth - this.hostWidth) > 5 ||
-        this.layout.fit === "page"
+        (this.layout.fit === "page" &&
+          Math.abs(this.host.clientHeight - this.hostHeight) > 5)
       ) {
         this.hostWidth = this.host.clientWidth;
+        this.hostHeight = this.host.clientHeight;
         void this.setView(this.zoom, this.rotation).catch((e) =>
           this.events.onError(e.message),
         );
@@ -207,7 +215,9 @@ export class PdfReader implements ReaderAdapter {
     state.element.style.setProperty("--scale-round-y", "1px");
   }
   private async render(state: PageState) {
-    if (state.loaded || state.rendering || this.disposed) return;
+    while (state.rendering && !this.disposed)
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    if (state.loaded || this.disposed) return;
     state.rendering = true;
     const generation = state.generation;
     try {
@@ -739,6 +749,9 @@ export class PdfReader implements ReaderAdapter {
     const state =
       this.pages[Math.max(0, Math.min(this.pages.length - 1, page - 1))];
     if (!state) return;
+    // Keep the old page visible until the next canvas/text layer is ready.
+    await this.render(state);
+    if (this.disposed) return;
     const row = state.frame.parentElement;
     for (const p of this.pages) {
       const hidden =
@@ -754,35 +767,26 @@ export class PdfReader implements ReaderAdapter {
       (!locator.point && !locator.regions?.length)
         ? 28
         : 0);
-    await this.render(state);
     this.current = state.n;
     this.onScroll();
   }
   async next() {
-    if (document.getSelection()?.isCollapsed)
-      await this.goTo(
-        String(
-          Math.min(
-            this.pages.length,
-            Math.floor((this.current - 1) / this.columns) * this.columns +
-              this.columns +
-              1,
-          ),
-        ),
-      );
+    await this.turnPage("next");
   }
   async previous() {
-    if (document.getSelection()?.isCollapsed)
-      await this.goTo(
-        String(
-          Math.max(
-            1,
-            Math.floor((this.current - 1) / this.columns) * this.columns -
-              this.columns +
-              1,
-          ),
-        ),
-      );
+    await this.turnPage("previous");
+  }
+  private async turnPage(direction: "next" | "previous") {
+    if (!document.getSelection()?.isCollapsed || this.region) return;
+    await this.turn.run(direction, async () => {
+      await this.viewQueue;
+      if (this.disposed) return false;
+      const row = Math.floor((this.current - 1) / this.columns) * this.columns;
+      const target = Math.max(1, Math.min(this.pages.length,
+        row + (direction === "next" ? this.columns : -this.columns) + 1));
+      if (target === this.current) return false;
+      await this.goTo(String(target));
+    });
   }
   async search(query: string): Promise<SearchHit[]> {
     const hits: SearchHit[] = [];
@@ -905,6 +909,7 @@ export class PdfReader implements ReaderAdapter {
     );
   }
   destroy() {
+    this.turn.destroy();
     this.disposed = true;
     this.touch?.destroy();
     this.ocr.destroy();
