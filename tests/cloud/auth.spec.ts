@@ -35,6 +35,7 @@ test("an unauthorized account gets a visible error instead of a silent button re
 test("repair removes only this project's stale login and preserves pending private data", async ({ page }) => {
   await transport(page, false);
   await page.goto("/");
+  await expect(page.getByLabel("Email", { exact: true })).toBeVisible();
   await page.evaluate(async () => {
     const { db } = await import("/src/db.ts");
     await db.meta.put({ key: "owner", value: "10000000-0000-4000-8000-000000000001" });
@@ -83,6 +84,10 @@ test("expired rejected session can sign in again without clearing local storage"
 test("repair cannot switch a private local library to a different account", async ({ page }) => {
   await transport(page);
   await page.goto("/");
+  // Complete first-load authorization before inserting a different binding.
+  // Otherwise fast browsers may correctly open cached mode before this test
+  // has had a chance to submit its deliberately conflicting login.
+  await expect(page.getByLabel("Email", { exact: true })).toBeVisible();
   await page.evaluate(async () => {
     const { db } = await import("/src/db.ts");
     await db.meta.put({ key: "owner", value: "a-different-owner" });
