@@ -185,6 +185,49 @@
   padding-top: 16px;
   border-top: 1px solid var(--line);
 }
+.lookup-resolution {
+  font-size: 13px;
+  color: var(--muted);
+}
+.online-references {
+  clear: both;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.dictionary-online-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 5px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.dictionary-online-toggle input {
+  width: auto;
+  margin: 0;
+  accent-color: #315c86;
+}
+.dictionary-reference {
+  margin: 10px 0;
+  overflow-wrap: anywhere;
+}
+.dictionary-reference h3 {
+  font-size: 18px;
+  margin: 6px 0;
+}
+.dictionary-reference > p {
+  font-size: 14px;
+  line-height: 1.55;
+  margin: 6px 0;
+}
+.dictionary-reference > .muted {
+  font-size: 12px;
+}
+.dictionary-entry > .dictionary-source {
+  font-size: 12px;
+  line-height: 1.5;
+}
 .meaning-action {
   margin-top: 8px;
   width: 100%;

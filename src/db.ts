@@ -10,6 +10,7 @@ import {
   uid,
 } from "./model";
 import { compareEdits, editTime } from "./syncOrder";
+import type { IndexedChunk, ResearchJob } from "./researchTypes";
 
 class LibraryDB extends Dexie {
   rows!: Table<Row, string>;
@@ -17,6 +18,8 @@ class LibraryDB extends Dexie {
   files!: Table<BookFile, string>;
   conflicts!: Table<Conflict, string>;
   meta!: Table<{ key: string; value: string }, string>;
+  researchJobs!: Table<ResearchJob, string>;
+  chunks!: Table<IndexedChunk, string>;
   constructor() {
     super("leafmark-v1");
     this.version(1).stores({
@@ -25,6 +28,10 @@ class LibraryDB extends Dexie {
       files: "&id",
       conflicts: "&key",
       meta: "&key",
+    });
+    this.version(2).stores({
+      researchJobs: "&id, state, threadId, createdAt",
+      chunks: "&id, bookId, [bookId+unit]",
     });
   }
 }
@@ -96,7 +103,7 @@ export async function save<K extends Kind>(
   window.dispatchEvent(new Event("leafmark-sync"));
 }
 export async function acceptRemote(row: Row, acknowledgedOpId?: string) {
-  await db.transaction("rw", [db.rows, db.conflicts, db.outbox], async () => {
+  await db.transaction("rw", [db.rows, db.conflicts, db.outbox, db.meta], async () => {
     if (acknowledgedOpId) await db.outbox.delete(acknowledgedOpId);
     const local = await db.rows.get(row.key);
     if (local && row.revision < local.revision) {
@@ -107,6 +114,18 @@ export async function acceptRemote(row: Row, acknowledgedOpId?: string) {
     const last = pending.at(-1);
     // Old stored rows did not include their operation's edit timestamp.
     const candidate = local && last ? { ...local, editedAt: last.createdAt, editId: last.opId } : local;
+    // Notebook writing is recoverable even when another device wins the
+    // timestamp ordering. Keep the losing document outside the live row.
+    if (row.kind === "notebook-note" && candidate &&
+        candidate.editId !== row.editId && JSON.stringify(candidate.value) !== JSON.stringify(row.value)) {
+      const losing = compareEdits(candidate, row) > 0 ? row : candidate;
+      await db.meta.put({ key: `note-version:${row.id}:${losing.editId || losing.updatedAt}`, value: JSON.stringify(losing) });
+      const versions = await db.meta.where("key").startsWith(`note-version:${row.id}:`).toArray();
+      if (versions.length > 50) {
+        versions.sort((a, b) => String(JSON.parse(a.value).value?.updatedAt || "").localeCompare(String(JSON.parse(b.value).value?.updatedAt || "")));
+        await db.meta.bulkDelete(versions.slice(0, versions.length - 50).map(v => v.key));
+      }
+    }
     if (candidate && last && compareEdits(candidate, row) > 0) {
       await db.rows.put({ ...candidate, revision: row.revision });
       for (const op of pending) await db.outbox.update(op.opId, { baseRevision: row.revision });

@@ -33,6 +33,7 @@ export interface ReaderEvents {
   onError: (message: string) => void;
 }
 export interface ReaderAdapter {
+  context: (selection: Selection) => Promise<string>;
   bounds: (locator: Locator) => ScreenRect[];
   intersects: (a: Locator, b: Locator) => boolean;
   open: (source: Blob, derived?: Blob) => Promise<void>;

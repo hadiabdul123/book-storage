@@ -1,5 +1,6 @@
 import type { Annotation, Locator } from "./model";
 import { validRichDocument } from "./richText";
+import { validSourceRef } from "./sourceReferences";
 const finite = (x: unknown): x is number =>
   typeof x === "number" && Number.isFinite(x);
 const object = (x: unknown): x is Record<string, any> =>
@@ -63,6 +64,7 @@ export function validLocator(value: unknown): value is Locator {
 export function validAnnotation(a: unknown): a is Annotation {
   return (
     object(a) &&
+    (a.sources === undefined || (Array.isArray(a.sources) && a.sources.length <= 100 && a.sources.every(validSourceRef))) &&
     (a.type === undefined ||
       a.type === "highlight" ||
       a.type === "page-note") &&

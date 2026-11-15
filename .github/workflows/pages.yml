@@ -30,6 +30,7 @@ jobs:
       - run: npm run test:e2e
       - run: npm run test:cloud
       - run: npm run test:pwa
+      - run: npm run test:pwa:cloud
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

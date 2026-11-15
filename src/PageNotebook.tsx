@@ -6,6 +6,7 @@ import { db, get, save } from "./db";
 import { pageNoteId, savePageNote } from "./pageNotes";
 import { emptyDocument, validRichDocument } from "./richText";
 import type { Book, RichNode } from "./model";
+import { CitationExtension } from "./Citation";
 
 export type NotebookHandle = { flush: () => Promise<boolean> };
 export function PageNotebook({
@@ -39,6 +40,7 @@ export function PageNotebook({
   };
   const editor = useEditor({
     extensions: [
+      CitationExtension,
       StarterKit.configure({
         heading: { levels: [1, 2, 3] },
         blockquote: false,

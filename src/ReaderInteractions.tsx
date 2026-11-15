@@ -53,6 +53,7 @@ export const ReaderInteractions = forwardRef<
     ready: boolean;
     notify: (message: string) => void;
     onDefinition: (page: number, text: string) => Promise<void>;
+    onResearch: (selection: Selection) => Promise<void>;
   }
 >(function ReaderInteractions(
   {
@@ -67,6 +68,7 @@ export const ReaderInteractions = forwardRef<
     ready,
     notify,
     onDefinition,
+    onResearch,
   },
   ref,
 ) {
@@ -140,6 +142,10 @@ export const ReaderInteractions = forwardRef<
       );
   };
   useEffect(() => {
+    const refreshDrafts = () => { void db.meta.get(draftKey).then(row => {
+      try { const next = JSON.parse(row?.value || "{}"); draftsRef.current = next; setDrafts(next); } catch { /* Keep writing if storage is unavailable. */ }
+    }); };
+    window.addEventListener("leafmark-clipped", refreshDrafts);
     let active = true;
     void db.meta.get(draftKey).then((row) => {
       if (!row || !active) return;
@@ -165,6 +171,7 @@ export const ReaderInteractions = forwardRef<
     });
     return () => {
       active = false;
+      window.removeEventListener("leafmark-clipped", refreshDrafts);
     };
   }, [draftKey]);
   const selectNow = (value: Selection | null, annotationId?: string) => {
@@ -781,6 +788,7 @@ export const ReaderInteractions = forwardRef<
                   Meaning
                 </button>
               )}
+            {!selected.text.startsWith("Region on page") && <button type="button" disabled={busy} onPointerDown={e => e.preventDefault()} onClick={() => { if (selected) void attempt(() => onResearch(selected)); }}>Research</button>}
             <button
               disabled={ambiguous}
               aria-pressed={mode === "note"}
@@ -859,6 +867,7 @@ export const ReaderInteractions = forwardRef<
             <Meaning
               compact
               term={selected.text}
+              onExplain={() => { if (selected) void attempt(() => onResearch(selected)); }}
               onAdd={
                 selected.locator.type === "pdf"
                   ? (text) =>

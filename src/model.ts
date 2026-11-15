@@ -1,3 +1,4 @@
+import type { Notebook, NotebookNote, ResearchThread, ResearchMessage, SourceRef } from "./researchTypes";
 export type Format = "epub" | "pdf" | "docx";
 export type Color = "yellow" | "green" | "blue" | "pink" | "purple";
 export const colors: Record<Color, string> = {
@@ -56,6 +57,7 @@ export type Book = {
 export type Collection = { id: string; name: string };
 export type Membership = { id: string; bookId: string; collectionId: string };
 export type Annotation = {
+  sources?: SourceRef[];
   type?: "highlight" | "page-note";
   content?: { version: 1; document: RichNode };
   updatedAt?: string;
@@ -131,6 +133,10 @@ export const defaults: Preferences = {
   spread: false,
 };
 export interface EntityMap {
+  notebook: Notebook;
+  "notebook-note": NotebookNote;
+  "research-thread": ResearchThread;
+  "research-message": ResearchMessage;
   book: Book;
   collection: Collection;
   membership: Membership;

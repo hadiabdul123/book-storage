@@ -1,0 +1,58 @@
+import "fake-indexeddb/auto";
+import { beforeEach, afterEach, expect, it, vi } from "vitest";
+vi.mock("../src/sync", () => ({ cloud: null }));
+import { db, save, list, get } from "../src/db";
+import { enqueueResearch, runResearchQueue, cancelResearch, retryResearch, ResearchFailure } from "../src/research";
+import type { SourceRef } from "../src/researchTypes";
+const source: SourceRef = { id: "S1", kind: "web", title: "Evidence", url: "https://example.org/evidence", excerpt: "Evidence from observations." };
+const result = { answer: "Evidence [S1]", sources: [source], model: "test" };
+const request = { mode: "web" as const, question: "What is the evidence?", searchQuery: "evidence", sources: [], history: [] };
+beforeEach(async () => {
+  vi.stubGlobal("window", new EventTarget()); vi.stubGlobal("navigator", { onLine: true });
+  for (const table of db.tables) await table.clear();
+  await save("research-thread", { id: "thread", title: "Evidence", createdAt: new Date().toISOString() });
+});
+afterEach(() => vi.unstubAllGlobals());
+it("retains an offline question and resumes it exactly once after reconnecting", async () => {
+  vi.stubGlobal("navigator", { onLine: false });
+  const id = await enqueueResearch("thread", request); const transport = vi.fn(async () => result);
+  await runResearchQueue(transport); expect(transport).not.toHaveBeenCalled();
+  expect((await db.researchJobs.get(id))?.state).toBe("queued");
+  vi.stubGlobal("navigator", { onLine: true }); await Promise.all([runResearchQueue(transport), runResearchQueue(transport)]);
+  expect(transport).toHaveBeenCalledTimes(1); expect((await get("research-message", id))?.answer).toBe(result.answer);
+  expect((await db.researchJobs.get(id))?.state).toBe("done");
+  expect((await db.outbox.toArray()).some(o => o.kind === "research-message")).toBe(true);
+});
+it("deduplicates pending questions and serves cached answers without a second request", async () => {
+  const first = await enqueueResearch("thread", request); expect(await enqueueResearch("thread", request)).toBe(first);
+  const transport = vi.fn(async () => result); await runResearchQueue(transport);
+  await enqueueResearch("thread", request); await runResearchQueue(transport);
+  expect(transport).toHaveBeenCalledTimes(1); expect(await list("research-message")).toHaveLength(2);
+});
+it("does not publish a response cancelled while the provider was running", async () => {
+  const id = await enqueueResearch("thread", request);
+  const transport = vi.fn(async () => { await cancelResearch(id); return result; });
+  await runResearchQueue(transport); expect(await list("research-message")).toHaveLength(0); expect((await db.researchJobs.get(id))?.state).toBe("cancelled");
+});
+it("cannot recreate private writing after local data was cleared while a request was running", async () => {
+  await enqueueResearch("thread", request);
+  await runResearchQueue(async () => { for (const table of db.tables) await table.clear(); return result; });
+  expect(await list("research-message")).toHaveLength(0); expect(await db.outbox.count()).toBe(0);
+});
+it("pauses quota failures and rejects premature retry without losing the request", async () => {
+  const id = await enqueueResearch("thread", request);
+  await runResearchQueue(async () => { throw new ResearchFailure("Quota reached", "quota", 120); });
+  expect((await db.researchJobs.get(id))?.state).toBe("paused"); await expect(retryResearch(id)).rejects.toThrow("Try again after");
+  expect((await db.researchJobs.get(id))?.request.question).toBe(request.question);
+});
+it("recovers a job left running by a terminated tab using the same server request ID", async () => {
+  const id = await enqueueResearch("thread", request); const before = (await db.researchJobs.get(id))!;
+  await db.researchJobs.update(id, { state: "running" });
+  const transport = vi.fn(async () => result); await runResearchQueue(transport);
+  expect(transport.mock.calls[0][0].requestId).toBe(before.request.requestId); expect(await list("research-message")).toHaveLength(1);
+});
+it("does not save an answer that references a source the server did not provide", async () => {
+  const id = await enqueueResearch("thread", request);
+  await runResearchQueue(async () => ({ ...result, answer: "Invented [S99]" }));
+  expect((await db.researchJobs.get(id))?.state).toBe("error"); expect(await list("research-message")).toHaveLength(0);
+});

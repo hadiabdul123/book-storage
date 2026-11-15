@@ -1,5 +1,15 @@
 # Verification and release gates
 
+## Connected research, notebooks, and offline access on 2026-11-15
+
+- Added selection-to-research for PDF, EPUB, and DOCX; contextual explanations; chosen-library retrieval; Tavily web search with Groq synthesis; cited partial-excerpt saving to passage, PDF-page, and topic notes; free-form rich topic notebooks; backlinks; recovery versions; and Markdown/JSON export/restore. Existing uncommitted dictionary/reference improvements were preserved and included in regression checks.
+- Fixed cached-owner access after connection failure or expired session, while refusing a different account or explicit owner denial. Reader readiness is persistent in Settings. Durable research jobs retain context across offline restart and resume while the app is open and connected; quota/auth/configuration errors pause visibly.
+- Typecheck/production build and all 96 unit tests passed. The complete browser run passed 96 cases (16 platform-specific skips); four additional EPUB/DOCX research cases then passed alongside the six PDF/notebook research cases. Layouts at 360, 412, 1024, and 1440 pixels were reviewed without overflow or page errors.
+- All 16 cloud/auth/download/sync cases passed across the run and a targeted rerun. One trace-file failure was caused by overlapping suite output directories; the general suite now writes to `test-results/e2e` to isolate artifacts. The earlier failed-save hook case also passed on both layouts with stable Vite modules.
+- Both production PWA tests passed, including topic writing and an offline research question retained through a fresh process. The new authenticated production PWA test passed with an expired token, saved PDF reopening, offline note editing, and queued research completing after reconnect. Cloud transports in automated browser tests are synthetic.
+- Applied the additive research migration to the existing Supabase project and deployed the authenticated `research` function. Live transactional `research.sql`, `security.sql`, and `latest_change.sql` passed and rolled back their synthetic records. Anonymous function and research-RPC calls both return HTTP 401. Security advisors report the intentional owner-checked definer RPCs, private tables without read policies, and the existing disabled leaked-password-protection warning.
+- A temporary privileged smoke account was rejected by automatic approval review and was not created. Live owner/provider verification requires explicit approval for that account or the existing owner session; the available computer-use runtimes failed to initialize. Physical Android installation, native selection, and device storage behavior still require the user-device check in `docs/RESEARCH.md`.
+
 ## Automatic recognition and compact phone reading on 2026-11-12
 
 - Scanned pages now start local English recognition automatically after becoming visible and scrolling settling. One visible page is processed at a time; cached results are reused, hidden pages are not queued, and background failures/blank scans do not interrupt reading or retry endlessly. Recognized overlays remain in original PDF coordinates for saved highlights.

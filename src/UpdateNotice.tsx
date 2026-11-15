@@ -11,7 +11,7 @@ export function UpdateNotice() {
   const [loadFailed, setLoadFailed] = useState(false);
   const registrationRef = useRef<ServiceWorkerRegistration | undefined>(undefined);
   const { needRefresh: [ready, setReady], updateServiceWorker } = useRegisterSW({
-    onOfflineReady: () => setOfflineReady(true),
+    onOfflineReady: () => { setOfflineReady(true); void db.meta.put({ key: "offline-assets-ready", value: new Date().toISOString() }).catch(() => {}); },
     onRegisteredSW: (_url, registration) => {
       registrationRef.current = registration;
       if (registration) void registration.update().catch(() => {});

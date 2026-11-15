@@ -2,6 +2,7 @@ import { db, list, save } from "./db";
 import type { Book } from "./model";
 import { validAnnotation } from "./validation";
 import { pageNoteId } from "./pageNotes";
+import { remapSourceBooks, remapDocumentBooks } from "./sourceReferences";
 
 export async function restoreAnnotationBackup(data: unknown, books: Book[]) {
   if (
@@ -10,7 +11,7 @@ export async function restoreAnnotationBackup(data: unknown, books: Book[]) {
     !("schema" in data) ||
     data.schema !== "leafmark.annotations" ||
     !("version" in data) ||
-    ![1, 2].includes(data.version as number) ||
+    ![1, 2, 3].includes(data.version as number) ||
     !("annotations" in data) ||
     !Array.isArray(data.annotations)
   )
@@ -38,7 +39,10 @@ export async function restoreAnnotationBackup(data: unknown, books: Book[]) {
           skipped++;
           continue;
         }
-        await save("annotation", { ...annotation, id, bookId: book.id });
+        await save("annotation", { ...annotation, id, bookId: book.id,
+          ...(annotation.sources ? { sources: annotation.sources.map(s => remapSourceBooks(s, books)) } : {}),
+          ...(annotation.content ? { content: { version: 1, document: remapDocumentBooks(annotation.content.document, books) } } : {}),
+        });
         existing.add(id);
         restored++;
       }

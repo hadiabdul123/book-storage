@@ -26,6 +26,7 @@ export async function savePageNote(
       if (!note && !prior) return;
       const previous = prior?.value as Annotation | undefined;
       const value: Annotation = {
+        ...(previous?.sources ? { sources: previous.sources } : {}),
         id,
         bookId: book.id,
         type: "page-note",

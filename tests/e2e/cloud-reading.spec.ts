@@ -33,9 +33,7 @@ test("reading mode, local zoom, and panels preserve a scrollable PDF", async ({
   await expect(
     page.getByRole("button", { name: "Reset page zoom" }),
   ).toHaveText("125%");
-  await clickTool(page, "Enter reading mode");
-  await expect(page.locator(".reader-header")).toBeHidden();
-  await expect(page.locator(".reader-footer")).toBeHidden();
+  await expect(page.getByRole("button", { name: "Enter reading mode" })).toHaveCount(0);
   const host = page.locator(".pdf-reader");
   const prior = await host.evaluate((el) => el.scrollTop);
   await host.evaluate((el) => {

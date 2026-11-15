@@ -1,4 +1,5 @@
 import type { RichNode } from "./model";
+import { validSourceRef, sourceMarkdown } from "./sourceReferences";
 export const emptyDocument = (): RichNode => ({
   type: "doc",
   content: [{ type: "paragraph" }],
@@ -8,6 +9,7 @@ export const paragraph = (text: string): RichNode => ({
   content: text ? [{ type: "text", text }] : [],
 });
 export function plainText(node: RichNode): string {
+  if (node.type === "citation") return validSourceRef(node.attrs?.source) ? `Source: ${node.attrs!.source.title}` : "";
   if (node.type === "text") return node.text || "";
   if (node.type === "hardBreak") return "\n";
   return (node.content || [])
@@ -15,6 +17,7 @@ export function plainText(node: RichNode): string {
     .join(["paragraph", "heading"].includes(node.type) ? "" : "\n");
 }
 export function markdown(node: RichNode): string {
+  if (node.type === "citation") return validSourceRef(node.attrs?.source) ? `Source: ${sourceMarkdown(node.attrs!.source)}\n\n` : "";
   const children = () => (node.content || []).map(markdown).join("");
   if (node.type === "text") {
     let text = (node.text || "").replace(/([\\`*_\[\]<>])/g, "\\$1");
@@ -55,6 +58,7 @@ export function validRichDocument(value: unknown): value is RichNode {
     "listItem",
     "taskList",
     "taskItem",
+    "citation",
   ]);
   function check(n: any, depth: number): boolean {
     if (
@@ -65,6 +69,8 @@ export function validRichDocument(value: unknown): value is RichNode {
       !allowed.has(n.type)
     )
       return false;
+    if (n.type === "citation") return n.text === undefined && n.content === undefined && n.marks === undefined &&
+      !!n.attrs && Object.keys(n.attrs).length === 1 && validSourceRef(n.attrs.source);
     if (
       n.type === "text" &&
       (typeof n.text !== "string" || n.text.length > 100000)
@@ -101,7 +107,7 @@ export function validRichDocument(value: unknown): value is RichNode {
         return false;
     }
     const children: Record<string, string[]> = {
-      doc: ["paragraph", "heading", "bulletList", "orderedList", "taskList"],
+      doc: ["paragraph", "heading", "bulletList", "orderedList", "taskList", "citation"],
       paragraph: ["text", "hardBreak"],
       heading: ["text", "hardBreak"],
       bulletList: ["listItem"],

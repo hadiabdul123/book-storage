@@ -64,6 +64,14 @@ test("saved PDF notes and rendering assets survive a full offline browser restar
     await expect(
       page.locator(".pdf-page .textLayer span").first(),
     ).toBeVisible();
+    await page.route("https://*.wikipedia.org/**", (route) => route.fulfill({ json: {
+      query: { pages: [{ ns: 0, title: "Cognitive dissonance", extract: "Discomfort when beliefs and actions conflict." }] },
+    } }));
+    await clickTool(page, "Dictionary");
+    await page.getByLabel("Dictionary word").fill("cognitive dissonance");
+    await page.getByRole("button", { name: "Look up", exact: true }).click();
+    await expect(page.locator(".dictionary-reference")).toContainText("Discomfort when beliefs");
+    await page.getByRole("button", { name: "Close panel" }).click();
     await page
       .locator(".pdf-page .textLayer")
       .first()
@@ -140,6 +148,22 @@ test("saved PDF notes and rendering assets survive a full offline browser restar
       await expect(page.locator(".book-card")).toHaveCount(2);
       expect(await pendingCount()).toBe(pendingBefore);
     } finally { writeFileSync(workerPath, workerSource); }
+    // Topic writing and offline research jobs use the same durable database.
+    await page.goto(new URL("#/notebooks", baseURL!).href);
+    await page.getByRole("button", { name: "New notebook", exact: true }).click();
+    await page.getByLabel("Notebook name").fill("Offline research");
+    await page.getByRole("button", { name: "Create notebook", exact: true }).click();
+    await page.getByRole("button", { name: "New note", exact: true }).click();
+    await page.getByRole("textbox", { name: "Topic note title" }).fill("Ideas kept offline");
+    await page.getByRole("textbox", { name: "Topic note content" }).fill("Writing survives a full offline restart.");
+    await page.getByRole("button", { name: "Save now", exact: true }).click();
+    await expect(page.locator(".topic-save-status")).toContainText("Saved on this device");
+    await page.getByRole("button", { name: "Research", exact: true }).click();
+    await page.getByRole("tab", { name: "Web", exact: true }).click();
+    await online.setOffline(true);
+    await page.getByRole("textbox", { name: "Research question" }).fill("What evidence supports cosmic expansion?");
+    await page.getByRole("button", { name: "Save question for later" }).click();
+    await expect(page.locator(".research-pending")).toContainText("cosmic expansion");
     // Keep IndexedDB/CacheStorage, but prevent the ordinary HTTP cache from
     // concealing missing service-worker assets during the offline restart.
     const session = await online.newCDPSession(page);
@@ -212,6 +236,13 @@ test("saved PDF notes and rendering assets survive a full offline browser restar
       "Simple meaning",
     );
     expect(external).toEqual([]);
+    await page.getByLabel("Dictionary word").fill("psychic entropy");
+    await page.getByRole("button", { name: "Look up", exact: true }).click();
+    await expect(page.locator(".dictionary-entry").first()).toContainText("Plain-English explanation");
+    await page.getByLabel("Dictionary word").fill("cognitive dissonance");
+    await page.getByRole("button", { name: "Look up", exact: true }).click();
+    await expect(page.locator(".dictionary-reference")).toContainText("Discomfort when beliefs");
+    expect(external).toEqual([]);
     // Exercise both standard font formats even when the fixture embeds its fonts.
     const assets = await page.evaluate(async () => {
       const files = [
@@ -247,6 +278,11 @@ test("saved PDF notes and rendering assets survive a full offline browser restar
       "Reading opens",
       { timeout: 30000 },
     );
+    await page.goto(new URL("#/notebooks", baseURL!).href);
+    await page.getByRole("button", { name: /Ideas kept offline/ }).click();
+    await expect(page.getByRole("textbox", { name: "Topic note content" })).toContainText("full offline restart");
+    await page.getByRole("button", { name: "Research", exact: true }).click();
+    await expect(page.locator(".research-pending")).toContainText("cosmic expansion");
     expect(external).toEqual([]);
     expect(errors).toEqual([]);
   } finally {

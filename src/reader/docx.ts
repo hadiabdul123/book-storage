@@ -14,8 +14,12 @@ import {
   type Preferences,
 } from "../model";
 import type { ReaderAdapter, ReaderEvents, SearchHit, Section } from "./types";
+import { surroundingText } from "../sourceIndex";
 
 export class DocxReader implements ReaderAdapter {
+  async context(selection: import("./types").Selection) {
+    return surroundingText(textNodes(this.article).map(n => n.data).join(""), selection.text);
+  }
   private article = document.createElement("article");
   private marks: Annotation[] = [];
   private timer?: ReturnType<typeof setTimeout>;

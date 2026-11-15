@@ -19,6 +19,7 @@ import {
   RefreshCw,
   X,
   ArrowRight,
+  NotebookPen,
 } from "lucide-react";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
@@ -34,6 +35,10 @@ import { Notes } from "./Notes";
 import { Settings } from "./Settings";
 import { Reader } from "./Reader";
 import { messageOf } from "./components";
+import { connectionFailure } from "./accessPolicy";
+import { authStorageKey } from "./authRecovery";
+import { startResearchQueue } from "./research";
+import { Notebooks } from "./Notebooks";
 
 export default function App() {
   return <HashRouter><AccessGate /><UpdateNotice /></HashRouter>;
@@ -42,6 +47,7 @@ function AccessGate() {
   const [authenticated, setAuthenticated] = useState(!cloud);
   const [checking, setChecking] = useState(!!cloud);
   const [authError, setAuthError] = useState("");
+  const [localAccess, setLocalAccess] = useState("");
   const generation = useRef(0);
   const authorizedUser = useRef<string | null>(null);
   const verify = useCallback(async (session: Session | null) => {
@@ -49,9 +55,19 @@ function AccessGate() {
     try {
       const bound = await db.meta.get("owner");
       if (request !== generation.current) return;
-      if (!navigator.onLine && bound?.value) {
+      // Check identity before offline fallback, including the cached identity
+      // when refresh failed. A different account must never open this library.
+      let cachedUser: string | undefined;
+      try { cachedUser = JSON.parse(localStorage.getItem(authStorageKey) || "null")?.user?.id; } catch { /* No cached session. */ }
+      const userId = session?.user.id || cachedUser;
+      if (bound && userId && bound.value !== userId)
+        throw new Error("This device contains another account's private library. Use the original account to keep your saved books.");
+      const denied = (await db.meta.get("access-denied"))?.value === bound?.value;
+      const allowLocal = !!bound?.value && !denied;
+      if (allowLocal && (!navigator.onLine || !session)) {
         setAuthenticated(true);
         setAuthError("");
+        setLocalAccess(!navigator.onLine ? "Offline. Your downloaded books and writing are available." : "Your saved library is open. Sign in to resume synchronization and research.");
         return;
       }
       if (!session) { authorizedUser.current = null; setAuthenticated(false); return; }
@@ -61,14 +77,26 @@ function AccessGate() {
         .abortSignal(AbortSignal.timeout(12000));
       if (request !== generation.current) return;
       if (error) throw error;
-      if (data !== true) throw new Error("This account is not the configured library owner.");
+      if (data !== true) {
+        await db.meta.put({ key: "access-denied", value: session.user.id });
+        throw new Error("This account is not the configured library owner.");
+      }
       await db.meta.put({ key: "owner", value: session.user.id });
+      await db.meta.delete("access-denied");
       if (request !== generation.current) return;
       authorizedUser.current = session.user.id;
       setAuthError("");
       setAuthenticated(true);
+      setLocalAccess("");
     } catch (error) {
       if (request === generation.current) {
+        const bound = await db.meta.get("owner");
+        if (bound?.value && connectionFailure(error) && (await db.meta.get("access-denied"))?.value !== bound.value) {
+          setAuthenticated(true);
+          setLocalAccess("Connection unavailable. Changes are saved on this device and will sync when you reconnect.");
+          setAuthError("");
+          return;
+        }
         authorizedUser.current = null;
         setAuthenticated(false);
         setAuthError(messageOf(error));
@@ -93,7 +121,13 @@ function AccessGate() {
         if (error) throw error;
         if (active && started === generation.current) await verify(session);
       } catch (error) {
-        if (active && started === generation.current) { setAuthError(messageOf(error)); setChecking(false); }
+        if (active && started === generation.current) {
+          // Refresh can reject an expired token or time out before verify runs.
+          // verify(null) still checks the bound/cached account and denial marker.
+          const bound = await db.meta.get("owner");
+          if (bound?.value) await verify(null).catch(() => {});
+          else { setAuthError(messageOf(error)); setChecking(false); }
+        }
       }
     };
     void check();
@@ -105,17 +139,20 @@ function AccessGate() {
       setTimeout(() => { if (active) void verify(session).catch(() => {}); }, 0);
     });
     window.addEventListener("online", check);
+    const offline = () => { if (active) void verify(null).catch(() => {}); };
+    window.addEventListener("offline", offline);
     return () => {
       active = false;
       generation.current++;
       subscription.unsubscribe();
       window.removeEventListener("online", check);
+      window.removeEventListener("offline", offline);
     };
   }, [verify]);
-  useEffect(() => { if (authenticated) return startSync(); }, [authenticated]);
+  useEffect(() => { if (authenticated) { const stopSync = startSync(); const stopResearch = startResearchQueue(); return () => { stopSync(); stopResearch(); }; } }, [authenticated]);
   if (checking) return <div className="boot"><BookOpen size={32} /><p>Opening your reading space…</p></div>;
   if (!authenticated) return <SignIn error={authError} setError={setAuthError} onSignIn={verify} />;
-  return <Shell />;
+  return <><Shell />{localAccess && <div className="local-access-banner" role="status"><span>{localAccess}</span>{navigator.onLine && <button onClick={() => { setAuthenticated(false); setLocalAccess(""); }}>Sign in to sync</button>}</div>}</>;
 }
 function Shell() {
   const location = useLocation(),
@@ -144,6 +181,7 @@ function Shell() {
             {[
               ["/", LibraryBig, "Library"],
               ["/notes", Highlighter, "Highlights & notes"],
+              ["/notebooks", NotebookPen, "Notebooks & research"],
               ["/settings", Settings2, "Reading & settings"],
             ].map(([path, Icon, label]) => {
               const I = Icon as typeof BookOpen;
@@ -188,6 +226,7 @@ function Shell() {
         <Routes>
           <Route path="/" element={<Library notify={notify} />} />
           <Route path="/notes" element={<Notes />} />
+          <Route path="/notebooks" element={<Notebooks />} />
           <Route path="/settings" element={<Settings notify={notify} />} />
           <Route path="/read/:id" element={<Reader notify={notify} />} />
           <Route path="*" element={<Library notify={notify} />} />
@@ -207,6 +246,7 @@ function Shell() {
             <Settings2 size={21} />
             <span>Settings{conflicts ? " •" : ""}</span>
           </NavLink>
+          <NavLink to="/notebooks"><NotebookPen size={21} /><span>Notebooks</span></NavLink>
         </nav>
       )}
       {toast && (

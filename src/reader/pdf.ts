@@ -2,6 +2,7 @@ import { bindPdfZoom } from "./pdfZoom";
 import { PageTurn } from "./pageTurn";
 import { db } from "../db";
 import { PageOcr } from "./ocr";
+import { surroundingText } from "../sourceIndex";
 import { bindPdfTouch } from "./pdfTouch";
 import { pdfLibrary, pdfOptions, pdfOpenError } from "../pdf";
 import type {
@@ -49,6 +50,14 @@ function viewportRect(viewport: PageViewport, rect: Rect): Rect {
   return normalizeRect([x1, y1, x2, y2]);
 }
 export class PdfReader implements ReaderAdapter {
+  async context(selection: import("./types").Selection) {
+    if (selection.locator.type !== "pdf") return selection.text;
+    const state = this.pages.find(p => p.n === (selection.locator.type === "pdf" ? selection.locator.page : 0));
+    if (!state) return selection.text;
+    const content = await state.page.getTextContent();
+    const text = state.ocrWords?.map(w => w.text).join(" ") || content.items.map(i => "str" in i ? i.str : "").join(" ");
+    return surroundingText(text, selection.text, `${selection.text}\nNearby page text: ${text.slice(0, 1600)}`);
+  }
   private pdf!: PDFDocumentProxy;
   private turn: PageTurn;
   private ocr = new PageOcr();

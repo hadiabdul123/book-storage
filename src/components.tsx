@@ -6,6 +6,7 @@ import { get, save } from "./db";
 import { useLiveQuery } from "dexie-react-hooks";
 import { PageNotebook, type NotebookHandle } from "./PageNotebook";
 import { RichTextView } from "./RichTextView";
+import { SourceLink } from "./Citation";
 import { BookSyncStatus } from "./BookSyncStatus";
 
 export const messageOf = (error: unknown) => {
@@ -212,6 +213,7 @@ export function AnnotationCard({
         annotation.note && <p className="note-text">{annotation.note}</p>
       )}
       <div className="annotation-footer">
+        {annotation.sources?.map((source, i) => <SourceLink key={i} source={source} />)}
         <span>
           {new Date(annotation.createdAt).toLocaleDateString()}
           {annotation.tags.length ? ` · ${annotation.tags.join(", ")}` : ""}

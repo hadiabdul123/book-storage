@@ -18,10 +18,10 @@ import {
   Download,
   NotebookPen,
   BookA,
-  Eye,
   ZoomIn,
   ZoomOut,
   MoreHorizontal,
+  Sparkles,
 } from "lucide-react";
 import { db, get, list, save } from "./db";
 import {
@@ -42,6 +42,11 @@ import { AnnotationCard, EditAnnotation, messageOf } from "./components";
 import { exportAnnotations } from "./export";
 import { PageNotebook, type NotebookHandle } from "./PageNotebook";
 import { Meaning } from "./Meaning";
+import { ResearchPanel } from "./ResearchPanel";
+import type { SourceRef } from "./researchTypes";
+import type { Selection as ReaderSelection } from "./reader/types";
+import { validLocator } from "./validation";
+import "./research.css";
 import { pageNoteId, savePageNote } from "./pageNotes";
 import { emptyDocument, paragraph } from "./richText";
 import "./notebooks.css";
@@ -126,6 +131,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   const [meaningTerm, setMeaningTerm] = useState(""),
     [meaningPage, setMeaningPage] = useState(1),
     [layoutFallback, setLayoutFallback] = useState(false);
+  const [researchSelection, setResearchSelection] = useState<SourceRef>();
   const interactions = useRef<InteractionHandle | null>(null);
   const [actionsHost, setActionsHost] = useState<HTMLElement | null>(null);
   const openNotebookRef = useRef<(page: number) => void>(() => {});
@@ -137,6 +143,15 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
       setPanel(name);
       chrome.setMenu(false);
     }
+  }
+  async function openResearch(selection: ReaderSelection) {
+    if (!book || !(await flushNotebook())) return;
+    try {
+      const context = await adapter.current?.context(selection) || selection.text;
+      setResearchSelection({ id: "selection", kind: "book", title: book.title, bookId: book.id,
+        locator: { ...selection.locator, quote: selection.locator.quote || { exact: selection.text, prefix: "", suffix: "" } }, excerpt: context.slice(0, 2400) });
+      setPanel("research"); chrome.setMenu(false);
+    } catch (e) { notify(messageOf(e)); }
   }
   async function openNotebook(page: number, hold = false) {
     if (!(await flushNotebook())) return;
@@ -378,6 +393,15 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   useEffect(() => {
     adapter.current?.annotate(annotations);
   }, [annotations, ready]);
+  const sourceParam = params.get("source");
+  useEffect(() => {
+    if (!opened || !sourceParam || !book) return;
+    try {
+      const locator: unknown = JSON.parse(sourceParam);
+      if (!validLocator(locator) || locator.hash !== book.hash) throw new Error("This source belongs to another edition.");
+      void adapter.current?.goTo(locator).catch(e => notify(messageOf(e)));
+    } catch (e) { notify(messageOf(e)); }
+  }, [sourceParam, opened, book?.hash]);
   useEffect(() => {
     adapter.current?.configure(prefs);
   }, [savedPrefs, pdfPrefs, localView, ready]);
@@ -474,6 +498,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
     ["contents", List, "Contents"],
     ["search", Search, "Search book"],
     ["notes", Highlighter, "Highlights and notes"],
+    ["research", Sparkles, "Research book"],
     ["settings", Settings2, "Reading settings"],
   ] as const;
   return (
@@ -561,25 +586,6 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
           <MoreHorizontal size={22} />
         </button>
         <div className="reader-tools">
-          <button
-            className="icon-button"
-            aria-label="Enter reading mode"
-            onClick={async () => {
-              if (!(await flushNotebook())) return;
-              setPanel("");
-              setRegion(false);
-              if (book.format === "pdf")
-                (
-                  adapter.current as import("./reader/pdf").PdfReader
-                )?.setRegionMode(false);
-              interactions.current?.dismiss();
-              chrome.setPinned(false);
-              chrome.conceal();
-              (document.activeElement as HTMLElement)?.blur();
-            }}
-          >
-            <Eye size={20} />
-          </button>
           {tools.map(([name, Icon, label]) => (
             <button
               className={`icon-button ${panel === name ? "active" : ""}`}
@@ -677,7 +683,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
           />
         </div>
         {panel && (
-          <aside className="reader-panel">
+          <aside className={`reader-panel ${panel === "research" ? "research-reader-panel" : ""}`}>
             <header>
               <h2>
                 {
@@ -688,6 +694,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
                     settings: "Reading settings",
                     "page-notes": "Page notebooks",
                     meaning: "Meaning",
+                    research: "Research",
                   }[panel]
                 }
               </h2>
@@ -700,6 +707,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
               </button>
             </header>
             <div className="panel-body">
+              {panel === "research" && <ResearchPanel book={book} selection={researchSelection} />}
               {panel === "page-notes" && book.format === "pdf" && (
                 <>
                   <label className="notebook-search">
@@ -1288,6 +1296,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
         ready={!loading}
         suspended={panel !== ""}
         notify={notify}
+        onResearch={openResearch}
         onDefinition={async (page, text) => {
           if (!(await flushNotebook()))
             throw new Error("Save the current notebook first.");

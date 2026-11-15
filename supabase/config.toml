@@ -1,0 +1,3 @@
+[functions.research]
+# The handler verifies the bearer token with Auth and checks the owner RPC.
+verify_jwt = false

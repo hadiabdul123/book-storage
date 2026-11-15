@@ -20,8 +20,16 @@ import {
   type Preferences,
 } from "../model";
 import type { ReaderAdapter, ReaderEvents, SearchHit, Section } from "./types";
+import { surroundingText } from "../sourceIndex";
 
 export class EpubReader implements ReaderAdapter {
+  async context(selection: import("./types").Selection) {
+    if (selection.locator.type !== "epub") return selection.text;
+    const section = this.epub.spine.get(selection.locator.href);
+    await section.load(this.epub.load.bind(this.epub));
+    return surroundingText(section.document.body.textContent || "", selection.text,
+      `${selection.locator.quote?.prefix || ""}${selection.text}${selection.locator.quote?.suffix || ""}`);
+  }
   private turn: PageTurn;
   private epub!: EpubBook;
   private rendition!: Rendition;

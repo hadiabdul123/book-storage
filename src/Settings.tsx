@@ -11,6 +11,8 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { db, list, save, clearPrivateData } from "./db";
+import { OfflineReadiness } from "./OfflineReadiness";
+import { ResearchSettings } from "./ResearchSettings";
 import { cloud, synchronize } from "./sync";
 import { type Book, type Annotation, readingSeconds, now } from "./model";
 import { exportAnnotations } from "./export";
@@ -26,7 +28,7 @@ export function Settings({ notify }: { notify: (m: string) => void }) {
           db.rows
             .filter(
               (r) =>
-                r.deleted && (r.kind === "book" || r.kind === "annotation"),
+                r.deleted && ["book", "annotation", "notebook", "notebook-note"].includes(r.kind),
             )
             .toArray(),
         [],
@@ -204,8 +206,10 @@ export function Settings({ notify }: { notify: (m: string) => void }) {
         <p>Changes save on this device and sync automatically when connected.
           If the same item changes on two devices, the latest edit wins, including removals.</p>
       </section>
+      <ResearchSettings />
       <section className="settings-section">
         <h2>Offline storage</h2>
+        <OfflineReadiness />
         <p>
           {((storage.usage || 0) / 1024 / 1024).toFixed(1)} MB used on this
           device
@@ -267,7 +271,7 @@ export function Settings({ notify }: { notify: (m: string) => void }) {
               <span>
                 {row.kind === "book"
                   ? (row.value as Book).title
-                  : (row.value as Annotation).text.slice(0, 85)}
+                  : row.kind === "annotation" ? (row.value as Annotation).text.slice(0, 85) : (row.value as { title: string }).title}
                 {row.kind === "book" && (row.value as Book).purgedAt
                   ? " · Permanently removed"
                   : ""}
@@ -278,6 +282,11 @@ export function Settings({ notify }: { notify: (m: string) => void }) {
                     className="text-button"
                     onClick={async () => {
                       try {
+                        if (row.kind === "notebook-note") {
+                          const n = row.value as import("./researchTypes").NotebookNote;
+                          const parent = await db.rows.get(`notebook:${n.notebookId}`);
+                          if (parent?.deleted) await save("notebook", parent.value as import("./researchTypes").Notebook, false);
+                        }
                         await save(row.kind, row.value, false);
                         notify("Restored.");
                       } catch (e) {

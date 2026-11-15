@@ -1,7 +1,10 @@
 import type { ReactNode } from "react";
 import type { RichNode } from "./model";
+import { SourceLink } from "./Citation";
+import { validSourceRef } from "./sourceReferences";
 export function RichTextView({ document }: { document: RichNode }) {
   function render(n: RichNode, key: number): ReactNode {
+    if (n.type === "citation") return validSourceRef(n.attrs?.source) ? <p key={key}><SourceLink source={n.attrs!.source} /></p> : null;
     const children = n.content?.map(render);
     if (n.type === "text") {
       let result: ReactNode = n.text;
