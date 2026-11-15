@@ -1,5 +1,12 @@
 # Verification and release gates
 
+## PDF research request fix on 2026-11-16
+
+- Reproduced the reported provider failure with a 20,687-byte request containing a short passage and 260 PDF highlight rectangles. Full locator geometry was accidentally serialized into the model prompt and exceeded its request allowance. The model now receives only source ID, kind, title, and excerpt; saved source references retain their complete reading anchors.
+- Added safe error classification for provider limits, credentials, model settings, and response formatting. Diagnostics record only provider/status/allowlisted error code, never keys, passage text, or generated text. Strict structured paragraphs require source IDs from the supplied evidence; the backend renders their inline citations into the existing answer interface.
+- All 98 unit tests passed, including the coordinate-heavy PDF regression, citation preservation, structured references, and provider-error privacy. The previously failing live request returned HTTP 200 with a 349-character cited explanation; live web research returned HTTP 200 with 1,249 characters and four cited sources. The temporary owner and test records were removed, with zero remaining test accounts confirmed.
+- Deployed research Edge Function version 4. The fix is server-side: existing saved questions can use Retry without updating the frontend.
+
 ## Connected research, notebooks, and offline access on 2026-11-15
 
 - Added selection-to-research for PDF, EPUB, and DOCX; contextual explanations; chosen-library retrieval; Tavily web search with Groq synthesis; cited partial-excerpt saving to passage, PDF-page, and topic notes; free-form rich topic notebooks; backlinks; recovery versions; and Markdown/JSON export/restore. Existing uncommitted dictionary/reference improvements were preserved and included in regression checks.
