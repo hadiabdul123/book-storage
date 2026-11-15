@@ -27,6 +27,41 @@ async function completeSavedJob(page: Page) {
     await runResearchQueue(async () => ({ answer: "The Big Bang describes expansion from a hot, dense early universe [S1].\n\nIt does not describe an explosion into empty space [S1].", model: "test-provider", sources: [{ id: "S1", kind: "web", title: "NASA cosmology", excerpt: "Evidence for a hot early universe.", url: "https://science.nasa.gov/universe/", retrievedAt: new Date().toISOString() }] }));
   });
 }
+test("research keeps follow-up and retry controls reachable in a compact dark panel", async ({ page }, info) => {
+  await open(page); await select(page);
+  await page.evaluate(async () => {
+    const { save } = await import("/src/db.ts"); const { defaults } = await import("/src/model.ts");
+    await save("preferences", { ...defaults, theme: "dark" });
+  });
+  if (info.project.name === "mobile-layout") await page.setViewportSize({ width: 360, height: 640 });
+  await page.getByRole("button", { name: "Research", exact: true }).click();
+  await expect(page.locator(".research-pending")).toContainText("Connect your private Supabase");
+  const panel = page.getByRole("region", { name: "Research workspace" });
+  await expect(panel.getByRole("button", { name: "Expand selected passage" })).toHaveAttribute("aria-expanded", "false");
+  await panel.getByRole("button", { name: "Expand selected passage" }).click();
+  await expect(panel.getByRole("button", { name: "Collect passage" })).toBeVisible();
+  await panel.getByRole("button", { name: "Collapse selected passage" }).click();
+  const input = page.getByRole("textbox", { name: "Research question" });
+  await input.fill("Can you give me an everyday example?");
+  expect(await page.locator(".research-send").evaluate(el => {
+    const r = el.getBoundingClientRect();
+    return r.bottom <= innerHeight && el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
+  })).toBe(true);
+  expect(await page.locator(".research-conversation").evaluate(el => el.clientHeight)).toBeGreaterThan(150);
+  await page.getByText("Options", { exact: true }).click();
+  await page.getByRole("checkbox", { name: "Refresh instead of using a saved answer" }).check();
+  await page.getByText("Options", { exact: true }).click();
+  await page.getByRole("button", { name: "Retry", exact: true }).click();
+  await expect(page.locator(".research-pending")).toContainText("Connect your private Supabase");
+  await page.getByRole("button", { name: "Cancel request", exact: true }).click();
+  await expect(page.locator(".research-pending")).toHaveCount(0);
+  await expect(input).toHaveValue("Can you give me an everyday example?");
+  const tab = page.getByRole("tab", { name: "Explain", exact: true });
+  await tab.focus(); await tab.press("End");
+  await expect(page.getByRole("tab", { name: "Web", exact: true })).toBeFocused();
+  await expect(page.getByRole("textbox", { name: "Web search query" })).toBeVisible();
+});
+
 test("selection research saves a partial cited answer into a chosen PDF page and topic notebook", async ({ page }, info) => {
   await open(page); await select(page);
   await expect(page.locator(".research-passage")).toContainText("Big Bang theory");

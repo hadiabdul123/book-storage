@@ -1,5 +1,11 @@
 # Verification and release gates
 
+## Research panel redesign on 2026-11-16
+
+- Rebuilt the reader and notebook research panel around a scrollable conversation and fixed follow-up composer. Mode tabs, book context, passage collection, answer saving/copying, citations, source selection, and previous conversations remain available. Passage details collapse after a question; optional refresh/privacy controls live under Options. New questions use short contextual wording instead of repeating the selected quote.
+- Added readable light/dark/sepia colors, clear retry cards, larger phone controls, keyboard mode navigation, suggested questions, and Ctrl/Cmd+Enter submission. The mobile reader footer stays hidden while research is open so it cannot cover the composer. Scroll position follows new results and viewport changes when already near the end, without moving a reader reviewing earlier answers.
+- All 98 unit tests and twelve desktop/phone research cases pass, including partial cited saving, PDF/EPUB/DOCX context, offline queueing, notebook recovery, and a new 360 x 640 dark-panel interaction check for unobstructed submission, passage expansion, Options, retry/cancel, draft preservation, and keyboard navigation. Production build passed. Visual checks covered answer/error/options states in three themes at 360, 412, 1024, and 1440 pixels, including 640px phone height; no document overflow, covered composer, or page errors. Phone checks use Chromium emulation; physical-device keyboard behavior still needs device confirmation. Full release checks gate deployment.
+
 ## PDF research request fix on 2026-11-16
 
 - Reproduced the reported provider failure with a 20,687-byte request containing a short passage and 260 PDF highlight rectangles. Full locator geometry was accidentally serialized into the model prompt and exceeded its request allowance. The model now receives only source ID, kind, title, and excerpt; saved source references retain their complete reading anchors.
