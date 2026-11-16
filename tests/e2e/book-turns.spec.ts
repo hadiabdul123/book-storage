@@ -237,3 +237,25 @@ test("automatic turns finish when hidden preview animation clocks are paused", a
   await expect(page.locator(".reader-progress")).toContainText("Page 2");
   await expect(page.locator(".paper-turn-stage")).toHaveCount(0);
 });
+
+test("a keyboard page turn waits for a queued PDF fit instead of being lost", async ({ page }) => {
+  await open(page);
+  await page.evaluate(async () => {
+    const { PdfReader } = await import(/* @vite-ignore */ "/src/reader/pdf.ts");
+    const prototype = PdfReader.prototype as any, original = prototype.relayout;
+    prototype.relayout = async function(...args: unknown[]) {
+      this.host.dataset.testViewPending = "true";
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      try { await original.apply(this, args); }
+      finally { delete this.host.dataset.testViewPending; }
+    };
+  });
+  await clickTool(page, "Reading settings");
+  await page.getByRole("combobox", { name: "Fit", exact: true }).selectOption("width");
+  await expect(page.locator(".reader-host")).toHaveAttribute("data-test-view-pending", "true");
+  await page.getByRole("button", { name: "Close panel", exact: true }).click();
+  await page.locator(".reader-host").focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".reader-progress")).toContainText("Page 2");
+  await expect(page.locator('.pdf-page[data-page="2"] canvas')).toBeVisible();
+});

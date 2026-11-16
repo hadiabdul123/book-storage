@@ -927,6 +927,12 @@ export class PdfReader implements ReaderAdapter {
     await this.turnPage("previous");
   }
   private async turnPage(direction: "next" | "previous") {
+    // A fit/resize already queued by closing a panel must settle before the
+    // turn captures its preview revision. Otherwise that fit invalidates and
+    // silently drops a button/key request made while it was still rendering.
+    let pending: Promise<void>;
+    do { pending = this.viewQueue; await pending; } while (pending !== this.viewQueue);
+    if (this.disposed) return;
     if (!document.getSelection()?.isCollapsed || this.region) return;
     await this.turn.run(direction, async () => {
       await this.viewQueue;
