@@ -1,13 +1,14 @@
 /** Original, tiny native-text pages for book-end/spread tests. */
-export function numberedPdf(count: number) {
+export function numberedPdf(count: number, sizes?: [number, number][]) {
   const objects = [
     "<< /Type /Catalog /Pages 2 0 R >>",
     `<< /Type /Pages /Kids [${Array.from({ length: count }, (_, i) => `${4 + i * 2} 0 R`).join(" ")}] /Count ${count} >>`,
     "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
   ];
   for (let i = 0; i < count; i++) {
-    const content = `BT /F1 24 Tf 50 540 Td (Page ${i + 1}) Tj ET`;
-    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 600] /Resources << /Font << /F1 3 0 R >> >> /Contents ${5 + i * 2} 0 R >>`, `<< /Length ${content.length} >>\nstream\n${content}\nendstream`);
+    const [width, height] = sizes?.[i] || [400, 600];
+    const content = `BT /F1 24 Tf 50 ${height - 60} Td (Page ${i + 1}) Tj ET`;
+    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${width} ${height}] /Resources << /Font << /F1 3 0 R >> >> /Contents ${5 + i * 2} 0 R >>`, `<< /Length ${content.length} >>\nstream\n${content}\nendstream`);
   }
   let text = "%PDF-1.4\n";
   const offsets = [0];

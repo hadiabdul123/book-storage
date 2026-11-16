@@ -1,3 +1,4 @@
+import { bindTouchSelection, type TouchSelection } from "./touchSelection";
 import { PageTurn } from "./pageTurn";
 import { blankLeaf, surfaceCache, waitForSurfaces, type TurnDirection, type TurnPreview, type TurnSpread } from "./turnSurfaces";
 import { bindPageSwipes } from "./swipes";
@@ -33,6 +34,7 @@ export class EpubReader implements ReaderAdapter {
       `${selection.locator.quote?.prefix || ""}${selection.text}${selection.locator.quote?.suffix || ""}`);
   }
   private turn: PageTurn;
+  private touchSelections = new Map<Document, TouchSelection>();
   private epub!: EpubBook;
   private rendition!: Rendition;
   private prefs!: Preferences;
@@ -50,6 +52,9 @@ export class EpubReader implements ReaderAdapter {
   private previewReady?: Promise<void>;
   private previewQueue: Promise<unknown> = Promise.resolve();
   private lastCfi = "";
+  private turnCopies = new Map<string, { spread: TurnSpread; dispose: () => void }>();
+  private copyRevision = 0;
+  private clearTurnCopies() { this.copyRevision++; for (const copy of this.turnCopies.values()) copy.dispose(); this.turnCopies.clear(); }
   constructor(
     private host: HTMLElement,
     private book: Book,
@@ -180,6 +185,19 @@ export class EpubReader implements ReaderAdapter {
       const box = frame.getBoundingClientRect();
       return { x: box.left + point.x * box.width / frame.clientWidth, y: box.top + point.y * box.height / frame.clientHeight };
     });
+    const touch = bindTouchSelection(doc.body, {
+      selected: range => {
+        for (const [other, selection] of this.touchSelections) if (other !== doc) selection.clear();
+        this.selected(contents.cfiFromRange(range), contents, range);
+      },
+      cleared: () => this.events.onSelection(null),
+      allowed: () => !this.host.dataset.pageTurning,
+    });
+    this.touchSelections.set(doc, touch);
+    const layout = () => this.host.dispatchEvent(new Event("reader-layout"));
+    doc.addEventListener("reader-layout", layout); doc.addEventListener("scroll", layout, { capture: true, passive: true });
+    doc.fonts.addEventListener("loadingdone", layout);
+    const resize = new ResizeObserver(layout); resize.observe(doc.body);
     const selection = () => {
       const s = doc.getSelection();
       if (s && !s.isCollapsed && s.rangeCount) {
@@ -203,7 +221,7 @@ export class EpubReader implements ReaderAdapter {
         /INPUT|TEXTAREA/.test(event.target.tagName)
       )
         return;
-      if (!doc.getSelection()?.isCollapsed) return;
+      if (this.hasSelection()) return;
       if (event.key === "ArrowRight") void this.next();
       if (event.key === "ArrowLeft") void this.previous();
     };
@@ -211,14 +229,16 @@ export class EpubReader implements ReaderAdapter {
     this.cleanups.push(() => {
       doc.removeEventListener("selectionchange", selection);
       doc.removeEventListener("pointerup", selection);
+      resize.disconnect(); doc.removeEventListener("reader-layout", layout); doc.removeEventListener("scroll", layout, true); doc.fonts.removeEventListener("loadingdone", layout);
+      touch.destroy(); this.touchSelections.delete(doc);
       unbindTaps();
       unbindSwipes();
       doc.removeEventListener("keydown", key);
     });
   }
-  private selected(cfi: string, contents: Contents) {
+  private selected(cfi: string, contents: Contents, logical?: Range) {
     try {
-      const range = contents.range(cfi);
+      const range = logical || contents.range(cfi);
       if (!range || !range.toString().trim()) return;
       const quote = offsetsForRange(contents.document.body, range).quote;
       const section = this.epub.spine.get(cfi);
@@ -283,8 +303,8 @@ export class EpubReader implements ReaderAdapter {
     if (this.hasSelection()) return;
     await this.turn.run("previous", async () => { await this.rendition.prev(); });
   }
-  private hasSelection() {
-    return (
+  hasSelection() {
+    return [...this.touchSelections.entries()].some(([doc, t]) => this.host.contains(doc.defaultView?.frameElement || null) && t.hasSelection()) || (
       (this.rendition?.getContents() as unknown as Contents[]) || []
     ).some((c) => !c.document.getSelection()?.isCollapsed);
   }
@@ -329,10 +349,21 @@ export class EpubReader implements ReaderAdapter {
   private prepareTurn(direction: TurnDirection, shared?: TurnSpread): Promise<TurnPreview | null> {
     // One hidden rendition handles both neighbours without navigating the book
     // whose location is saved. Keep it alive for the mirror's blob resources.
+    const revision = this.copyRevision;
     const job = this.previewQueue.catch(() => {}).then(async () => {
       const current = this.rendition.currentLocation() as unknown as { start?: { cfi: string }; atStart?: boolean; atEnd?: boolean };
       if (!current?.start || this.disposed || (direction === "next" ? current.atEnd : current.atStart)) return null;
       const cfi = current.start.cfi, prefs = { ...this.prefs };
+      const size = `${this.host.clientWidth}:${this.host.clientHeight}:`;
+      const copy = async (key: string, reader: EpubReader) => {
+        const cached = this.turnCopies.get(size + key);
+        if (cached) { this.turnCopies.delete(size + key); this.turnCopies.set(size + key, cached); return cached; }
+        const result = await reader.captureTurn();
+        if (revision !== this.copyRevision || this.disposed) { result.dispose(); throw new Error("Page layout changed"); }
+        this.turnCopies.set(size + key, result);
+        while (this.turnCopies.size > 3) { const oldest = this.turnCopies.keys().next().value!; this.turnCopies.get(oldest)!.dispose(); this.turnCopies.delete(oldest); }
+        return result;
+      };
       if (!this.previewReader) {
         const host = surfaceCache(this.host, this.host.clientWidth, this.host.clientHeight);
         host.className = "turn-preparer";
@@ -355,11 +386,9 @@ export class EpubReader implements ReaderAdapter {
       for (const content of helper.rendition.getContents() as unknown as Contents[]) await content.document.fonts.ready;
       const target = helper.rendition.currentLocation() as unknown as { start?: { cfi: string } };
       if (!target?.start || target.start.cfi === cfi || this.disposed) return null;
-      const outgoing = shared ? { spread: shared, dispose() {} } : await this.captureTurn();
-      try {
-        const incoming = await helper.captureTurn();
-        return { outgoing: outgoing.spread, incoming: incoming.spread, commit: async () => { await this.rendition.display(target.start!.cfi); }, dispose: () => { outgoing.dispose(); incoming.dispose(); } };
-      } catch (error) { outgoing.dispose(); throw error; }
+      const outgoing = shared ? { spread: shared, dispose() {} } : await copy(cfi, this);
+      const incoming = await copy(target.start.cfi, helper);
+      return { outgoing: outgoing.spread, incoming: incoming.spread, commit: async () => { await this.rendition.display(target.start!.cfi); }, dispose() {} };
     });
     this.previewQueue = job;
     return job;
@@ -410,6 +439,7 @@ export class EpubReader implements ReaderAdapter {
     const prior = this.appliedPrefs;
     if (prior && JSON.stringify(prior) === JSON.stringify(p)) return;
     this.appliedPrefs = { ...p };
+    this.clearTurnCopies();
     this.turn.invalidate();
     if (!prior || prior.flow !== p.flow)
       this.rendition.flow(p.flow === "scrolled" ? "scrolled-doc" : "paginated");
@@ -445,6 +475,7 @@ export class EpubReader implements ReaderAdapter {
   annotate(marks: Annotation[]) {
     if (JSON.stringify(marks) === JSON.stringify(this.marks)) return;
     this.turn.invalidate();
+    this.clearTurnCopies();
     this.marks = marks;
     this.draw();
   }
@@ -482,6 +513,7 @@ export class EpubReader implements ReaderAdapter {
     }
   }
   clearSelection() {
+    for (const touch of this.touchSelections.values()) touch.clear();
     for (const c of (this.rendition?.getContents() as unknown as Contents[]) ||
       [])
       c.document.getSelection()?.removeAllRanges();
@@ -528,7 +560,7 @@ export class EpubReader implements ReaderAdapter {
   }
   destroy() {
     this.resizeObserver?.disconnect();
-    this.turn.destroy();
+    this.turn.destroy(); this.clearTurnCopies();
     this.disposed = true;
     this.previewReader?.destroy();
     this.previewHost?.remove();

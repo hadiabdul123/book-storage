@@ -258,6 +258,7 @@
     background-clip: content-box !important;
     border-color: transparent;
   }
+  .reader-shell .passage-bookmark-label { display: none; }
   .reader-shell .passage-actions { margin-top: 4px; padding-top: 4px; gap: 2px; }
   .reader-shell .passage-actions > button { padding: 6px; font-size: 13px; }
   .reader-shell .passage-actions .remove-highlight { min-width: 44px; justify-content: center; }

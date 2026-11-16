@@ -345,12 +345,10 @@ export const ReaderInteractions = forwardRef<
       ),
   }));
   useEffect(() => {
-    let frame = 0,
-      last = 0;
-    const tick = (time: number) => {
-      frame = requestAnimationFrame(tick);
-      if (time - last < 80 || !host.current || !adapter.current) return;
-      last = time;
+    let frame = 0, disposed = false;
+    const tick = () => {
+      frame = 0;
+      if (disposed || !host.current || !adapter.current) return;
       const reader = adapter.current,
         viewport = host.current.getBoundingClientRect();
       const vv = window.visualViewport;
@@ -498,9 +496,31 @@ export const ReaderInteractions = forwardRef<
           : placed;
       });
     };
-    frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
-  }, [adapter, host]);
+    const schedule = () => { if (!disposed && !frame) frame = requestAnimationFrame(tick); };
+    const surface = host.current, shell = surface?.closest(".reader-shell");
+    const resize = new ResizeObserver(schedule);
+    if (surface) resize.observe(surface);
+    if (shell) resize.observe(shell);
+    if (popup.current) resize.observe(popup.current);
+    const changes = new MutationObserver(schedule);
+    if (surface) changes.observe(surface, { subtree: true, childList: true, attributes: true, attributeFilter: ["style", "class", "hidden"] });
+    if (shell) changes.observe(shell, { attributes: true, attributeFilter: ["class", "style"] });
+    shell?.addEventListener("transitionend", schedule);
+    surface?.addEventListener("scroll", schedule, { passive: true, capture: true });
+    surface?.addEventListener("reader-layout", schedule);
+    window.addEventListener("resize", schedule);
+    window.visualViewport?.addEventListener("resize", schedule);
+    window.visualViewport?.addEventListener("scroll", schedule);
+    document.fonts.addEventListener("loadingdone", schedule);
+    schedule();
+    return () => {
+      disposed = true; cancelAnimationFrame(frame); resize.disconnect(); changes.disconnect();
+      shell?.removeEventListener("transitionend", schedule);
+      surface?.removeEventListener("scroll", schedule, true); surface?.removeEventListener("reader-layout", schedule);
+      window.removeEventListener("resize", schedule); window.visualViewport?.removeEventListener("resize", schedule);
+      window.visualViewport?.removeEventListener("scroll", schedule); document.fonts.removeEventListener("loadingdone", schedule);
+    };
+  }, [adapter, host, selected, bookmarks, current, open, mode, note, busy, feedback, suspended, ready]);
   async function colorAction(color: Color) {
     if (!selected || ambiguous) return;
     if (target) {
@@ -802,6 +822,10 @@ export const ReaderInteractions = forwardRef<
             </div>
           )}
           <div className="passage-actions">
+            {!selected.text.startsWith("Region on page") && <button type="button" onPointerDown={e => e.preventDefault()} onClick={() => {
+              if (!navigator.clipboard) { notify("Clipboard access is unavailable in this browser."); return; }
+              void navigator.clipboard.writeText(selected.text).then(() => notify("Copied passage."), () => notify("Copy was blocked. Allow clipboard access and try again."));
+            }}>Copy</button>}
             {!selected.text.startsWith("Region on page") &&
               selected.text.length <= 100 && (
                 <button
@@ -834,7 +858,7 @@ export const ReaderInteractions = forwardRef<
                 size={15}
                 fill={selectedBookmark ? "currentColor" : "none"}
               />
-              {selectedBookmark ? "Unbookmark" : "Bookmark"}
+              <span className="passage-bookmark-label">{selectedBookmark ? "Unbookmark" : "Bookmark"}</span>
             </button>
             {target && (
               <button

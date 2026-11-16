@@ -15,14 +15,19 @@ export function blankLeaf(width: number, height: number) {
   Object.assign(leaf.style, { width: `${width}px`, height: `${height}px`, position: "relative", overflow: "hidden" });
   return leaf;
 }
-export function canvasImage(canvas: HTMLCanvasElement, width: number, height: number) {
+export async function canvasImage(canvas: HTMLCanvasElement, width: number, height: number) {
   const copy = document.createElement("canvas"), scale = Math.min(1.5, 1600 / Math.max(width, height));
   copy.width = Math.max(1, Math.round(width * scale)); copy.height = Math.max(1, Math.round(height * scale));
   copy.getContext("2d")!.drawImage(canvas, 0, 0, copy.width, copy.height);
-  const image = document.createElement("img"); image.src = copy.toDataURL("image/png"); image.alt = ""; image.draggable = false;
+  const blob = await new Promise<Blob>((resolve, reject) => copy.toBlob(value => value ? resolve(value) : reject(new Error("Page image unavailable")), "image/png"));
+  const image = document.createElement("img"); image.src = URL.createObjectURL(blob); image.dataset.turnObjectUrl = image.src; image.alt = ""; image.draggable = false;
   Object.assign(image.style, { width: `${width}px`, height: `${height}px`, display: "block" });
   copy.width = copy.height = 0;
-  return image;
+  try { await image.decode(); return image; } catch (error) { URL.revokeObjectURL(image.src); throw error; }
+}
+export function disposeSurfaces(cache: HTMLElement) {
+  cache.querySelectorAll<HTMLImageElement>("img[data-turn-object-url]").forEach(image => URL.revokeObjectURL(image.dataset.turnObjectUrl!));
+  cache.remove();
 }
 export async function waitForSurfaces(root: ParentNode) {
   await Promise.all([...root.querySelectorAll("img")].map(img => img.decode().catch(() => {})));

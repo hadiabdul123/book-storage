@@ -1,3 +1,4 @@
+import { bindTouchSelection, type TouchSelection } from "./touchSelection";
 import {
   findQuote,
   offsetsForRange,
@@ -21,6 +22,7 @@ export class DocxReader implements ReaderAdapter {
   async context(selection: import("./types").Selection) {
     return surroundingText(textNodes(this.article).map(n => n.data).join(""), selection.text);
   }
+  private touch?: TouchSelection;
   private article = document.createElement("article");
   private marks: Annotation[] = [];
   private timer?: ReturnType<typeof setTimeout>;
@@ -47,6 +49,7 @@ export class DocxReader implements ReaderAdapter {
       a.rel = "noopener noreferrer";
     });
     this.host.append(this.article);
+    this.touch = bindTouchSelection(this.article, { selected: range => this.readSelection(range), cleared: () => this.events.onSelection(null), scrollHost: this.host });
     document.addEventListener("selectionchange", this.selection);
     this.host.addEventListener("scroll", this.scroll, { passive: true });
     this.host.addEventListener("click", this.click);
@@ -57,7 +60,9 @@ export class DocxReader implements ReaderAdapter {
   private selection = () => {
     const selection = document.getSelection();
     if (!selection?.rangeCount || selection.isCollapsed) return;
-    const range = selection.getRangeAt(0);
+    this.readSelection(selection.getRangeAt(0));
+  };
+  private readSelection(range: Range) {
     if (
       !this.article.contains(range.startContainer) ||
       !this.article.contains(range.endContainer)
@@ -77,7 +82,7 @@ export class DocxReader implements ReaderAdapter {
         },
       });
     } catch {}
-  };
+  }
   private scroll = () => {
     clearTimeout(this.timer);
     this.timer = setTimeout(() => {
@@ -248,10 +253,13 @@ export class DocxReader implements ReaderAdapter {
       b.start < a.end
     );
   }
+  hasSelection() { return !!this.touch?.hasSelection() || !!document.getSelection()?.toString().trim(); }
   clearSelection() {
+    this.touch?.clear();
     document.getSelection()?.removeAllRanges();
   }
   destroy() {
+    this.touch?.destroy();
     clearTimeout(this.timer);
     this.observer?.disconnect();
     document.removeEventListener("selectionchange", this.selection);

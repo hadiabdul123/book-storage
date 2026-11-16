@@ -1,5 +1,12 @@
 # Verification and release gates
 
+## Smooth reader motion and app-owned touch selection on 2026-11-17
+
+- PDF/EPUB turns reuse one isolated renderer per geometry. Its private clock excludes idle time and stops RAF/timer work at rest. WebKit can throttle RAF after pointer release; an active-only 32ms timer keeps folds moving in that case. Drag updates are batched by animation frame, previews have a bounded startup, and stale jobs cannot navigate a new reading location. Three retained spreads cover adjacent pages; PDF snapshots encode asynchronously and release their object URLs. Mixed-size pages rebuild incompatible copies.
+- PDF pinch, wheel, keyboard and buttons share a coalescing zoom controller. A bounded preview stays visible until the final requested render is ready. Pinches retain the moving midpoint; buttons retain the top reading line. Visible old bitmaps survive sharpening, distant ones are released, and each rendered page is capped at six million pixels. Background OCR updates wait during motion. Passage placement responds to layout events rather than polling continuously.
+- PDF, EPUB and converted DOCX touch selection keeps a logical range, paints app-owned shading/handles and supplies Copy in the existing passage toolbar, without creating a browser selection. Mouse/keyboard and accessibility-created native selections remain supported; notes/search retain normal editing menus. Copy denial reports a message without creating a native-selection fallback. Saved annotation formats are unchanged. Android/Gemini overlays invoked through system gestures remain device-controlled.
+- Regression coverage includes rapid zoom, idle/resumed and throttled clocks, renderer reuse, held/reversed/cancelled folds, mixed-size pages, selection/Copy/denial in all formats, native note editing, and native PDF line-break preservation. Physical installed-Android performance and system selection-menu behaviour still require device confirmation; Chromium touch injection and WebKit emulation are not physical-device evidence.
+
 ## Release checks on 2026-11-17
 
 - Release `b4ae912` deployed successfully in [GitHub Actions run 43958227270](https://github.com/hadiabdul123/book-storage/actions/runs/43958227270). All 108 unit tests, 121 desktop/phone reader cases (17 platform skips), 30 tablet cases (2 platform skips), 16 cloud cases, 2 production PWA cases, and the authenticated production offline case passed. The configured production build and Pages publication succeeded; no automatic test retries or check bypasses were used.

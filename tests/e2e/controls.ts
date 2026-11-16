@@ -27,13 +27,13 @@ export async function observePaperTurns(page: Page) {
   await page.evaluate(() => {
     const state = { seen: 0 };
     (window as any).__paperTurns = state;
-    const frames = new WeakSet<Element>();
+    let turning = false;
     new MutationObserver(() => {
       const frame = document.querySelector(".paper-turn-stage");
-      if (frame && !frames.has(frame) && getComputedStyle(frame).visibility === "visible" &&
-          document.querySelector<HTMLElement>(".reader-host")?.dataset.pageTurnState === "flipping") {
-        frames.add(frame); state.seen++;
-      }
+      const flipping = !!frame && getComputedStyle(frame).visibility === "visible" &&
+        document.querySelector<HTMLElement>(".reader-host")?.dataset.pageTurnState === "flipping";
+      if (flipping && !turning) state.seen++;
+      turning = flipping;
     }).observe(document.querySelector(".reader-shell")!, {
       subtree: true, childList: true, attributes: true, attributeFilter: ["style", "data-page-turn-state"],
     });

@@ -3,7 +3,7 @@ import base from "./playwright.config";
 
 export default defineConfig({
   ...base,
-  testMatch: ["tablet-reading.spec.ts", "book-turns.spec.ts"],
+  testMatch: ["tablet-reading.spec.ts", "book-turns.spec.ts", "reading-smoothness.spec.ts"],
   testIgnore: [],
   outputDir: "test-results/tablet",
   projects: [

@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { PageTurn, type TurnSource } from "../src/reader/pageTurn";
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 function pendingTurn() {
   vi.stubGlobal("window", { addEventListener() {}, removeEventListener() {} });
   vi.stubGlobal("matchMedia", () => ({ matches: false }));
@@ -29,5 +29,19 @@ it("does not replay a pending automatic turn after an explicit jump elsewhere", 
     jump(); turn.invalidate(); complete(null);
     await running;
     expect(navigate).not.toHaveBeenCalled();
+  } finally { turn.destroy(); }
+});
+
+it("finishes navigation once when preview preparation does not respond", async () => {
+  vi.useFakeTimers();
+  const { turn, complete } = pendingTurn(), navigate = vi.fn(async () => {});
+  try {
+    const running = turn.run("next", navigate);
+    await vi.advanceTimersByTimeAsync(2500);
+    await running;
+    expect(navigate).toHaveBeenCalledTimes(1);
+    complete(null);
+    await Promise.resolve();
+    expect(navigate).toHaveBeenCalledTimes(1);
   } finally { turn.destroy(); }
 });

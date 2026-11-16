@@ -245,7 +245,7 @@ test("a keyboard page turn waits for a queued PDF fit instead of being lost", as
     const prototype = PdfReader.prototype as any, original = prototype.relayout;
     let slow = true;
     prototype.relayout = async function(...args: unknown[]) {
-      if (!slow) return original.apply(this, args);
+      if (!slow || this.layout.fit !== "width") return original.apply(this, args);
       slow = false;
       this.host.dataset.testViewPending = "true";
       await new Promise(resolve => setTimeout(resolve, 1000));
@@ -262,4 +262,30 @@ test("a keyboard page turn waits for a queued PDF fit instead of being lost", as
   await expect(page.locator(".reader-host")).not.toHaveAttribute("data-test-view-pending", "true");
   await expect(page.locator(".reader-progress")).toContainText("Page 2");
   await expect(page.locator('.pdf-page[data-page="2"] canvas')).toBeVisible();
+});
+
+
+test("mixed-size PDF turns rebuild previews for the current paper dimensions", async ({ page }) => {
+  await page.goto("/");
+  await page.locator("input[type=file]").setInputFiles({ name: "Mixed pages.pdf", mimeType: "application/pdf", buffer: numberedPdf(3, [[400, 600], [600, 400], [400, 600]]) });
+  await page.locator(".book-cover-link").click();
+  await expect(page.locator(".reader-loading")).toHaveCount(0);
+  await clickTool(page, "Reading settings");
+  await page.getByRole("combobox", { name: "Navigation", exact: true }).selectOption("paginated");
+  await page.getByRole("combobox", { name: "Fit", exact: true }).selectOption("page");
+  await page.getByRole("button", { name: "Close panel", exact: true }).click();
+  await clickTool(page, "Next page");
+  await expect(page.locator(".reader-progress")).toContainText("Page 2");
+  await expect(page.locator(".paper-turn-stage")).toHaveCount(0);
+  const paper = (await page.locator('.pdf-page[data-page="2"]').boundingBox())!;
+  await page.mouse.move(paper.x + paper.width - 8, paper.y + paper.height * .7);
+  await page.mouse.down();
+  await page.mouse.move(paper.x + paper.width * .8, paper.y + paper.height * .7, { steps: 10 });
+  await expect(page.locator(".paper-turn-stage")).toBeVisible();
+  const fold = (await page.locator(".paper-turn-stage").boundingBox())!;
+  expect(fold.width).toBeCloseTo(paper.width, 0);
+  expect(fold.height).toBeCloseTo(paper.height, 0);
+  await page.mouse.up();
+  await expect(page.locator(".paper-turn-stage")).toHaveCount(0);
+  await expect(page.locator(".reader-progress")).toContainText("Page 2");
 });

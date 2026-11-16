@@ -45,6 +45,7 @@ export interface ReaderAdapter {
   sections: () => Promise<Section[]>;
   configure: (preferences: Preferences) => void;
   annotate: (annotations: Annotation[]) => void;
+  hasSelection: () => boolean;
   clearSelection: () => void;
   destroy: () => void;
 }

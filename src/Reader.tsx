@@ -234,12 +234,12 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   const swipe = useRef({ enabled: false, turning: false });
   swipe.current.enabled = swipeEnabled;
   const canSwipe = () =>
-    swipe.current.enabled && touch && !host.current?.dataset.pageTurning &&
+    swipe.current.enabled && touch && !adapter.current?.hasSelection() && !host.current?.dataset.pageTurning &&
     !shell.current?.querySelector(".passage-popup,.pdf-selection-handle") &&
     (host.current?.scrollWidth || 0) <= (host.current?.clientWidth || 0) + 4;
   const dragAllowed = useRef(false);
   dragAllowed.current = swipeEnabled;
-  const canDragTurn = () => dragAllowed.current && !shell.current?.querySelector(".passage-popup,.pdf-selection-handle") &&
+  const canDragTurn = () => dragAllowed.current && !adapter.current?.hasSelection() && !shell.current?.querySelector(".passage-popup,.pdf-selection-handle") &&
     (host.current?.scrollWidth || 0) <= (host.current?.clientWidth || 0) + 4;
   const turnSwipe = (direction: "next" | "previous") => {
     // A new gesture may start during the preceding animation; decide on release.
@@ -500,6 +500,10 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
     setZoom(z);
     setRotation(r);
     try {
+      if (r === rotation) {
+        (adapter.current as import("./reader/pdf").PdfReader)?.requestZoom(z);
+        return;
+      }
       await (adapter.current as import("./reader/pdf").PdfReader)?.setView(
         z,
         r,
