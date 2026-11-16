@@ -1,5 +1,10 @@
 # Verification and release gates
 
+## Release checks on 2026-11-17
+
+- The owner requested publishing the previously local tablet/theme/curl/fullscreen work. Commit `ffb71c2` was pushed to main and the checked Pages deployment was dispatched. The first CI run passed all 106 unit tests and the build, then passed 114 browser cases with 17 platform skips and three timing/selector failures, so publication correctly remained stopped.
+- Browser traces showed an opening-book status colliding with the fullscreen notification selector, native touch input starting before the reader settled, and a short EPUB curl finishing between visibility polls. Tests now wait for the reader's loaded state and paginated surfaces, pace native input by display frames, scope the failure notification to its toast, and observe the real visible/flipping state without changing animation duration. The focused desktop/phone checks passed seven cases with one platform skip. Full deployment checks are repeated for the corrected commit.
+
 ## Paper turns and fullscreen reading on 2026-11-16 (local, unpublished)
 
 - PDF and EPUB pagination now use locally bundled, pinned `page-flip@2.0.7` paper folds. A 44px outer-edge grab follows the pointer and can be held indefinitely, reversed or cancelled. The middle retains native text selection. Only a completed fold navigates the live reader; previews do not persist positions or create annotations. Buttons/keys curl; reduced motion and the per-book/device Instant preference retain immediate navigation. Continuous scrolling and DOCX keep their ordinary behavior. Explicit gesture opt-outs survive the new default for paginated views.

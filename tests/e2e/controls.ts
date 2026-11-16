@@ -20,3 +20,23 @@ export async function clickTool(page: Page, name: string) {
   await openTools(page);
   await page.getByRole("button", { name, exact: true }).click();
 }
+
+/** A short curl can start and finish between Playwright's visibility polls.
+ * Observe its real visible/flipping state rather than slowing the animation. */
+export async function observePaperTurns(page: Page) {
+  await page.evaluate(() => {
+    const state = { seen: 0 };
+    (window as any).__paperTurns = state;
+    const frames = new WeakSet<Element>();
+    new MutationObserver(() => {
+      const frame = document.querySelector(".paper-turn-stage");
+      if (frame && !frames.has(frame) && getComputedStyle(frame).visibility === "visible" &&
+          document.querySelector<HTMLElement>(".reader-host")?.dataset.pageTurnState === "flipping") {
+        frames.add(frame); state.seen++;
+      }
+    }).observe(document.querySelector(".reader-shell")!, {
+      subtree: true, childList: true, attributes: true, attributeFilter: ["style", "data-page-turn-state"],
+    });
+  });
+  return () => page.evaluate(() => (window as any).__paperTurns.seen as number);
+}

@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import path from "node:path";
-import { clickTool } from "./controls";
+import { clickTool, observePaperTurns } from "./controls";
 import { numberedPdf } from "../helpers/numbered-pdf";
 
 async function open(page: Page, format = "pdf") {
@@ -8,7 +8,9 @@ async function open(page: Page, format = "pdf") {
   await page.locator("input[type=file]").setInputFiles(path.resolve(`tests/fixtures/${format === "pdf" ? "tracemonkey.pdf" : "alice.epub"}`));
   await expect(page.locator(".book-card")).toHaveCount(1);
   await page.locator(".book-cover-link").click();
+  await expect(page.locator(".reader-shell")).toHaveAttribute("data-loading", "false");
   await expect(page.locator(".reader-loading")).toHaveCount(0);
+  if (format === "pdf") await expect(page.locator('.pdf-page[data-page="1"] .textLayer span').first()).toBeVisible();
   if (format === "epub") {
     await clickTool(page, "Contents");
     await page.locator(".toc-item").filter({ hasText: /rabbit|chapter|down/i }).first().click();
@@ -17,6 +19,8 @@ async function open(page: Page, format = "pdf") {
   await page.getByRole("combobox", { name: format === "pdf" ? "Navigation" : "Layout", exact: true }).selectOption("paginated");
   if (format === "pdf") await page.getByRole("combobox", { name: "Fit", exact: true }).selectOption("page");
   await page.getByRole("button", { name: "Close panel", exact: true }).click();
+  await expect(page.locator(".reader-host")).toHaveAttribute("data-edge-turns", "true");
+  if (format === "pdf") await expect(page.locator('.pdf-page[data-page="1"] .textLayer span').first()).toBeVisible();
 }
 async function drag(page: Page, fraction: number, release = true) {
   const paper = page.locator('.pdf-page:not([hidden])').first();
@@ -89,7 +93,10 @@ test("native Android touch can hold and cancel a fold without a second swipe nav
   const touch = (type: string, x?: number, y?: number) => session.send("Input.dispatchTouchEvent", { type: type as "touchStart", touchPoints: x === undefined ? [] : [{ x, y: y! }] });
   const y = box.y + box.height * .7;
   await touch("touchStart", box.x + box.width - 10, y);
-  for (let n = 1; n <= 8; n++) await touch("touchMove", box.x + box.width - 10 - box.width * .35 * n / 8, y - n * 2);
+  for (let n = 1; n <= 8; n++) {
+    await touch("touchMove", box.x + box.width - 10 - box.width * .35 * n / 8, y - n * 2);
+    await page.waitForTimeout(20); // Native touch input advances on display frames.
+  }
   await expect(page.locator(".reader-host")).toHaveAttribute("data-page-turn-state", "user_fold");
   await page.waitForTimeout(1800);
   await expect(page.locator(".paper-turn-stage")).toBeVisible();
@@ -140,8 +147,9 @@ test("EPUB edge folds show the book and remain reversible without changing the l
 test("EPUB button curls retain selectable text; instant preference survives reload", async ({ page }) => {
   await open(page, "epub");
   const before = await page.locator(".reader-progress").textContent();
+  const turns = await observePaperTurns(page);
   await clickTool(page, "Next page");
-  await expect(page.locator(".paper-turn-stage")).toBeVisible();
+  await expect.poll(turns).toBe(1);
   await expect(page.locator(".paper-turn-stage")).toHaveCount(0);
   await expect(page.locator(".reader-progress")).not.toHaveText(before!);
   await expect(page.locator(".reader-host .epub-view iframe").first()).toBeVisible();
@@ -190,7 +198,7 @@ test("denied fullscreen retains quiet reading and can restore pinned controls", 
   await open(page);
   await clickTool(page, "Enter fullscreen reading");
   await expect(page.locator(".reader-header")).toBeHidden();
-  await expect(page.getByRole("status")).toContainText("browser did not allow fullscreen");
+  await expect(page.locator('.toast[role="status"]')).toContainText("browser did not allow fullscreen");
   await clickTool(page, "Exit fullscreen reading");
   await expect(page.locator(".reader-header")).toBeVisible();
   expect(await page.evaluate(() => localStorage.getItem("leafmark-controls-pinned"))).toBe("true");

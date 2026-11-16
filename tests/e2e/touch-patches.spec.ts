@@ -1,7 +1,7 @@
 import { scanPdf } from "../helpers/scanned-pdf";
 import { test, expect, type Page } from "@playwright/test";
 import path from "node:path";
-import { clickTool } from "./controls";
+import { clickTool, observePaperTurns } from "./controls";
 
 async function openPdf(page: Page) {
   await page.goto("/");
@@ -297,8 +297,9 @@ test("page buttons animate once, preserve rendered pages and respect reduced mot
   await clickTool(page, "Reading settings");
   await page.getByRole("combobox", { name: "Navigation", exact: true }).selectOption("paginated");
   await page.getByRole("button", { name: "Close panel" }).click();
+  const turns = await observePaperTurns(page);
   await page.getByRole("button", { name: "Next page", exact: true }).click();
-  await expect(page.locator(".paper-turn-stage")).toBeVisible();
+  await expect.poll(turns).toBe(1);
   await expect(page.locator(".reader-progress")).toContainText("Page 2");
   await expect(page.locator('.pdf-page[data-page="2"] canvas')).toBeVisible();
   await expect(page.locator(".reader-host")).not.toHaveAttribute("data-page-turning", /.+/);

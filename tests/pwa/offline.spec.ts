@@ -1,5 +1,5 @@
 import { scanPdf } from "../helpers/scanned-pdf";
-import { openTools, clickTool } from "../e2e/controls";
+import { openTools, clickTool, observePaperTurns } from "../e2e/controls";
 import { chromium, expect, test } from "@playwright/test";
 import path from "node:path";
 import { mkdirSync, mkdtempSync, rmSync, readFileSync, writeFileSync } from "node:fs";
@@ -282,8 +282,9 @@ test("saved PDF notes and rendering assets survive a full offline browser restar
     await page.getByRole("combobox", { name: "Navigation", exact: true }).selectOption("paginated");
     await page.getByRole("combobox", { name: "Fit", exact: true }).selectOption("page");
     await page.getByRole("button", { name: "Close panel", exact: true }).click();
+    const turns = await observePaperTurns(page);
     await page.getByRole("button", { name: "Next page", exact: true }).click();
-    await expect(page.locator(".paper-turn-stage")).toBeVisible();
+    await expect.poll(turns).toBe(1);
     await expect(page.locator(".reader-progress")).toContainText("Page 2");
     await page.getByRole("link", { name: "Back to library", exact: true }).click();
     await page
