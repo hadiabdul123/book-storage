@@ -155,7 +155,13 @@ test("EPUB button curls retain selectable text; instant preference survives relo
   await expect(page.locator(".reader-host .epub-view iframe").first()).toBeVisible();
   await clickTool(page, "Reading settings");
   await page.getByLabel("Page-turn effect", { exact: true }).selectOption("none");
+  const bookId = page.url().split("/read/")[1].split("?")[0];
+  await expect.poll(() => page.evaluate(async id => {
+    const { readDeviceReading } = await import(/* @vite-ignore */ "/src/deviceReading.ts");
+    return (await readDeviceReading(id)).pageTurnEffect;
+  }, bookId)).toBe("none");
   await page.reload();
+  await expect(page.locator(".reader-shell")).toHaveAttribute("data-loading", "false");
   await expect(page.locator(".reader-loading")).toHaveCount(0);
   await clickTool(page, "Reading settings");
   await expect(page.getByLabel("Page-turn effect", { exact: true })).toHaveValue("none");
@@ -202,4 +208,28 @@ test("denied fullscreen retains quiet reading and can restore pinned controls", 
   await clickTool(page, "Exit fullscreen reading");
   await expect(page.locator(".reader-header")).toBeVisible();
   expect(await page.evaluate(() => localStorage.getItem("leafmark-controls-pinned"))).toBe("true");
+});
+
+test("automatic turns finish when hidden preview animation clocks are paused", async ({ page }) => {
+  await page.addInitScript(() => {
+    if (window === window.top) return;
+    const native = window.requestAnimationFrame.bind(window);
+    window.requestAnimationFrame = callback => {
+      const frame = window.frameElement;
+      if (!frame?.classList.contains("paper-turn-stage") || getComputedStyle(frame).visibility !== "hidden") return native(callback);
+      // Model browsers that defer a hidden iframe's RAF until it is visible.
+      const observer = new MutationObserver(() => {
+        if (getComputedStyle(frame).visibility === "hidden") return;
+        observer.disconnect(); native(callback);
+      });
+      observer.observe(frame, { attributes: true, attributeFilter: ["style"] });
+      return 0;
+    };
+  });
+  await open(page);
+  const turns = await observePaperTurns(page);
+  await clickTool(page, "Next page");
+  await expect.poll(turns).toBe(1);
+  await expect(page.locator(".reader-progress")).toContainText("Page 2");
+  await expect(page.locator(".paper-turn-stage")).toHaveCount(0);
 });

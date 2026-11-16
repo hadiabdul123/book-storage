@@ -142,12 +142,17 @@ export class PageTurn {
       if (this.disposed || revision !== this.revision) { frame.remove(); return; }
       const Flip = (frame.contentWindow as unknown as { St: { PageFlip: new (element: HTMLElement, settings: object) => FlipEngine } }).St.PageFlip;
       const engine = new Flip(doc.getElementById("book")!, { width, height, size: "fixed", autoSize: false, usePortrait: columns === 1, showCover: false, startPage: direction === "next" ? 0 : columns, flippingTime: 400, drawShadow: true, maxShadowOpacity: .24, useMouseEvents: false, showPageCorners: false, disableFlipByClick: false });
+      const initialized = new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("Page turn initialization timed out")), 2500);
+        engine.on("init", () => { clearTimeout(timer); resolve(); });
+      });
       engine.loadFromHTML(direction === "next" ? [...preview.outgoing.leaves, ...preview.incoming.leaves] : [...preview.incoming.leaves, ...preview.outgoing.leaves]);
+      await initialized;
       if (columns === 1 && direction === "next") engine.getPageCollection().getPages()[0].newTemporaryCopy();
       await waitForSurfaces(doc);
-      // The vendor schedules an initial UI update (including orientation) on
-      // the next tick. Starting a button turn before that update cancels it.
-      await new Promise<void>(resolve => frame.contentWindow!.requestAnimationFrame(() => frame.contentWindow!.requestAnimationFrame(() => resolve())));
+      // Hidden iframe animation clocks can pause completely (especially in
+      // WebKit). The vendor's init event, rather than an iframe RAF, confirms
+      // its initial orientation update before the preview becomes visible.
       engine.turnToPage(direction === "next" ? 0 : columns);
       let moved = false, released = false, settled = false;
       let watchdog: ReturnType<typeof setTimeout> | undefined;
