@@ -99,6 +99,7 @@ export class PdfReader implements ReaderAdapter {
       enabled: () => this.layout.navigation === "paginated" && this.effect !== "none" && this.zoom <= 1 && !this.region && !this.layingOut,
       canDrag: () => !!this.events.canDragTurn?.() && !host.classList.contains("pdf-zooming"),
       bounds: () => this.paperBounds(),
+      location: () => String(this.current),
       prepare: (direction, outgoing) => this.prepareTurn(direction, outgoing),
     });
     this.turn.bind(host);

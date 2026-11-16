@@ -243,7 +243,10 @@ test("a keyboard page turn waits for a queued PDF fit instead of being lost", as
   await page.evaluate(async () => {
     const { PdfReader } = await import(/* @vite-ignore */ "/src/reader/pdf.ts");
     const prototype = PdfReader.prototype as any, original = prototype.relayout;
+    let slow = true;
     prototype.relayout = async function(...args: unknown[]) {
+      if (!slow) return original.apply(this, args);
+      slow = false;
       this.host.dataset.testViewPending = "true";
       await new Promise(resolve => setTimeout(resolve, 1000));
       try { await original.apply(this, args); }
@@ -256,6 +259,7 @@ test("a keyboard page turn waits for a queued PDF fit instead of being lost", as
   await page.getByRole("button", { name: "Close panel", exact: true }).click();
   await page.locator(".reader-host").focus();
   await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".reader-host")).not.toHaveAttribute("data-test-view-pending", "true");
   await expect(page.locator(".reader-progress")).toContainText("Page 2");
   await expect(page.locator('.pdf-page[data-page="2"] canvas')).toBeVisible();
 });

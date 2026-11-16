@@ -60,6 +60,7 @@ export class EpubReader implements ReaderAdapter {
       enabled: () => !this.previewOnly && !!this.rendition && this.prefs?.flow === "paginated" && this.prefs?.pageTurnEffect !== "none",
       canDrag: () => !!this.events.canDragTurn?.() && !this.hasSelection(),
       bounds: () => this.host.getBoundingClientRect(),
+      location: () => this.lastCfi,
       prepare: (direction, outgoing) => this.prepareTurn(direction, outgoing),
     });
   }

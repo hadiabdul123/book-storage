@@ -22,6 +22,7 @@ export type TurnSource = {
   enabled: () => boolean;
   canDrag: () => boolean;
   bounds: () => DOMRect;
+  location: () => string;
   prepare: (direction: TurnDirection, outgoing?: TurnSpread) => Promise<TurnPreview | null>;
 };
 
@@ -89,23 +90,32 @@ export class PageTurn {
     if (this.busy || this.disposed) return;
     this.busy = true;
     const revision = this.revision;
+    const startLocation = this.source.location();
+    const sameLocation = () => !this.disposed && this.source.location() === startLocation;
     let navigating = false;
     const fallback = () => { navigating = true; return navigate(); };
     this.host.dataset.pageTurning = direction;
     try {
       if (!this.source.enabled() || !this.motion()) { await fallback(); return; }
       const preview = await this.preview(direction);
-      if (revision !== this.revision || this.disposed) return;
-      if (!preview) { await fallback(); return; }
+      if (this.disposed) return;
+      if (revision !== this.revision || !preview) {
+        if (sameLocation()) await fallback();
+        return;
+      }
       const stage = await this.createStage(preview, direction, revision);
-      if (!stage) return;
+      if (!stage) { if (sameLocation()) await fallback(); return; }
       if (direction === "next") stage.engine.flipNext("bottom"); else stage.engine.flipPrev("bottom");
       stage.release();
-      if (await stage.done) { navigating = true; await this.commit(preview); }
+      if (await stage.done) { if (sameLocation()) { navigating = true; await this.commit(preview); } }
+      // A layout refresh may discard a preview after the user requested a
+      // button/key turn. Complete that intent once if its starting location is
+      // still current. An explicit jump elsewhere supersedes the old request.
+      else if (sameLocation()) await fallback();
     } catch (error) {
       console.warn("Paper turn unavailable", error);
       if (navigating) throw error;
-      if (revision === this.revision && !this.disposed) await fallback();
+      if (sameLocation()) await fallback();
     } finally { this.finish(); }
   }
   private async createStage(preview: TurnPreview, direction: TurnDirection, revision: number): Promise<Stage | undefined> {
