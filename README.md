@@ -95,7 +95,7 @@ Books initially open on **Warm paper**, including the actual pages of text and s
 
 Controls normally start hidden. Tap the page to show or hide them, or choose **Reading tools > Reading mode** to close tools and read quietly. **Keep controls visible on this device** pins them when needed. The **Enter fullscreen reading** enlarge button additionally requests hidden browser/device navigation and temporarily ignores the pin. Tap to reveal controls; use the exit button, Escape, or Android Back to leave fullscreen and restore the prior pin. Unsupported or denied fullscreen retains quiet reading and explains that device bars may remain. Actual system-bar hiding is controlled by the browser and Android; no OS update, manifest change, or reinstall is required.
 
-Open a book, tap to reveal controls, and choose **Reading settings > Page theme > Warm paper / Dark**. On narrower screens settings may also be reached through **Reading tools**. These enhancements remain local until a later release; they do not change an already-open live app.
+Open a book, tap to reveal controls, and choose **Reading settings > Page theme > Warm paper / Dark**. On narrower screens settings may also be reached through **Reading tools**. These enhancements are published in the web app. Existing tabs may need a refresh followed by **Update** in the library when ready.
 
 Ordinary app-update notices wait until you return to the library, so a queued update does not cover reading controls when you cannot update. A tool-loading failure still offers its recovery action.
 
