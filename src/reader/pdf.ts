@@ -879,9 +879,11 @@ export class PdfReader implements ReaderAdapter {
   requestZoom(zoom: number) { this.zoomController?.request(zoom); }
   setView(zoom: number, rotation: number) {
     const revision = ++this.viewRevision;
+    this.host.setAttribute("aria-busy", "true");
     this.viewQueue = this.viewQueue
       .catch(() => {})
-      .then(() => revision === this.viewRevision ? this.relayout(zoom, rotation) : undefined);
+      .then(() => revision === this.viewRevision ? this.relayout(zoom, rotation) : undefined)
+      .finally(() => { if (!this.disposed && revision === this.viewRevision) this.host.setAttribute("aria-busy", "false"); });
     return this.viewQueue;
   }
   private async relayout(zoom: number, rotation: number) {
@@ -1211,6 +1213,7 @@ export class PdfReader implements ReaderAdapter {
   destroy() {
     this.turn.destroy(); this.clearSurfaces();
     this.disposed = true;
+    this.host.removeAttribute("aria-busy");
     this.zoomController?.destroy();
     clearTimeout(this.autoOcrTimer); clearTimeout(this.deferredOcrTimer); this.deferredOcr.clear();
     document.removeEventListener("visibilitychange", this.scheduleRecognition);

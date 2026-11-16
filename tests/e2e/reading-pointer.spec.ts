@@ -100,12 +100,17 @@ test("guide fades, stays screen sized at zoom, and leaves selection and regions 
   await expect(pointer(page)).not.toBeVisible();
   await page.getByRole("combobox", { name: "Zoom", exact: true }).selectOption("1.5");
   await page.getByRole("button", { name: "Close panel" }).click();
+  await expect(page.locator(".reader-host")).not.toHaveClass(/pdf-zooming/);
+  await expect(page.locator(".reader-host")).toHaveAttribute("aria-busy", "false");
   await moveOnPage(page);
   await expect(pointer(page)).toHaveAttribute("transform", /scale\(1\)/);
   expect(transform).toContain("scale(1)");
   await clickTool(page, "Reading settings");
   await page.getByRole("combobox", { name: "Zoom", exact: true }).selectOption("1");
   await page.getByRole("button", { name: "Close panel" }).click();
+  await expect(page.locator(".reader-host")).not.toHaveClass(/pdf-zooming/);
+  await page.locator('.pdf-page[data-page="1"]').scrollIntoViewIfNeeded();
+  await expect(page.locator(".reader-host")).toHaveAttribute("aria-busy", "false");
   const text = page.locator('.pdf-page .textLayer span').filter({ hasText: "Trace-based" }).first();
   await expect(text).toBeVisible();
   const box = (await text.boundingBox())!;
