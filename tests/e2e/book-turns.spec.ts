@@ -108,12 +108,16 @@ test("native Android touch can hold and cancel a fold without a second swipe nav
 test("EPUB edge folds show the book and remain reversible without changing the live text", async ({ page }) => {
   await open(page, "epub");
   const bookId = page.url().split("/read/")[1].split("?")[0];
-  const savedCfi = () => page.evaluate(async id => {
+  const savedLocator = () => page.evaluate(async id => {
     const { get } = await import(/* @vite-ignore */ "/src/db.ts");
     const position = await get("position", id);
-    return position?.locator.type === "epub" ? position.locator.cfi : undefined;
+    return position?.locator.type === "epub" ? position.locator : undefined;
   }, bookId);
-  await expect.poll(savedCfi, { timeout: 15000 }).toBeDefined();
+  const savedCfi = async () => (await savedLocator())?.cfi;
+  // The fixture opens on its title page before Contents navigates to chapter 1.
+  // Wait for that chapter's debounced save, not just any earlier saved position.
+  await expect.poll(async () => (await savedLocator())?.href.split("#")[0], { timeout: 15000 })
+    .toMatch(/(?:^|\/)chapter_001\.xhtml$/);
   const cfi = await savedCfi();
   // Location generation refines percentages in the background without moving
   // the CFI. Compare the actual first paragraph's viewport position instead.
