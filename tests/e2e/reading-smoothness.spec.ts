@@ -143,3 +143,32 @@ test("repeated curls reuse one isolated renderer and idle without animation call
   expect(await realm!.evaluate((el: HTMLIFrameElement) => (el.contentWindow as any).__frames)).toBe(frames);
   expect(await page.locator(".turn-surface-cache").count()).toBeLessThanOrEqual(3);
 });
+
+
+test("a new scroll during PDF sharpening supersedes the old fit position", async ({ page }) => {
+  await page.goto("/");
+  await page.locator("input[type=file]").setInputFiles(path.resolve("tests/fixtures/tracemonkey.pdf"));
+  await page.locator(".book-cover-link").click();
+  await expect(page.locator('.pdf-page[data-page="1"] .textLayer span').first()).toBeVisible();
+  await expect(page.locator(".reader-shell")).toHaveAttribute("data-loading", "false");
+  await clickTool(page, "Reading settings");
+  await page.evaluate(async () => {
+    const { PdfReader } = await import(/* @vite-ignore */ "/src/reader/pdf.ts");
+    const proto = PdfReader.prototype as any, original = proto.render;
+    let slow = true;
+    proto.render = async function(...args: unknown[]) {
+      if (slow && this.layingOut && this.layout.fit === "page") {
+        slow = false; this.host.dataset.testSharpening = "true";
+        await new Promise<void>(resolve => { (window as any).__finishSharpening = resolve; });
+        delete this.host.dataset.testSharpening;
+      }
+      return original.apply(this, args);
+    };
+  });
+  await page.getByRole("combobox", { name: "Fit", exact: true }).selectOption("page");
+  await expect(page.locator(".reader-host")).toHaveAttribute("data-test-sharpening", "true");
+  await page.locator('.pdf-page[data-page="3"]').evaluate(element => element.scrollIntoView({ block: "start" }));
+  await page.evaluate(() => (window as any).__finishSharpening());
+  await expect(page.locator(".reader-progress")).toContainText("Page 3");
+  await expect(page.locator(".reader-host")).not.toHaveAttribute("data-test-sharpening", "true");
+});

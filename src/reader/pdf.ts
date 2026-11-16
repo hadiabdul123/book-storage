@@ -904,9 +904,21 @@ export class PdfReader implements ReaderAdapter {
       }
       if (this.disposed) return;
       this.arrange();
-      const first = Math.floor(((anchor.type === "pdf" ? anchor.page : this.current) - 1) / this.columns) * this.columns;
-      await Promise.all(this.pages.slice(first, first + this.columns).map(p => this.render(p)));
-      await this.goTo(anchor);
+      let restore = anchor;
+      let scrollTop = this.host.scrollTop, scrollLeft = this.host.scrollLeft;
+      // A panel resize may still be sharpening when a reader scrolls again.
+      // Follow that newer position instead of restoring the pre-fit anchor.
+      while (!this.disposed) {
+        const page = restore.type === "pdf" ? restore.page : this.current;
+        const first = Math.floor((page - 1) / this.columns) * this.columns;
+        await Promise.all(this.pages.slice(first, first + this.columns).map(p => this.render(p)));
+        if (Math.abs(this.host.scrollTop - scrollTop) > 1 || Math.abs(this.host.scrollLeft - scrollLeft) > 1) {
+          restore = this.location(); scrollTop = this.host.scrollTop; scrollLeft = this.host.scrollLeft;
+          continue;
+        }
+        await this.goTo(restore);
+        break;
+      }
     } finally {
       this.layingOut = false;
     }
