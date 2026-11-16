@@ -1,7 +1,7 @@
 import ePub from "epubjs";
 import DOMPurify from "dompurify";
 import JSZip from "jszip";
-import { db, list, save } from "./db";
+import { db, list, save, saveBookFile } from "./db";
 import { type Book, type Format, now, uid } from "./model";
 import { pdfLibrary, pdfOptions, pdfOpenError } from "./pdf";
 
@@ -150,7 +150,7 @@ export async function importBook(file: File): Promise<ImportResult> {
     derived = new Blob([sanitize(result.value)], { type: "text/html" });
     book.derivedPath = `${id}/reading-v1.html`;
   }
-  await db.files.put({ id, source: file, derived, uploaded: false });
+  await saveBookFile({ id, source: file, derived, uploaded: false });
   try {
     await save("book", duplicate || book);
   } catch (error) {

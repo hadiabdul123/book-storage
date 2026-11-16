@@ -2,6 +2,8 @@ import { db } from "./db";
 import { defaultPdfLayout, type PdfLayout, type Preferences } from "./model";
 
 export type DeviceReading = {
+  pageTurnEffect?: "curl" | "none";
+  pdfOriginalColors?: boolean;
   swipeToTurn?: boolean;
   hidePageControls?: boolean;
   pdfLayout?: PdfLayout;
@@ -20,12 +22,12 @@ export async function readDeviceReading(id: string): Promise<DeviceReading> {
     return {};
   }
 }
-export async function writeDeviceReading(id: string, patch: DeviceReading) {
+export async function writeDeviceReading(id: string, patch: DeviceReading | ((prior: DeviceReading) => DeviceReading)) {
   await db.transaction("rw", db.meta, async () => {
     const prior = await readDeviceReading(id);
     await db.meta.put({
       key: `device-reading:${id}`,
-      value: JSON.stringify({ ...prior, ...patch }),
+      value: JSON.stringify({ ...prior, ...(typeof patch === "function" ? patch(prior) : patch) }),
     });
   });
 }

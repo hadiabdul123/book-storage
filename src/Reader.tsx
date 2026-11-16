@@ -22,7 +22,11 @@ import {
   ZoomOut,
   MoreHorizontal,
   Sparkles,
+  BookOpen,
 } from "lucide-react";
+import { comfortablePreferences } from "./readingAppearance";
+import { useReaderViewport } from "./useReaderViewport";
+import { useReaderFullscreen } from "./useReaderFullscreen";
 import { db, get, list, save } from "./db";
 import {
   defaults,
@@ -76,11 +80,26 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
       async () => (await list("bookmark")).filter((a) => a.bookId === id),
       [id],
     ) || [];
-  const savedPrefs = useLiveQuery(() => get("preferences", "reader"), []);
+  const savedPrefs = useLiveQuery(() => get("preferences", "reader"), [], null);
+  useEffect(() => {
+    if (savedPrefs === null || savedPrefs?.comfortDefaultsVersion) return;
+    void db.transaction("rw", [db.rows, db.outbox, db.conflicts, db.meta], async () => {
+      const latest = await get("preferences", "reader");
+      if (!latest?.comfortDefaultsVersion) await save("preferences", comfortablePreferences(latest));
+    }).catch(error => notify(messageOf(error)));
+  }, [savedPrefs]);
   const pdfPrefs = useLiveQuery(() => get("preferences", `pdf:${id}`), [id]);
   const localView = useLiveQuery(() => readDeviceReading(id), [id]);
+  const [pdfOriginalColors, setPdfOriginalColors] = useState(false);
+  useEffect(() => setPdfOriginalColors(!!localView?.pdfOriginalColors), [id, localView?.pdfOriginalColors]);
+  const toggleOriginalColors = (enabled: boolean) => {
+    setPdfOriginalColors(enabled);
+    void writeDeviceReading(id, { pdfOriginalColors: enabled }).catch(error => {
+      setPdfOriginalColors(current => current === enabled ? !enabled : current);
+      notify(messageOf(error));
+    });
+  };
   const [swipeToTurn, setSwipeToTurn] = useState(false);
-  useEffect(() => setSwipeToTurn(!!localView?.swipeToTurn), [id, localView?.swipeToTurn]);
   const [hidePageControls, setHidePageControls] = useState(false);
   useEffect(() => setHidePageControls(!!localView?.hidePageControls), [id, localView?.hidePageControls]);
   const togglePageControls = (hidden: boolean) => {
@@ -90,12 +109,10 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
       notify(messageOf(error));
     });
   };
-  const [phone] = useState(
-    () => window.matchMedia("(max-width: 700px)").matches,
-  );
+  const { narrow: phone, touch } = useReaderViewport();
   const pdfLayout = devicePdfLayout(localView, pdfPrefs?.pdfLayout, phone);
   const prefs = {
-    ...(savedPrefs || defaults),
+    ...comfortablePreferences(savedPrefs || undefined),
     width: localView?.width ?? savedPrefs?.width ?? defaults.width,
     flow:
       localView?.flow ??
@@ -106,8 +123,13 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
       (phone ? false : savedPrefs?.spread) ??
       defaults.spread,
     pdfLayout,
+    pageTurnEffect: localView?.pageTurnEffect ?? "curl",
   };
+  const paginated = book?.format === "pdf" ? pdfLayout.navigation === "paginated" : prefs.flow === "paginated";
+  useEffect(() => setSwipeToTurn(localView?.swipeToTurn ?? paginated), [id, localView?.swipeToTurn, paginated]);
   const shell = useRef<HTMLElement>(null);
+  const fullscreen = useReaderFullscreen(shell, notify);
+  const [quietFullscreen, setQuietFullscreen] = useState(false);
   const remotePosition = useLiveQuery(() => get("position", id), [id]);
   const [offeredPosition, setOfferedPosition] = useState<Position>();
   const seenPosition = useRef("");
@@ -134,6 +156,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   const [researchSelection, setResearchSelection] = useState<SourceRef>();
   const interactions = useRef<InteractionHandle | null>(null);
   const [actionsHost, setActionsHost] = useState<HTMLElement | null>(null);
+  const [secondaryActionsHost, setSecondaryActionsHost] = useState<HTMLElement | null>(null);
   const openNotebookRef = useRef<(page: number) => void>(() => {});
   async function flushNotebook() {
     return (await notebook.current?.flush()) ?? true;
@@ -191,11 +214,16 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
     host,
     ready,
     !!panel || !!editing || region,
+    fullscreen.active || quietFullscreen,
   );
+  const wasFullscreen = useRef(false);
+  useEffect(() => {
+    if (wasFullscreen.current && !fullscreen.active) { setQuietFullscreen(false); chrome.reveal(); }
+    wasFullscreen.current = fullscreen.active;
+  }, [fullscreen.active]);
   const readingPointer = useReadingPointer(host, book?.format === "pdf" && opened && !loading, ready, notify);
   const swipeEnabled =
     swipeToTurn &&
-    phone &&
     !loading &&
     !panel &&
     !editing &&
@@ -206,8 +234,12 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   const swipe = useRef({ enabled: false, turning: false });
   swipe.current.enabled = swipeEnabled;
   const canSwipe = () =>
-    swipe.current.enabled &&
+    swipe.current.enabled && touch && !host.current?.dataset.pageTurning &&
     !shell.current?.querySelector(".passage-popup,.pdf-selection-handle") &&
+    (host.current?.scrollWidth || 0) <= (host.current?.clientWidth || 0) + 4;
+  const dragAllowed = useRef(false);
+  dragAllowed.current = swipeEnabled;
+  const canDragTurn = () => dragAllowed.current && !shell.current?.querySelector(".passage-popup,.pdf-selection-handle") &&
     (host.current?.scrollWidth || 0) <= (host.current?.clientWidth || 0) + 4;
   const turnSwipe = (direction: "next" | "previous") => {
     // A new gesture may start during the preceding animation; decide on release.
@@ -293,6 +325,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
           void writeDeviceReading(id, { zoom: value }).catch(e => notifyRef.current(messageOf(e)));
         },
         canSwipe,
+        canDragTurn,
         onReaderSwipe: turnSwipe,
         onPageNote: (page) => openNotebookRef.current(page),
         onRegionMode: setRegion,
@@ -404,7 +437,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   }, [sourceParam, opened, book?.hash]);
   useEffect(() => {
     adapter.current?.configure(prefs);
-  }, [savedPrefs, pdfPrefs, localView, ready]);
+  }, [savedPrefs, pdfPrefs, localView, ready, phone]);
   useEffect(() => {
     if (
       opened &&
@@ -429,22 +462,25 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   }, [current?.type === "pdf" ? current.page : 0, pinned, panel]);
   async function configurePdf(patch: Partial<PdfLayout>) {
     try {
-      await writeDeviceReading(id, { pdfLayout: { ...pdfLayout, ...patch } });
+      await writeDeviceReading(id, prior => ({ pdfLayout: { ...devicePdfLayout(prior, pdfPrefs?.pdfLayout, phone), ...patch } }));
     } catch (e) {
       notify(messageOf(e));
     }
   }
   async function configure(patch: Partial<Preferences>) {
     try {
-      const { width, flow, spread, pdfLayout: _layout, ...shared } = patch;
+      const { width, flow, spread, pageTurnEffect, pdfLayout: _layout, ...shared } = patch;
       const local = {
         ...(width !== undefined ? { width } : {}),
         ...(flow !== undefined ? { flow } : {}),
         ...(spread !== undefined ? { spread } : {}),
+        ...(pageTurnEffect !== undefined ? { pageTurnEffect } : {}),
       };
       if (Object.keys(local).length) await writeDeviceReading(id, local);
       if (Object.keys(shared).length)
-        await save("preferences", { ...(savedPrefs || defaults), ...shared });
+        await db.transaction("rw", [db.rows, db.outbox, db.conflicts, db.meta], async () => {
+          await save("preferences", { ...comfortablePreferences(await get("preferences", "reader")), ...shared });
+        });
     } catch (e) {
       notify(messageOf(e));
     }
@@ -504,7 +540,9 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   return (
     <main
       ref={shell}
-      className={`reader-shell theme-${prefs.theme}${chrome.visible ? " controls-visible" : " reading-mode"}${chrome.menu ? " controls-menu-open" : ""}${swipeEnabled ? " swipe-pages" : ""}${hidePageControls ? " hide-page-controls" : ""}`}
+      className={`reader-shell theme-${prefs.theme}${chrome.visible ? " controls-visible" : " reading-mode"}${chrome.menu ? " controls-menu-open" : ""}${swipeEnabled ? " swipe-pages" : ""}${hidePageControls ? " hide-page-controls" : ""}${panel ? " panel-open" : ""}`}
+      data-original-pdf-colors={pdfOriginalColors}
+      data-loading={loading || savedPrefs === null || localView === undefined}
       onPointerMoveCapture={(event) => {
         if (
           event.pointerType === "mouse" &&
@@ -576,7 +614,11 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
           <strong>{book.title}</strong>
           <span>{book.author}</span>
         </div>
+        <button className="icon-button" aria-label="Contents" aria-pressed={panel === "contents"}
+          onClick={() => void changePanel(panel === "contents" ? "" : "contents")}><List size={20} /></button>
         <div className="reader-action-buttons" ref={setActionsHost} />
+        <button className="icon-button" aria-label="Reading settings" aria-pressed={panel === "settings"}
+          onClick={() => void changePanel(panel === "settings" ? "" : "settings")}><Settings2 size={20} /></button>
         <button
           className="icon-button reader-menu-toggle"
           aria-label="Reading tools"
@@ -586,7 +628,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
           <MoreHorizontal size={22} />
         </button>
         <div className="reader-tools">
-          {tools.map(([name, Icon, label]) => (
+          {tools.filter(([name]) => name !== "contents" && name !== "settings").map(([name, Icon, label]) => (
             <button
               className={`icon-button ${panel === name ? "active" : ""}`}
               key={name}
@@ -597,6 +639,20 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
               <Icon size={20} />
             </button>
           ))}
+          <div className="reader-history-controls" ref={setSecondaryActionsHost} />
+          <button className="text-button reading-mode-action" aria-label="Reading mode"
+            onClick={async () => {
+              if (!(await flushNotebook())) return;
+              interactions.current?.dismiss();
+              adapter.current?.clearSelection();
+              if (region && book.format === "pdf")
+                (adapter.current as import("./reader/pdf").PdfReader)?.setRegionMode(false);
+              setRegion(false);
+              setPanel("");
+              chrome.setPinned(false);
+              if (shell.current?.contains(document.activeElement)) (document.activeElement as HTMLElement)?.blur();
+              chrome.conceal();
+            }}><BookOpen size={20} /><span>Reading mode</span></button>
           {book.format === "pdf" && (
             <button
               className={`icon-button ${panel === "page-notes" ? "active" : ""}`}
@@ -622,16 +678,21 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
             <BookA size={20} />
           </button>
           <button
-            className="icon-button desktop-only"
-            aria-label="Toggle full screen"
+            className="icon-button"
+            aria-label={fullscreen.active || quietFullscreen ? "Exit fullscreen reading" : "Enter fullscreen reading"}
+            aria-pressed={fullscreen.active}
             onClick={() => {
-              if (document.fullscreenElement) void document.exitFullscreen();
-              else
-                void document.documentElement
-                  .requestFullscreen()
-                  .catch(() =>
-                    notify("Full screen is not available in this browser."),
-                  );
+              if (fullscreen.active) { void fullscreen.exit(); return; }
+              if (quietFullscreen) { setQuietFullscreen(false); chrome.reveal(); return; }
+              const request = fullscreen.enter();
+              void request.then(async () => {
+                if (!(await flushNotebook())) return;
+                interactions.current?.dismiss(); adapter.current?.clearSelection();
+                if (region && book.format === "pdf") (adapter.current as import("./reader/pdf").PdfReader)?.setRegionMode(false);
+                setRegion(false); setPanel(""); setQuietFullscreen(true);
+                if (shell.current?.contains(document.activeElement)) (document.activeElement as HTMLElement)?.blur();
+                chrome.conceal();
+              });
             }}
           >
             <Maximize2 size={19} />
@@ -639,6 +700,8 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
         </div>
       </header>
       <div className="reader-workspace">
+        {panel && <button className="reader-panel-backdrop" aria-label="Close reading panel"
+          onClick={() => void changePanel("")} />}
         <div
           className="reading-column"
           style={{
@@ -938,9 +1001,16 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
                       onChange={event => togglePageControls(event.target.checked)} />
                     Hide bottom page controls
                   </label>
-                  {phone &&
-                    (book.format === "pdf" || book.format === "epub") && (
+                  <h3 className="reading-settings-heading">Comfort</h3>
+                  <p className="muted">Tap the page to show or hide controls. Hold a passage to select it.</p>
+                  {(book.format === "pdf" || book.format === "epub") && (
                       <>
+                        <label>Page-turn effect
+                          <select aria-label="Page-turn effect" value={prefs.pageTurnEffect} onChange={event => void configure({ pageTurnEffect: event.target.value as "curl" | "none" })}>
+                            <option value="curl">Paper curl</option>
+                            <option value="none">Instant</option>
+                          </select>
+                        </label>
                         <label className="pin-controls">
                           <input
                             type="checkbox"
@@ -948,12 +1018,12 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
                             onChange={(e) => {
                               const enabled = e.target.checked;
                               setSwipeToTurn(enabled);
-                              void writeDeviceReading(id, {
+                              void writeDeviceReading(id, prior => ({
                                 swipeToTurn: enabled,
                                 ...(book.format === "pdf"
                                   ? {
                                       pdfLayout: {
-                                        ...pdfLayout,
+                                        ...devicePdfLayout(prior, pdfPrefs?.pdfLayout, phone),
                                         navigation: enabled
                                           ? "paginated"
                                           : "continuous",
@@ -963,7 +1033,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
                                   : {
                                       flow: enabled ? "paginated" : "scrolled",
                                     }),
-                              }).catch((error) => {
+                              })).catch((error) => {
                                 setSwipeToTurn(current => current === enabled ? !enabled : current);
                                 notify(messageOf(error));
                               });
@@ -972,25 +1042,35 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
                           Swipe to turn pages
                         </label>
                         <p className="muted">
-                          Swipe left for the next page, right to go back. Uses
-                          page turns; zoomed PDF pages can still be panned.
+                          Grab an outer edge or corner to fold the page. Hold to
+                          pause, then continue or drag back to cancel. The middle
+                          stays available for selecting text. Zoomed PDFs can be panned.
                         </p>
                       </>
                     )}
-                  <label>
-                    Page theme
+                  <fieldset className="reading-theme-settings">
+                    <legend>Page theme</legend>
                     <div className="theme-options">
                       {(["light", "sepia", "dark"] as const).map((theme) => (
                         <button
                           key={theme}
                           className={`theme-choice ${theme} ${prefs.theme === theme ? "selected" : ""}`}
+                          aria-pressed={prefs.theme === theme}
                           onClick={() => void configure({ theme })}
                         >
-                          {theme}
+                          {{ light: "Original", sepia: "Warm paper", dark: "Dark" }[theme]}
                         </button>
                       ))}
                     </div>
-                  </label>
+                  </fieldset>
+                  {book.format === "pdf" && <>
+                    <label className="pin-controls"><input type="checkbox" checked={pdfOriginalColors}
+                      onChange={event => toggleOriginalColors(event.target.checked)} />
+                      Original PDF colors
+                    </label>
+                    <p className="muted">Page themes also change picture and diagram colors. Use original PDF colors when color accuracy matters.</p>
+                  </>}
+                  <h3 className="reading-settings-heading">Page layout</h3>
                   {book.format !== "pdf" && (
                     <>
                       <label>
@@ -1185,7 +1265,8 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
                     className="text-button"
                     onClick={() => {
                       togglePageControls(false);
-                      void configure(defaults);
+                      toggleOriginalColors(false);
+                      void configure({ ...defaults, comfortDefaultsVersion: 1 });
                       if (book.format === "pdf")
                         void configurePdf(defaultPdfLayout);
                     }}
@@ -1293,6 +1374,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
         adapter={adapter}
         host={host}
         controls={actionsHost}
+        secondaryControls={secondaryActionsHost}
         ready={!loading}
         suspended={panel !== ""}
         notify={notify}

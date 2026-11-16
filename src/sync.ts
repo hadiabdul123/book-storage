@@ -1,7 +1,7 @@
 import { downloadFreshBlob } from "./bookDownload";
 import { createClient } from "@supabase/supabase-js";
 import { Upload } from "tus-js-client";
-import { db, acceptRemote, resolveStoredConflicts } from "./db";
+import { db, acceptRemote, resolveStoredConflicts, saveBookFile } from "./db";
 import { type Book, type Row } from "./model";
 
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
@@ -375,6 +375,6 @@ export async function downloadBook(book: Book) {
       "The downloaded file did not match this book. Retry the download.",
     );
   const file = { id: book.id, source, derived, uploaded: true };
-  await db.files.put(file);
+  await saveBookFile(file);
   return file;
 }

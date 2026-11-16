@@ -26,3 +26,17 @@ it("saves layout and zoom locally without creating a cloud operation", async () 
   });
   expect(await db.outbox.count()).toBe(0);
 });
+it("keeps original PDF colors per book and preserves other view settings", async () => {
+  await writeDeviceReading("illustrated", { pdfOriginalColors: true, zoom: 1.5, pageTurnEffect: "none", swipeToTurn: false });
+  await writeDeviceReading("illustrated", { rotation: 90 });
+  expect(await readDeviceReading("illustrated")).toMatchObject({ pdfOriginalColors: true, zoom: 1.5, rotation: 90, pageTurnEffect: "none", swipeToTurn: false });
+  expect(await readDeviceReading("novel")).toEqual({});
+  expect(await db.outbox.count()).toBe(0);
+});
+it("merges rapid layout edits against the latest stored layout", async () => {
+  await Promise.all([
+    writeDeviceReading("book", prior => ({ pdfLayout: { ...(prior.pdfLayout || defaultPdfLayout), navigation: "paginated" } })),
+    writeDeviceReading("book", prior => ({ pdfLayout: { ...(prior.pdfLayout || defaultPdfLayout), fit: "page" } })),
+  ]);
+  expect((await readDeviceReading("book")).pdfLayout).toEqual({ columns: 1, navigation: "paginated", fit: "page" });
+});

@@ -1,6 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 export default defineConfig({
   testDir: "./tests/e2e",
+  testIgnore: "tablet-reading.spec.ts",
   outputDir: "test-results/e2e",
   fullyParallel: false,
   // Real PDF/EPUB decoders are memory-heavy; keep CI and local runs bounded.

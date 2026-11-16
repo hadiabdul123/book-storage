@@ -19,7 +19,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "prompt",
-      includeAssets: ["icon.svg"],
+      includeAssets: ["icon.svg", "licenses/page-flip.txt"],
       manifest: {
         name: "Leafmark — your reading space",
         short_name: "Leafmark",

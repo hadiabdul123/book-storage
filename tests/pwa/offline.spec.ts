@@ -71,11 +71,17 @@ test("saved PDF notes and rendering assets survive a full offline browser restar
     await page.getByLabel("Dictionary word").fill("cognitive dissonance");
     await page.getByRole("button", { name: "Look up", exact: true }).click();
     await expect(page.locator(".dictionary-reference")).toContainText("Discomfort when beliefs");
+    const panelTextLayer = await page.locator(".pdf-page .textLayer").first().elementHandle();
     await page.getByRole("button", { name: "Close panel" }).click();
-    await page
-      .locator(".pdf-page .textLayer")
-      .first()
-      .evaluate((layer) => {
+    // Closing a docked panel changes fit-width and replaces the old text layer.
+    // Select from the completed layout rather than a range about to be detached.
+    await expect.poll(() => panelTextLayer!.evaluate(el => el.isConnected)).toBe(false);
+    await expect(page.locator(".pdf-page .textLayer span").first()).toBeVisible();
+    // A queued fit pass can replace another layer after the first replacement.
+    // Reacquire the range until the note editor opens; no writing is done yet.
+    await expect(async () => {
+      if (await page.getByRole("textbox", { name: "Note for selected passage" }).isVisible()) return;
+      await page.locator(".pdf-page .textLayer").first().evaluate((layer) => {
         const span = Array.from(layer.querySelectorAll("span")).find(
           (element) => (element.textContent?.length || 0) > 20,
         )!;
@@ -86,7 +92,9 @@ test("saved PDF notes and rendering assets survive a full offline browser restar
         selection.addRange(range);
         document.dispatchEvent(new Event("selectionchange"));
       });
-    await page.getByRole("button", { name: "Add note", exact: true }).click();
+      await page.getByRole("button", { name: "Add note", exact: true }).click({ timeout: 1000 });
+      await expect(page.getByRole("textbox", { name: "Note for selected passage" })).toBeVisible({ timeout: 1000 });
+    }).toPass({ timeout: 10000 });
     await page
       .getByRole("textbox", { name: "Note for selected passage" })
       .fill("Retained across an offline browser restart");
@@ -178,6 +186,7 @@ test("saved PDF notes and rendering assets survive a full offline browser restar
     ...options,
     offline: true,
   });
+  offline.setDefaultTimeout(10000);
   const errors: string[] = [];
   try {
     const page = await offline.newPage();
@@ -197,6 +206,7 @@ test("saved PDF notes and rendering assets survive a full offline browser restar
       page.locator(".pdf-page .textLayer span").first(),
     ).toBeVisible();
     await expect(page.locator(".pdf-highlight").first()).toBeVisible();
+    await expect(page.locator(".update-banner")).toHaveCount(0);
     await clickTool(page, "Highlights and notes");
     await expect(
       page.getByText("Retained across an offline browser restart"),
@@ -267,6 +277,14 @@ test("saved PDF notes and rendering assets survive a full offline browser restar
       expect(asset.bytes, asset.file).toBeGreaterThan(0);
     }
     await page.getByRole("button", { name: "Close panel" }).click();
+    // The locally bundled curl engine must work on a fresh offline start.
+    await clickTool(page, "Reading settings");
+    await page.getByRole("combobox", { name: "Navigation", exact: true }).selectOption("paginated");
+    await page.getByRole("combobox", { name: "Fit", exact: true }).selectOption("page");
+    await page.getByRole("button", { name: "Close panel", exact: true }).click();
+    await page.getByRole("button", { name: "Next page", exact: true }).click();
+    await expect(page.locator(".paper-turn-stage")).toBeVisible();
+    await expect(page.locator(".reader-progress")).toContainText("Page 2");
     await page.getByRole("link", { name: "Back to library", exact: true }).click();
     await page
       .locator(".book-card")

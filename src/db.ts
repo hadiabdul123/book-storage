@@ -10,6 +10,7 @@ import {
   uid,
 } from "./model";
 import { compareEdits, editTime } from "./syncOrder";
+import { decodeBookFile, encodeBookFile, isBlobStorageError } from "./bookFileStorage";
 import type { IndexedChunk, ResearchJob } from "./researchTypes";
 
 class LibraryDB extends Dexie {
@@ -33,9 +34,23 @@ class LibraryDB extends Dexie {
       researchJobs: "&id, state, threadId, createdAt",
       chunks: "&id, bookId, [bookId+unit]",
     });
+    this.files.hook("reading", decodeBookFile);
   }
 }
 export const db = new LibraryDB();
+let byteStorage = false;
+/** WebKit may reject Blob structured clones. Readers still receive ordinary Blobs. */
+export async function saveBookFile(file: BookFile) {
+  if (!byteStorage) {
+    try { await db.files.put(file); return; }
+    catch (error) {
+      if (!isBlobStorageError(error)) throw error;
+      byteStorage = true;
+    }
+  }
+  // Dexie's reading hook restores BookFile; only the physical representation differs.
+  await db.files.put(await encodeBookFile(file) as unknown as BookFile);
+}
 async function nextSequence() {
   const last = Number((await db.meta.get("operationSequence"))?.value || 0);
   await db.meta.put({ key: "operationSequence", value: String(last + 1) });

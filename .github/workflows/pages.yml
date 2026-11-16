@@ -26,8 +26,9 @@ jobs:
         run: npm ci
       - run: npm test
       - run: npm run build
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install --with-deps chromium webkit
       - run: npm run test:e2e
+      - run: npm run test:tablet
       - run: npm run test:cloud
       - run: npm run test:pwa
       - run: npm run test:pwa:cloud

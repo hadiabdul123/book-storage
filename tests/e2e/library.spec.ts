@@ -271,7 +271,7 @@ test("reader search, bookmarks, page layout, theme and region notes survive relo
   await expect(page.locator(".bookmark-row")).toHaveCount(1);
   await page.locator(".bookmark-row button").first().click();
   await clickTool(page, "Reading settings");
-  await page.getByRole("button", { name: "dark", exact: true }).click();
+  await page.getByRole("button", { name: "Dark", exact: true }).click();
   await page
     .getByRole("combobox", { name: "Navigation", exact: true })
     .selectOption("paginated");

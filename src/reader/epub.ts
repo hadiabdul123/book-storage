@@ -1,4 +1,5 @@
 import { PageTurn } from "./pageTurn";
+import { blankLeaf, surfaceCache, waitForSurfaces, type TurnDirection, type TurnPreview, type TurnSpread } from "./turnSurfaces";
 import { bindPageSwipes } from "./swipes";
 import { bindReadingTaps } from "./gestures";
 import ePub, {
@@ -21,6 +22,7 @@ import {
 } from "../model";
 import type { ReaderAdapter, ReaderEvents, SearchHit, Section } from "./types";
 import { surroundingText } from "../sourceIndex";
+import { pagePalettes } from "../readingAppearance";
 
 export class EpubReader implements ReaderAdapter {
   async context(selection: import("./types").Selection) {
@@ -41,14 +43,28 @@ export class EpubReader implements ReaderAdapter {
   private disposed = false;
   private positionsReady = false;
   private spineCount = 1;
+  private resizeObserver?: ResizeObserver;
+  private source?: Blob;
+  private previewReader?: EpubReader;
+  private previewHost?: HTMLElement;
+  private previewReady?: Promise<void>;
+  private previewQueue: Promise<unknown> = Promise.resolve();
+  private lastCfi = "";
   constructor(
     private host: HTMLElement,
     private book: Book,
     private events: ReaderEvents,
+    private previewOnly = false,
   ) {
-    this.turn = new PageTurn(host);
+    this.turn = new PageTurn(host, {
+      enabled: () => !this.previewOnly && !!this.rendition && this.prefs?.flow === "paginated" && this.prefs?.pageTurnEffect !== "none",
+      canDrag: () => !!this.events.canDragTurn?.() && !this.hasSelection(),
+      bounds: () => this.host.getBoundingClientRect(),
+      prepare: (direction, outgoing) => this.prepareTurn(direction, outgoing),
+    });
   }
   async open(source: Blob) {
+    this.source = source;
     this.epub = ePub(await source.arrayBuffer());
     await this.epub.opened;
     await this.epub.ready;
@@ -81,6 +97,12 @@ export class EpubReader implements ReaderAdapter {
               el.removeAttribute(a.name);
           }),
         );
+        // WebKit blocks parent-owned input listeners in script-disabled frames.
+        // Permit the reader's listeners while forbidding all book scripts with CSP.
+        const policy = doc.createElement("meta");
+        policy.setAttribute("http-equiv", "Content-Security-Policy");
+        policy.setAttribute("content", "script-src 'none'; object-src 'none'; form-action 'none'");
+        doc.head.prepend(policy);
         const base = doc.createElement("base");
         const target = new URL(section.url, location.origin);
         if (target.origin === location.origin) {
@@ -95,7 +117,8 @@ export class EpubReader implements ReaderAdapter {
       flow: "scrolled-doc",
       manager: "default",
       spread: "none",
-      allowScriptedContent: false,
+      ...{ gap: 2 },
+      allowScriptedContent: true,
     });
     this.rendition.hooks.content.register((contents: Contents) =>
       this.bind(contents),
@@ -118,12 +141,25 @@ export class EpubReader implements ReaderAdapter {
           ? this.epub.locations.percentageFromCfi(location.start.cfi)
           : (location.start.index || 0) / this.spineCount,
       );
+      this.updateSpread();
+      if (this.lastCfi !== location.start.cfi) { this.lastCfi = location.start.cfi; this.turn.invalidate(); }
     });
-    this.rendition.on("rendered", () => this.draw());
+    this.rendition.on("rendered", () => { this.draw(); this.updateSpread(); });
     if (this.prefs) this.configure(this.prefs);
     await this.rendition.display();
+    let width = this.host.clientWidth, height = this.host.clientHeight;
+    this.resizeObserver = new ResizeObserver(() => {
+      const nextWidth = this.host.clientWidth, nextHeight = this.host.clientHeight;
+      if (nextWidth > 0 && nextHeight > 0 && (nextWidth !== width || nextHeight !== height)) {
+        width = nextWidth;
+        height = nextHeight;
+        this.turn.invalidate();
+        this.rendition.resize(width, height);
+      }
+    });
+    this.resizeObserver.observe(this.host);
     // Pagination-independent text locations; do not block opening a large book.
-    void this.epub.locations
+    if (!this.previewOnly) void this.epub.locations
       .generate(1200)
       .then(() => {
         this.positionsReady = true;
@@ -137,6 +173,12 @@ export class EpubReader implements ReaderAdapter {
       `@font-face{font-family:Literata;src:url("${new URL(literataFont, location.href).href}")}@font-face{font-family:"Source Sans 3";src:url("${new URL(sansFont, location.href).href}")}`,
       "leafmark-fonts",
     );
+    if (this.previewOnly) return;
+    this.turn.bind(doc, point => {
+      const frame = doc.defaultView?.frameElement as HTMLElement;
+      const box = frame.getBoundingClientRect();
+      return { x: box.left + point.x * box.width / frame.clientWidth, y: box.top + point.y * box.height / frame.clientHeight };
+    });
     const selection = () => {
       const s = doc.getSelection();
       if (s && !s.isCollapsed && s.rangeCount) {
@@ -148,7 +190,7 @@ export class EpubReader implements ReaderAdapter {
     doc.addEventListener("pointerup", selection);
     const unbindSwipes = bindPageSwipes(
       doc,
-      () => this.events.canSwipe?.() || false,
+      () => !this.host.dataset.pageTurning && (this.events.canSwipe?.() || false),
       (direction) => this.events.onReaderSwipe?.(direction),
     );
     const unbindTaps = bindReadingTaps(doc, () => this.events.onReaderTap?.());
@@ -245,6 +287,82 @@ export class EpubReader implements ReaderAdapter {
       (this.rendition?.getContents() as unknown as Contents[]) || []
     ).some((c) => !c.document.getSelection()?.isCollapsed);
   }
+  private updateSpread() {
+    const layout = (this.rendition as unknown as { manager?: { layout?: { divisor: number } } })?.manager?.layout;
+    this.host.dataset.bookSpread = String(this.prefs?.flow === "paginated" && layout?.divisor === 2);
+  }
+  private async captureTurn(): Promise<{ spread: TurnSpread; dispose: () => void }> {
+    const box = this.host.getBoundingClientRect(), columns = this.host.dataset.bookSpread === "true" ? 2 : 1;
+    const width = box.width / columns, height = box.height;
+    const cache = surfaceCache(this.host, box.width, height), leaves: HTMLElement[] = [];
+    for (let n = 0; n < columns; n++) {
+      const leaf = blankLeaf(width, height);
+      for (const original of this.host.querySelectorAll<HTMLIFrameElement>(".epub-view iframe")) {
+        const rect = original.getBoundingClientRect();
+        if (rect.right <= box.left || rect.left >= box.right || !original.contentDocument) continue;
+        const mirror = document.createElement("iframe");
+        mirror.tabIndex = -1; mirror.setAttribute("aria-hidden", "true");
+        mirror.setAttribute("sandbox", "allow-same-origin");
+        const html = original.contentDocument.documentElement.cloneNode(true) as HTMLElement;
+        const styles = html.querySelectorAll("style");
+        // EPUB.js inserts theme/font rules through CSSOM. outerHTML alone
+        // serializes empty style tags, changing the type and pagination.
+        original.contentDocument.querySelectorAll("style").forEach((style, index) => {
+          try { if (style.sheet) styles[index].textContent = [...style.sheet.cssRules].map(rule => rule.cssText).join("\n"); }
+          catch { /* Linked book styles retain their sanitized blob URLs. */ }
+        });
+        mirror.srcdoc = html.outerHTML;
+        Object.assign(mirror.style, { position: "absolute", border: "0", width: `${original.clientWidth}px`, height: `${original.clientHeight}px`, left: `${rect.left - box.left - n * width}px`, top: `${rect.top - box.top}px`, pointerEvents: "none" });
+        leaf.append(mirror);
+      }
+      for (const original of this.host.querySelectorAll<SVGElement>(".epub-view > svg")) {
+        const rect = original.getBoundingClientRect(), clone = original.cloneNode(true) as SVGElement;
+        Object.assign(clone.style, { position: "absolute", left: `${rect.left - box.left - n * width}px`, top: `${rect.top - box.top}px`, width: `${rect.width}px`, height: `${rect.height}px`, pointerEvents: "none" });
+        leaf.append(clone);
+      }
+      leaves.push(leaf); cache.append(leaf);
+    }
+    await waitForSurfaces(cache);
+    return { spread: { leaves, width, height, columns }, dispose: () => cache.remove() };
+  }
+  private prepareTurn(direction: TurnDirection, shared?: TurnSpread): Promise<TurnPreview | null> {
+    // One hidden rendition handles both neighbours without navigating the book
+    // whose location is saved. Keep it alive for the mirror's blob resources.
+    const job = this.previewQueue.catch(() => {}).then(async () => {
+      const current = this.rendition.currentLocation() as unknown as { start?: { cfi: string }; atStart?: boolean; atEnd?: boolean };
+      if (!current?.start || this.disposed || (direction === "next" ? current.atEnd : current.atStart)) return null;
+      const cfi = current.start.cfi, prefs = { ...this.prefs };
+      if (!this.previewReader) {
+        const host = surfaceCache(this.host, this.host.clientWidth, this.host.clientHeight);
+        host.className = "turn-preparer";
+        this.previewHost = host;
+        this.previewReader = new EpubReader(host, this.book, { onLocation() {}, onSelection() {}, onAnnotation() {}, onError() {} }, true);
+        this.previewReader.configure(prefs);
+        this.previewReady = this.previewReader.open(this.source!);
+      }
+      await this.previewReady;
+      if (this.disposed) return null;
+      const helper = this.previewReader;
+      Object.assign(this.previewHost!.style, { width: `${this.host.clientWidth}px`, height: `${this.host.clientHeight}px` });
+      helper.configure(prefs); helper.annotate(this.marks);
+      helper.rendition.resize(this.host.clientWidth, this.host.clientHeight);
+      await helper.rendition.display(cfi);
+      await helper.rendition.reportLocation();
+      if (direction === "next") await helper.rendition.next(); else await helper.rendition.prev();
+      await helper.rendition.reportLocation();
+      await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+      for (const content of helper.rendition.getContents() as unknown as Contents[]) await content.document.fonts.ready;
+      const target = helper.rendition.currentLocation() as unknown as { start?: { cfi: string } };
+      if (!target?.start || target.start.cfi === cfi || this.disposed) return null;
+      const outgoing = shared ? { spread: shared, dispose() {} } : await this.captureTurn();
+      try {
+        const incoming = await helper.captureTurn();
+        return { outgoing: outgoing.spread, incoming: incoming.spread, commit: async () => { await this.rendition.display(target.start!.cfi); }, dispose: () => { outgoing.dispose(); incoming.dispose(); } };
+      } catch (error) { outgoing.dispose(); throw error; }
+    });
+    this.previewQueue = job;
+    return job;
+  }
   async search(query: string): Promise<SearchHit[]> {
     const results: SearchHit[] = [];
     if (!query.trim()) return results;
@@ -291,34 +409,41 @@ export class EpubReader implements ReaderAdapter {
     const prior = this.appliedPrefs;
     if (prior && JSON.stringify(prior) === JSON.stringify(p)) return;
     this.appliedPrefs = { ...p };
+    this.turn.invalidate();
     if (!prior || prior.flow !== p.flow)
       this.rendition.flow(p.flow === "scrolled" ? "scrolled-doc" : "paginated");
     if (!prior || prior.spread !== p.spread)
       this.rendition.spread(p.spread ? "auto" : "none");
-    const palette =
-      p.theme === "dark"
-        ? ["#202830", "#e1e5e8"]
-        : p.theme === "sepia"
-          ? ["#f4ecd9", "#443b2c"]
-          : ["#fff", "#29333e"];
+    const palette = pagePalettes[p.theme];
     this.rendition.themes.default({
-      html: { "touch-action": p.flow === "paginated" ? "pan-y pinch-zoom" : "auto" },
+      html: {
+        "touch-action": p.flow === "paginated" ? "pan-y pinch-zoom" : "auto",
+        background: `${palette.background} !important`,
+        color: `${palette.text} !important`,
+      },
       body: {
         "touch-action": p.flow === "paginated" ? "pan-y pinch-zoom" : "auto",
         "font-family": `${p.font}, ${p.font === "Literata" ? "Georgia,serif" : "sans-serif"} !important`,
         "font-size": `${p.fontSize}px !important`,
         "line-height": `${p.lineHeight} !important`,
-        color: `${palette[1]} !important`,
-        background: `${palette[0]} !important`,
-        padding: `${window.matchMedia("(max-width: 700px)").matches ? "12px 12px" : "20px 24px"} !important`,
+        color: `${palette.text} !important`,
+        background: `${palette.background} !important`,
+        padding: "16px clamp(12px, 3vw, 32px) !important",
+      },
+      "body *:not(img):not(svg):not(path):not(image)": {
+        color: "inherit !important",
+        "background-color": "transparent !important",
       },
       p: { "line-height": `${p.lineHeight} !important` },
       a: { color: "#5689b9" },
       img: { "max-width": "100%" },
       "::selection": { background: "#a6c9e5" },
     });
+    if (prior && prior.theme !== p.theme) this.draw();
   }
   annotate(marks: Annotation[]) {
+    if (JSON.stringify(marks) === JSON.stringify(this.marks)) return;
+    this.turn.invalidate();
     this.marks = marks;
     this.draw();
   }
@@ -348,7 +473,7 @@ export class EpubReader implements ReaderAdapter {
           {
             fill: colors[mark.color],
             "fill-opacity": "0.32",
-            "mix-blend-mode": "multiply",
+            "mix-blend-mode": this.prefs?.theme === "dark" ? "screen" : "multiply",
           },
         );
         this.rendered.add(cfi);
@@ -401,11 +526,15 @@ export class EpubReader implements ReaderAdapter {
     return !!first && !!second && rangeOverlap(first, second);
   }
   destroy() {
+    this.resizeObserver?.disconnect();
     this.turn.destroy();
     this.disposed = true;
+    this.previewReader?.destroy();
+    this.previewHost?.remove();
     this.cleanups.forEach((fn) => fn());
     this.rendition?.destroy();
     this.epub?.destroy();
     this.host.replaceChildren();
+    delete this.host.dataset.bookSpread;
   }
 }

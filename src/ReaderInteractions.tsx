@@ -49,6 +49,7 @@ export const ReaderInteractions = forwardRef<
     adapter: RefObject<ReaderAdapter | null>;
     host: RefObject<HTMLDivElement | null>;
     controls: HTMLElement | null;
+    secondaryControls: HTMLElement | null;
     suspended: boolean;
     ready: boolean;
     notify: (message: string) => void;
@@ -64,6 +65,7 @@ export const ReaderInteractions = forwardRef<
     adapter,
     host,
     controls,
+    secondaryControls,
     suspended,
     ready,
     notify,
@@ -83,6 +85,7 @@ export const ReaderInteractions = forwardRef<
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const draftsRef = useRef(drafts);
   const popup = useRef<HTMLDivElement>(null);
+  const popupTouch = useRef<{ button: HTMLButtonElement; x: number; y: number; at: number } | undefined>(undefined);
   const [layout, setLayout] = useState<{
     left: number;
     top: number;
@@ -476,7 +479,7 @@ export const ReaderInteractions = forwardRef<
         // animation frame queued this update. Measuring must not steal a click.
         const holdTools =
           popup.current?.dataset.mode === "tools" &&
-          popup.current.matches(":hover");
+          (popup.current.matches(":hover") || !!popupTouch.current);
         const placed =
           holdTools &&
           previous.visible &&
@@ -653,6 +656,12 @@ export const ReaderInteractions = forwardRef<
                 fill={placeBookmarks.length ? "currentColor" : "none"}
               />
             </button>
+          </>,
+          controls,
+        )}
+      {secondaryControls &&
+        createPortal(
+          <>
             <button
               className="icon-button"
               aria-label="Undo reader change"
@@ -688,7 +697,7 @@ export const ReaderInteractions = forwardRef<
               </button>
             )}
           </>,
-          controls,
+          secondaryControls,
         )}
       {layout.markers.map((marker) => {
         const b = bookmarks.find((b) => b.id === marker.id);
@@ -715,6 +724,23 @@ export const ReaderInteractions = forwardRef<
           data-mode={mode}
           role="region"
           aria-label="Save selected passage"
+          onPointerDownCapture={event => {
+            const button = (event.target as Element).closest("button");
+            if (event.pointerType === "touch" && button && !button.disabled)
+              popupTouch.current = { button, x: event.clientX, y: event.clientY, at: performance.now() };
+          }}
+          onPointerCancelCapture={() => { popupTouch.current = undefined; }}
+          onTouchEndCapture={event => {
+            const began = popupTouch.current;
+            popupTouch.current = undefined;
+            const touch = event.changedTouches[0];
+            if (!began || !touch || event.touches.length || event.changedTouches.length !== 1 ||
+                performance.now() - began.at > 350 || Math.hypot(touch.clientX - began.x, touch.clientY - began.y) > 8) return;
+            // Chrome can suppress compatibility clicks while text handles are active.
+            // Dispatch one deliberate tap and cancel the subsequent native click.
+            event.preventDefault();
+            began.button.click();
+          }}
           style={{
             left: layout.left,
             top: layout.top,

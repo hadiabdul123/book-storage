@@ -8,6 +8,7 @@ import "@fontsource/literata/500.css";
 import "pdfjs-dist/web/pdf_viewer.css";
 import "./styles.css";
 import App from "./App";
+import "./tablet.css";
 
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },

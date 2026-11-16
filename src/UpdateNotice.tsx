@@ -31,6 +31,10 @@ export function UpdateNotice() {
     const timer = setTimeout(() => setOfflineReady(false), 6500);
     return () => clearTimeout(timer);
   }, [offlineReady]);
+  // A waiting release can stay queued while someone reads offline or cannot
+  // update now. Surface it in the library, without covering reading controls.
+  // Actual loading failures still need their explicit recovery action.
+  if (reading && !loadFailed) return null;
   if (!ready && !loadFailed) return offlineReady ? <div className="toast" role="status">
     <span>Reader and dictionary are ready offline.</span>
     <button aria-label="Dismiss notification" onClick={() => setOfflineReady(false)}>Close</button>

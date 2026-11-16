@@ -6,6 +6,7 @@ export function useReaderChrome(
   host: RefObject<HTMLDivElement | null>,
   ready: number,
   locked: boolean,
+  immersive = false,
 ) {
   const [pinned, setPinnedState] = useState(() => {
     try {
@@ -19,8 +20,9 @@ export function useReaderChrome(
   const hideTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
-  const current = useRef({ locked, pinned, menu });
-  current.current = { locked, pinned, menu };
+  const effectivePinned = pinned && !immersive;
+  const current = useRef({ locked, pinned: effectivePinned, menu });
+  current.current = { locked, pinned: effectivePinned, menu };
   const protectedNow = () =>
     current.current.locked ||
     current.current.pinned ||
@@ -87,7 +89,7 @@ export function useReaderChrome(
     };
   }, [shell]);
   return {
-    visible: visible || pinned || locked || menu,
+    visible: visible || effectivePinned || locked || menu,
     pinned,
     setPinned,
     menu,

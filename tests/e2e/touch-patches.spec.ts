@@ -293,27 +293,20 @@ test("phone toolbar taps are prompt even when Chrome clears a collapsed selectio
 });
 
 test("page buttons animate once, preserve rendered pages and respect reduced motion", async ({ page }) => {
-  await page.addInitScript(() => {
-    const original = Element.prototype.animate;
-    (window as any).pageSlides = [];
-    Element.prototype.animate = function(frames, options) {
-      if (this.classList.contains("reader-host")) (window as any).pageSlides.push(frames);
-      return original.call(this, frames, options);
-    };
-  });
   await openPdf(page);
   await clickTool(page, "Reading settings");
   await page.getByRole("combobox", { name: "Navigation", exact: true }).selectOption("paginated");
   await page.getByRole("button", { name: "Close panel" }).click();
   await page.getByRole("button", { name: "Next page", exact: true }).click();
+  await expect(page.locator(".paper-turn-stage")).toBeVisible();
   await expect(page.locator(".reader-progress")).toContainText("Page 2");
   await expect(page.locator('.pdf-page[data-page="2"] canvas')).toBeVisible();
   await expect(page.locator(".reader-host")).not.toHaveAttribute("data-page-turning", /.+/);
-  expect(await page.evaluate(() => (window as any).pageSlides.length)).toBe(1);
+  await expect(page.locator(".paper-turn-stage")).toHaveCount(0);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.getByRole("button", { name: "Previous page", exact: true }).click();
   await expect(page.locator(".reader-progress")).toContainText("Page 1");
-  expect(await page.evaluate(() => (window as any).pageSlides.length)).toBe(1);
+  await expect(page.locator(".paper-turn-stage")).toHaveCount(0);
   await page.getByRole("button", { name: "Next page", exact: true }).evaluate(button => {
     (button as HTMLButtonElement).click();
     (button as HTMLButtonElement).click();

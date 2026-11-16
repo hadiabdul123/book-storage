@@ -87,9 +87,29 @@ The public source repository does not contain the personal library. Environment 
 
 Select a passage and choose **Research** for a contextual explanation, questions across chosen books and notes, or live web research. Select part of an answer and use **Save selected excerpt…** to collect it with its citations into a passage note, PDF page notebook, or topic notebook. **Notebooks & research** adds free-form formatted notes, connected sources, recovery versions, and Markdown/JSON export. Offline questions wait until the app is open and connected. See [research setup and usage](docs/RESEARCH.md), including free Groq/Tavily backend secrets and the authenticated production offline test.
 
+### Tablet layouts and comfortable reading
+
+Leafmark adapts to iPad and Android tablets in portrait, landscape, and split screen. Medium-width screens use a compact navigation rail; narrow windows use bottom navigation. The reader keeps Contents, Bookmark, and Reading settings close at hand, with secondary tools under **Reading tools**. Panels sit beside the book on wide screens and overlay it on narrower ones. Touch controls support tapping without hovering.
+
+Books initially open on **Warm paper**, including the actual pages of text and scanned PDFs. Existing dark preferences are preserved, and later choices of **Original**, **Warm paper**, or **Dark** are remembered across books. PDF themes also change illustration colors: **Reading settings > Original PDF colors** preserves those colors for that book on this device while keeping the surrounding theme. Original files and annotation coordinates are unchanged.
+
+Controls normally start hidden. Tap the page to show or hide them, or choose **Reading tools > Reading mode** to close tools and read quietly. **Keep controls visible on this device** pins them when needed. The **Enter fullscreen reading** enlarge button additionally requests hidden browser/device navigation and temporarily ignores the pin. Tap to reveal controls; use the exit button, Escape, or Android Back to leave fullscreen and restore the prior pin. Unsupported or denied fullscreen retains quiet reading and explains that device bars may remain. Actual system-bar hiding is controlled by the browser and Android; no OS update, manifest change, or reinstall is required.
+
+Open a book, tap to reveal controls, and choose **Reading settings > Page theme > Warm paper / Dark**. On narrower screens settings may also be reached through **Reading tools**. These enhancements remain local until a later release; they do not change an already-open live app.
+
+Ordinary app-update notices wait until you return to the library, so a queued update does not cover reading controls when you cannot update. A tool-loading failure still offers its recovery action.
+
+If a browser rejects Blob/File storage, new imports and downloads fall back to storing the original bytes as ArrayBuffers. Existing Blob downloads remain readable, without clearing the library or changing the database schema.
+
+EPUB selection and touch controls work in WebKit while chapter scripts remain blocked by a chapter-specific content policy.
+
+Run the tablet browser checks with `npm run test:tablet` after `npx playwright install chromium webkit`. They cover Chromium Android-tablet and WebKit iPad layouts; physical-device installation, keyboard, memory pressure, and native selection still need real-device verification.
+
 ### Page notebooks, reading modes, and vocabulary
 
-On a phone, **Reading settings > Swipe to turn pages** enables horizontal page turns for PDF and EPUB. Swipe left for next, right for previous. The setting is saved for this book on this device and selects paginated reading. Vertical gestures, active selections, open panels, pinches, and zoomed PDF panning do not turn pages. Phone PDFs use narrow outer margins, and page-turn mode centers the page vertically. The PDF's own printed margins remain part of the original document. Turn the setting off to return to scrolling. PDF and EPUB page turns use a short slide animation on phone and desktop, including buttons and keyboard navigation; the system reduced-motion preference disables it.
+In paginated PDF and EPUB reading, **Reading settings > Page-turn effect** offers **Paper curl** (default) and **Instant**, saved for the book on this device. Grab within 44 pixels of an outer paper edge/corner, hold a fold as long as needed, continue across the page to finish, or return to the edge to cancel. Buttons and arrow keys also turn with a short curl. Completed turns update the live reader once; cancelled folds retain the same place. The middle stays available for selection. New paginated views enable gestures by default while an explicit saved opt-out is preserved; **Swipe to turn pages** can also switch a scrolling view into pagination. Vertical scrolling, long-press selection, open editing tools, pinches, and zoomed PDF panning take priority. Reduced motion makes turns instant. Continuous scrolling and DOCX retain their normal behavior.
+
+Two-page views share a narrow crease and restrained shadows. PDF spreads retain 1–2, 3–4 pairing; a final odd page receives a visual blank mate that is excluded from progress. Pages retain their original proportions and selectable layers. The curl renderer is bundled locally and works offline; it displays temporary read-only copies only while turning. EPUB copies preserve sanitized book styles and script restrictions.
 
 Image-only PDF pages are recognized automatically when they come into view, on phone and desktop. English recognition runs locally, one visible page at a time after scrolling settles, and shows progress; results are cached on this device. No enable button is required. A failed or blank scan leaves reading available and offers a retry. Once ready, hold a word to highlight, look up its meaning, or add a note. If native selection is unavailable, two draggable handles let you extend the range. Recognition may misread words; region selection remains available for diagrams or unreadable scans. Original PDF pages are preserved, and saved highlights/notes sync normally. The engine and English model are bundled for offline use after the offline-ready message.
 
@@ -184,6 +204,8 @@ To check a private PDF without adding it to the repository, set `LEAFMARK_TEST_P
 DOCX is a semantic reading conversion, not a Word layout renderer. PDFs retain fixed typography. Scans support local English text recognition and region annotations. DRM-protected ebooks, encrypted PDFs, scripted EPUB content, TTS, social reading, and third-party integrations are outside this version. Very large files remain subject to device memory and provider constraints. Fixed-layout/RTL EPUBs and complex multi-column PDF selections need further fixture coverage before broad compatibility can be claimed.
 
 ## References and credits
+
+Page curling: [StPageFlip](https://github.com/Nodlik/StPageFlip), pinned to `page-flip@2.0.7`, MIT licensed. Its copyright and license are included in `public/licenses/page-flip.txt` and the built application.
 
 Product research: [BookFusion](https://www.bookfusion.com), [Android listing](https://play.google.com/store/apps/details?id=com.bookfusion.android.reader), [features](https://www.bookfusion.com/features), [highlights](https://www.bookfusion.com/reading/highlights), [apps and sync](https://www.bookfusion.com/reading/apps), [documentation](https://docs.bookfusion.com/docs/). Text references were reviewed; screenshot inspection was blocked in the development environment. No BookFusion branding, artwork, or proprietary code is included.
 

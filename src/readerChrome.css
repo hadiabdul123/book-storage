@@ -1,4 +1,5 @@
 /* Visibility never changes the document viewport. */
+.reader-shell:fullscreen{width:100%;height:100dvh;max-width:none;--reader-height:100dvh}
 .reader-shell .reader-header,
 .reader-shell .reader-footer {
   position: absolute;

@@ -15,6 +15,7 @@ import {
 } from "../model";
 import type { ReaderAdapter, ReaderEvents, SearchHit, Section } from "./types";
 import { surroundingText } from "../sourceIndex";
+import { pagePalettes } from "../readingAppearance";
 
 export class DocxReader implements ReaderAdapter {
   async context(selection: import("./types").Selection) {
@@ -179,6 +180,8 @@ export class DocxReader implements ReaderAdapter {
       fontSize: `${p.fontSize}px`,
       lineHeight: String(p.lineHeight),
       maxWidth: `${p.width}px`,
+      backgroundColor: pagePalettes[p.theme].background,
+      color: pagePalettes[p.theme].text,
     });
     this.host.dataset.theme = p.theme;
     this.draw();

@@ -1,0 +1,13 @@
+.turn-surface-cache,.turn-preparer{position:fixed!important;left:-100000px!important;top:0!important;pointer-events:none!important;opacity:0;contain:layout paint;overflow:hidden}
+.paper-turn-stage{position:absolute;z-index:22;border:0;pointer-events:none;overflow:hidden;background:transparent}
+.turn-leaf{background:var(--page-bg);pointer-events:none}
+.pdf-spread:has(>.pdf-page-frame:nth-child(2)){gap:2px;position:relative;filter:drop-shadow(0 3px 7px #0002)}
+.pdf-spread:has(>.pdf-page-frame:nth-child(2)) .pdf-page{box-shadow:none}
+.pdf-spread:has(>.pdf-page-frame:nth-child(2))>.pdf-page-frame{position:relative}
+.pdf-spread:has(>.pdf-page-frame:nth-child(2))>.pdf-page-frame:first-child::after,.pdf-spread:has(>.pdf-page-frame:nth-child(2))>.pdf-page-frame:last-child::after{content:"";position:absolute;top:0;bottom:0;width:14px;pointer-events:none;z-index:4}
+.pdf-spread:has(>.pdf-page-frame:nth-child(2))>.pdf-page-frame:first-child::after{right:0;background:linear-gradient(90deg,transparent,#00000016)}
+.pdf-spread:has(>.pdf-page-frame:nth-child(2))>.pdf-page-frame:last-child::after{left:0;background:linear-gradient(90deg,#0000001c,transparent)}
+.pdf-blank-page{background:var(--page-bg);align-self:flex-end}
+@media(min-width:701px){.pdf-spread:has(>.pdf-page-frame:nth-child(2))>.pdf-page-frame:not(.pdf-blank-page)::after{top:32px}}
+.reader-host[data-book-spread=true]::after{content:"";position:absolute;z-index:4;pointer-events:none;top:0;bottom:0;width:16px;left:calc(50% - 8px);background:linear-gradient(90deg,transparent,#00000019 45%,#00000028 50%,#00000019 55%,transparent)}
+.reader-host[data-edge-turns=true]{touch-action:pan-y pinch-zoom}

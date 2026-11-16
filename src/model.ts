@@ -95,6 +95,8 @@ export type ReadingSession = {
   device: string;
 };
 export type Preferences = {
+  pageTurnEffect?: "curl" | "none";
+  comfortDefaultsVersion?: 1;
   pdfLayout?: PdfLayout;
   id: string;
   theme: "light" | "sepia" | "dark";
@@ -124,7 +126,7 @@ export type RichNode = {
 };
 export const defaults: Preferences = {
   id: "reader",
-  theme: "light",
+  theme: "sepia",
   font: "Literata",
   fontSize: 20,
   lineHeight: 1.7,

@@ -189,6 +189,8 @@ function Shell() {
                 <NavLink
                   end={path === "/"}
                   key={String(path)}
+                  aria-label={String(label)}
+                  title={String(label)}
                   to={String(path)}
                 >
                   <I size={20} />
