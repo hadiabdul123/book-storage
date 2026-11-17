@@ -1,3 +1,4 @@
+import { showPassageAction } from "./controls";
 import { test, expect, type Page } from "@playwright/test";
 import { clickTool, openTools } from "./controls";
 import { textPdf } from "../helpers/text-pdf";
@@ -42,10 +43,12 @@ test("split-line lookup and phrase glossary preserve the original saved highligh
     document.dispatchEvent(new Event("selectionchange"));
     return selection.toString();
   });
+  await showPassageAction(page, "yellow highlight");
   await page.getByRole("button", { name: "yellow highlight", exact: true }).click();
   await expect(page.locator(".pdf-highlight").first()).toBeVisible();
   const saved = await annotation(page);
   expect(saved.text).toBe(original);
+  await showPassageAction(page, "Meaning");
   await page.getByRole("button", { name: "Meaning", exact: true }).click();
   await expect(page.locator(".dictionary-entry h3").first()).toHaveText("difference");
   await expect(page.locator(".lookup-resolution")).toContainText("difference");

@@ -1,0 +1,20 @@
+.ink-toolbar { display:flex; align-items:center; gap:4px; padding:4px 8px; background:var(--page-bg,#fff); color:var(--page-text,#293541); border-bottom:1px solid var(--line); overflow-x:auto; flex-shrink:0; }
+.ink-toolbar button { min-width:44px; min-height:44px; display:flex; align-items:center; justify-content:center; padding:6px 10px; border-radius:5px; white-space:nowrap; }
+.ink-toolbar button[aria-pressed="true"] { background:#315c8622; color:var(--accent); }
+.ink-toolbar label { display:flex; align-items:center; gap:5px; margin:0; font-size:12px; white-space:nowrap; }
+.ink-toolbar input[type="color"] { width:44px; height:44px; padding:5px; border:0; }
+.ink-toolbar select { padding:6px; width:58px; }
+.ink-save-state { color:var(--muted); font-size:12px; white-space:nowrap; padding-inline:8px; }
+.pdf-ink-layer { position:absolute; inset:0; width:100%; height:100%; z-index:4; pointer-events:none; overflow:hidden; }
+.drawing-mode .pdf-ink-layer { pointer-events:auto; touch-action:none; cursor:crosshair; }
+.reader-shell.drawing-active .reader-header { visibility:visible; opacity:1; pointer-events:auto; transform:none; }
+.reader-shell > .ink-toolbar { position:absolute; top:max(58px, env(safe-area-inset-top)); left:0; right:0; z-index:40; }
+.reader-shell.drawing-active .reader-host { border-top:112px solid transparent; }
+.drawing-block { min-width:0; max-width:100%; border:1px solid var(--line); border-radius:6px; margin:16px 0; background:#fff; color:#293541; overflow:hidden; }
+.drawing-block .ink-toolbar { min-width:0; max-width:100%; width:100%; }
+.drawing-block svg.notebook-ink { display:block; width:100%; height:100%; touch-action:none; background:linear-gradient(#e5e9ed55 1px, transparent 1px) 0 0 / 100% 28px; }
+.drawing-block .drawing-size { width:100%; min-height:140px; max-height:800px; overflow:hidden; resize:vertical; }
+.drawing-block figcaption { display:flex; align-items:center; justify-content:space-between; padding:4px 12px; font:12px/1.4 "Source Sans 3",sans-serif; color:#77838e; }
+.ink-preview { display:block; width:100%; max-height:260px; background:#fff; border:1px solid var(--line); }
+.sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+@media (max-width:700px) { .ink-toolbar { gap:0; padding-inline:3px; }.ink-pen-only { padding-inline:6px; } }

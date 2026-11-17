@@ -294,6 +294,7 @@ export function Settings({ notify }: { notify: (m: string) => void }) {
                           const n = row.value as import("./researchTypes").NotebookNote;
                           const parent = await db.rows.get(`notebook:${n.notebookId}`);
                           if (parent?.deleted) await save("notebook", parent.value as import("./researchTypes").Notebook, false);
+                          if (n.sectionId) { const section = await db.rows.get(`notebook-section:${n.sectionId}`); if (section?.deleted) await save("notebook-section", section.value as import("./researchTypes").NotebookSection, false); else if (!section) delete n.sectionId; }
                         }
                         await save(row.kind, row.value, false);
                         notify("Restored.");

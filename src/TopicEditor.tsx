@@ -8,17 +8,22 @@ import type { RichNode } from "./model";
 import { validRichDocument } from "./richText";
 import { CitationExtension } from "./Citation";
 import { registerNoteFlusher, saveNotebookNote } from "./notebookStore";
+import { noteFormatting } from "./noteFormatting";
+import { NoteFormatButtons } from "./NoteFormatButtons";
+import { DrawingExtension } from "./NotebookDrawing";
+import { uid } from "./model";
 
 export function TopicEditor({ note }: { note: NotebookNote }) {
   const [title, setTitle] = useState(note.title), [tags, setTags] = useState(note.tags.join(", "));
   const [status, setStatus] = useState("Opening note…");
   const [loaded, setLoaded] = useState(false);
+  const [tab, setTab] = useState("home");
   const value = useRef({ note, revision: 0, saved: 0 });
   const active = useRef(true), timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const pending = useRef<Promise<boolean> | null>(null);
   const draftKey = `topic-draft:${note.id}`;
   const editor = useEditor({
-    extensions: [CitationExtension, StarterKit.configure({ heading: { levels: [1, 2, 3] }, blockquote: false, code: false, codeBlock: false, horizontalRule: false, link: false, strike: false, underline: false }), TaskList, TaskItem.configure({ nested: true })],
+    extensions: [CitationExtension, DrawingExtension.configure({ noteId: note.id }), ...noteFormatting(), StarterKit.configure({ heading: { levels: [1, 2, 3] }, blockquote: false, code: false, codeBlock: false, horizontalRule: false, link: { openOnClick: false, autolink: false, linkOnPaste: false }, strike: false }), TaskList, TaskItem.configure({ nested: true })],
     content: note.document, editable: false,
     editorProps: { attributes: { role: "textbox", "aria-label": "Topic note content", "aria-multiline": "true", class: "notebook-writing" } },
     onUpdate: ({ editor }) => change({ document: editor.getJSON() as RichNode }),
@@ -75,15 +80,21 @@ export function TopicEditor({ note }: { note: NotebookNote }) {
   }, [editor, note.id]);
   return <section className="topic-editor" onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) void flush(); }}>
     <label className="topic-title-label">Title<input aria-label="Topic note title" maxLength={200} disabled={!loaded} value={title} onChange={e => { setTitle(e.target.value); change({ title: e.target.value }); }} /></label>
-    <div className="notebook-toolbar" role="toolbar" aria-label="Topic note formatting" onMouseDown={e => e.preventDefault()}>
+    <div className="notebook-ribbon"><div className="ribbon-tabs" role="tablist" aria-label="Notebook tools">{["home", "insert", "draw"].map(t => <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>{t[0].toUpperCase() + t.slice(1)}</button>)}</div>
+    <div className={`notebook-toolbar ribbon-${tab}`} role="toolbar" aria-label="Topic note formatting" onMouseDown={e => { if (!(e.target as Element).closest("input,select")) e.preventDefault(); }}>
+      {tab === "home" && <>
       <button aria-label="Bold" aria-pressed={editor?.isActive("bold") || false} onClick={() => editor?.chain().focus().toggleBold().run()}><b>B</b></button>
       <button aria-label="Italic" onClick={() => editor?.chain().focus().toggleItalic().run()}><i>I</i></button>
+      <NoteFormatButtons editor={editor} />
       <button aria-label="Heading" onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}>H</button>
       <button aria-label="Bullet list" onClick={() => editor?.chain().focus().toggleBulletList().run()}>• List</button>
       <button aria-label="Numbered list" onClick={() => editor?.chain().focus().toggleOrderedList().run()}>1. List</button>
       <button aria-label="Checklist" onClick={() => editor?.chain().focus().toggleTaskList().run()}>☑</button>
       <button aria-label="Undo" onClick={() => editor?.chain().focus().undo().run()}>↶</button><button aria-label="Redo" onClick={() => editor?.chain().focus().redo().run()}>↷</button>
-    </div>
+      </>}
+      {tab === "insert" && <><button onClick={() => editor?.chain().focus().insertContent({ type: "drawing", attrs: { blockId: uid(), height: 300 } }).run()}>Insert drawing</button><NoteFormatButtons editor={editor} /></>}
+      {tab === "draw" && <><button onClick={() => editor?.chain().focus().insertContent({ type: "drawing", attrs: { blockId: uid(), height: 300 } }).run()}>New drawing</button><span className="muted">Choose Edit drawing on a canvas to use pens and highlighters.</span></>}
+    </div></div>
     <EditorContent editor={editor} />
     <label>Tags<input aria-label="Topic note tags" maxLength={500} disabled={!loaded} value={tags} onChange={e => { setTags(e.target.value); change({ tags: e.target.value.split(",").map(t => t.trim()).filter(Boolean) }); }} placeholder="science, questions, ideas" /></label>
     <div className="topic-save-status"><span role="status">{status}</span><button className="text-button" disabled={!loaded} onClick={() => void flush()}>Save now</button></div>

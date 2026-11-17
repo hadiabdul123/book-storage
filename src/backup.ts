@@ -3,6 +3,7 @@ import type { Book } from "./model";
 import { validAnnotation } from "./validation";
 import { pageNoteId } from "./pageNotes";
 import { remapSourceBooks, remapDocumentBooks } from "./sourceReferences";
+import { validInkStroke, type InkStroke } from "./inkTypes";
 
 export async function restoreAnnotationBackup(data: unknown, books: Book[]) {
   if (
@@ -11,12 +12,14 @@ export async function restoreAnnotationBackup(data: unknown, books: Book[]) {
     !("schema" in data) ||
     data.schema !== "leafmark.annotations" ||
     !("version" in data) ||
-    ![1, 2, 3].includes(data.version as number) ||
+    ![1, 2, 3, 4].includes(data.version as number) ||
     !("annotations" in data) ||
     !Array.isArray(data.annotations)
   )
     throw new Error("This is not a Leafmark annotation backup.");
   const annotations = data.annotations;
+  const ink: InkStroke[] = "ink" in data && Array.isArray(data.ink) ? data.ink : [];
+  if (data.version === 4 && (!("ink" in data) || !Array.isArray(data.ink) || !ink.every(s => validInkStroke(s) && s.target.type === "pdf"))) throw new Error("The backup contains an invalid drawing.");
   if (!annotations.every(validAnnotation))
     throw new Error("The backup contains an invalid annotation.");
 
@@ -45,6 +48,12 @@ export async function restoreAnnotationBackup(data: unknown, books: Book[]) {
         });
         existing.add(id);
         restored++;
+      }
+      for (const stroke of ink) {
+        if (stroke.target.type !== "pdf") continue;
+        const target = stroke.target, book = books.find(b => b.hash === target.hash);
+        if (!book || await db.rows.get(`ink-stroke:${stroke.id}`)) { skipped++; continue; }
+        await save("ink-stroke", { ...stroke, target: { ...target, bookId: book.id } }); restored++;
       }
       return { restored, skipped };
     },

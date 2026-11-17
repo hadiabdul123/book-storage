@@ -14,17 +14,23 @@ interface FlipEngine {
   userStop(point: TurnPoint, swipe: boolean): void;
   on(name: string, listener: (event: { data: any }) => void): void;
   getPageCollection(): { getPages(): { newTemporaryCopy(): unknown }[] };
+  getRender(): { startAnimation(frames: (() => void)[], duration: number, done: () => void): void };
   getFlipController(): {
+    do(point: TurnPoint): void;
+    setState(state: string): void;
     getCalculation(): { getPosition(): TurnPoint; getCorner(): string } | null;
     animateFlippingTo(start: TurnPoint, end: TurnPoint, turned: boolean): void;
   };
 }
 type Realm = { frame: HTMLIFrameElement; engine: FlipEngine; clock: ReturnType<typeof animationClock>; key: string; flip?: (page: number) => void; state?: (state: string) => void };
-type Stage = { engine: FlipEngine; point: (p: TurnPoint) => TurnPoint; release: () => void; finishDrag: (start: TurnPoint, end: TurnPoint) => void; done: Promise<boolean>; cancel: () => void };
+type Stage = { engine: FlipEngine; point: (p: TurnPoint) => TurnPoint; release: () => void; finishDrag: (start: TurnPoint, end: TurnPoint, velocity?: number) => void; done: Promise<boolean>; cancel: () => void };
 export type TurnSource = {
   enabled: () => boolean;
   canDrag: () => boolean;
   canWarm?: () => boolean;
+  canTap?: () => boolean;
+  tapBounds?: () => DOMRect;
+  navigate?: (direction: TurnDirection) => Promise<void>;
   bounds: () => DOMRect;
   location: () => string;
   prepare: (direction: TurnDirection, outgoing?: TurnSpread) => Promise<TurnPreview | null>;
@@ -64,7 +70,8 @@ export class PageTurn {
   private async warm() {
     if (this.busy || this.disposed || !this.source.enabled() || !this.motion()) return;
     if (this.source.canWarm?.() === false) { this.timer = setTimeout(() => void this.warm(), 800); return; }
-    await this.preview("next");
+    const next = await this.preview("next");
+    if (next && !this.realm && !this.busy && !this.disposed) await this.createStage(next, "next", this.revision, true).catch(() => {});
     if (!this.busy && !this.disposed) await this.preview("previous");
   }
   private preview(direction: TurnDirection) {
@@ -130,7 +137,7 @@ export class PageTurn {
       if (sameLocation()) await fallback();
     } finally { this.finish(); }
   }
-  private async createStage(preview: TurnPreview, direction: TurnDirection, revision: number): Promise<Stage | undefined> {
+  private async createStage(preview: TurnPreview, direction: TurnDirection, revision: number, priming = false): Promise<Stage | undefined> {
     const { width, height, columns } = preview.outgoing;
     const box = this.source.bounds(), shell = this.host.closest(".reader-shell") as HTMLElement;
     const shellBox = shell.getBoundingClientRect();
@@ -207,16 +214,29 @@ export class PageTurn {
       realm!.state = state => { this.host.dataset.pageTurnState = state; if (released && state === "read") settle(moved); };
       const stage: Stage = { engine, point: p => ({ x: p.x - box.left, y: p.y - box.top }), done,
         release: () => { released = true; watchdog = setTimeout(() => settle(moved), 1600); },
-        finishDrag: (start, end) => {
+        finishDrag: (start, end, velocity = 0) => {
+          if (released) return;
+          engine.userMove(stage.point(end), true);
           stage.release(); engine.userStop(stage.point(end), true);
           const controller = engine.getFlipController(), calculation = controller.getCalculation();
           if (!calculation) { settle(false); return; }
           const distance = direction === "next" ? start.x - end.x : end.x - start.x;
-          const complete = distance > width * .45;
+          const complete = distance > width * .45 || (distance > width * .3 && velocity > width * .8);
           // Pinned StPageFlip 2.0.7 exposes this JS method. Its default portrait
           // release commits every backward drag; choose a symmetric threshold
           // while continuing its animation from the exact held fold position.
-          controller.animateFlippingTo(calculation.getPosition(), { x: complete ? -width : width, y: calculation.getCorner() === "bottom" ? height : 0 }, complete);
+          const from = calculation.getPosition(), to = { x: complete ? -width : width, y: calculation.getCorner() === "bottom" ? height : 0 };
+          const duration = Math.max(180, Math.min(450, 180 + Math.abs(to.x - from.x) / width * 110 - Math.abs(velocity) / width * 25));
+          const frames = Array.from({ length: 60 }, (_, i) => () => {
+            const t = 1 - Math.pow(1 - (i + 1) / 60, 3);
+            controller.do({ x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t });
+          });
+          controller.setState("flipping");
+          // The vendor clears its animation after invoking its completion callback.
+          // Queue the final commit to avoid that cleanup discarding the new animation.
+          engine.getRender().startAnimation(frames, duration, () => queueMicrotask(() => {
+            if (!settled) controller.animateFlippingTo({ x: to.x + (complete ? 1 : -1), y: to.y }, to, complete);
+          }));
         },
         cancel: () => {
           const reusable = settled && this.host.dataset.pageTurnState === "read";
@@ -226,6 +246,7 @@ export class PageTurn {
         },
       };
       if (this.disposed || revision !== this.revision) { stage.cancel(); return; }
+      if (priming) { settle(false); realm!.flip = undefined; realm!.state = undefined; clock.pause(); frame.className = "paper-turn-realm"; return stage; }
       this.stage = stage; frame.style.visibility = "visible"; clock.resume();
       return stage;
     } catch (error) { this.disposeRealm(); frame.remove(); throw error; }
@@ -233,19 +254,20 @@ export class PageTurn {
   private disposeRealm() { this.realm?.clock.destroy(); this.realm?.frame.remove(); this.realm = undefined; }
   bind(root: HTMLElement | Document, toViewport: (point: TurnPoint) => TurnPoint = p => p) {
     const doc = root.nodeType === 9 ? root as Document : root.ownerDocument!;
-    type Press = { id: number; start: TurnPoint; latest: TurnPoint; direction: TurnDirection; claimed: boolean; released: boolean; cancelled: boolean };
-    let press: Press | undefined, moveFrame = 0;
+    type Press = { id: number; start: TurnPoint; latest: TurnPoint; direction: TurnDirection; claimed: boolean; released: boolean; cancelled: boolean; at: number; sample: TurnPoint; sampleAt: number; velocity: number };
+    let press: Press | undefined, moveFrame = 0, suppressUntil = 0;
     const cancel = () => { cancelAnimationFrame(moveFrame); moveFrame = 0; if (press) { press.cancelled = true; if (press.claimed) this.invalidate(); } press = undefined; };
     const allowed = () => this.source.enabled() && this.source.canDrag() && !doc.getSelection()?.toString().trim();
     const down = (event: Event) => {
       const e = event as PointerEvent;
+      if (e.button !== 0) return;
       if (!e.isPrimary) { cancel(); return; }
-      if (this.busy || !allowed() || (window.visualViewport?.scale || 1) > 1.01 || (e.target as Element).closest?.("button,a,input,textarea,select,[contenteditable]")) return;
-      const point = toViewport({ x: e.clientX, y: e.clientY }), box = this.source.bounds();
+      if (this.busy || !(allowed() || this.source.canTap?.()) || (window.visualViewport?.scale || 1) > 1.01 || (e.target as Element).closest?.("button,a,input,textarea,select,[contenteditable]")) return;
+      const point = toViewport({ x: e.clientX, y: e.clientY }), box = this.source.tapBounds?.() || this.source.bounds();
       if (point.y < box.top || point.y > box.bottom || point.x < box.left || point.x > box.right) return;
       const direction = point.x >= box.right - 44 ? "next" : point.x <= box.left + 44 ? "previous" : undefined;
       if (direction) {
-        press = { id: e.pointerId, start: point, latest: point, direction, claimed: false, released: false, cancelled: false };
+        press = { id: e.pointerId, start: point, latest: point, direction, claimed: false, released: false, cancelled: false, at: performance.now(), sample: point, sampleAt: performance.now(), velocity: 0 };
         // The outer mouse grab must not create a native text range underneath
         // the fold. Touch long presses remain available until a drag is claimed.
         if (e.pointerType === "mouse") e.preventDefault();
@@ -263,7 +285,7 @@ export class PageTurn {
         stage.engine.startUserTouch(stage.point(p.start));
         stage.engine.userMove(stage.point({ x: p.start.x + (p.direction === "next" ? -8 : 8), y: p.start.y }), true);
         stage.engine.userMove(stage.point(p.latest), true);
-        if (p.released) stage.finishDrag(p.start, p.latest);
+        if (p.released) stage.finishDrag(p.start, p.latest, p.velocity);
         if (await stage.done) await this.commit(preview);
       } catch (error) { console.warn("Paper turn drag unavailable", error); }
       finally { this.finish(); }
@@ -272,6 +294,8 @@ export class PageTurn {
       const e = event as PointerEvent, p = press;
       if (!p || p.id !== e.pointerId) return;
       p.latest = toViewport({ x: e.clientX, y: e.clientY });
+      const at = performance.now(), elapsed = at - p.sampleAt;
+      if (elapsed > 0) { p.velocity = (p.direction === "next" ? p.sample.x - p.latest.x : p.latest.x - p.sample.x) / elapsed * 1000; p.sample = p.latest; p.sampleAt = at; }
       const dx = p.latest.x - p.start.x, dy = p.latest.y - p.start.y;
       if (!p.claimed) {
         if (Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx)) { cancel(); return; }
@@ -291,17 +315,27 @@ export class PageTurn {
       if (!p || p.id !== e.pointerId) return;
       cancelAnimationFrame(moveFrame); moveFrame = 0;
       press = undefined; p.latest = toViewport({ x: e.clientX, y: e.clientY }); p.released = true;
-      if (!p.claimed) return;
+      if (!p.claimed) {
+        if (performance.now() - p.at < 300 && Math.hypot(p.latest.x - p.start.x, p.latest.y - p.start.y) < 8 && this.source.canTap?.() && this.source.navigate) {
+          suppressUntil = performance.now() + 500;
+          e.preventDefault(); e.stopPropagation();
+          void this.source.navigate(p.direction).catch(error => console.warn("Edge turn unavailable", error));
+        }
+        return;
+      }
       e.preventDefault();
+      suppressUntil = performance.now() + 500;
       if (!this.motion()) {
         if (Math.abs(p.latest.x - p.start.x) > this.source.bounds().width / 3 && allowed()) {
           void this.run(p.direction, async () => { const preview = await this.preview(p.direction); if (preview) await this.commit(preview); });
         }
-      } else if (this.stage) this.stage.finishDrag(p.start, p.latest);
+      } else if (this.stage) this.stage.finishDrag(p.start, p.latest, performance.now() - p.sampleAt > 100 ? 0 : p.velocity);
     };
     const bindings: [string, EventListener][] = [["pointerdown", down], ["pointermove", move], ["pointerup", up], ["pointercancel", cancel]];
+    const click = (e: Event) => { if (performance.now() < suppressUntil) { e.preventDefault(); e.stopImmediatePropagation(); } };
+    root.addEventListener("click", click, true);
     bindings.forEach(([name, fn]) => root.addEventListener(name, fn, { passive: false }));
-    this.cleanups.push(() => { cancel(); bindings.forEach(([name, fn]) => root.removeEventListener(name, fn)); });
+    this.cleanups.push(() => { cancel(); root.removeEventListener("click", click, true); bindings.forEach(([name, fn]) => root.removeEventListener(name, fn)); });
   }
   destroy() {
     this.disposed = true; this.invalidate(); this.disposeRealm(); this.cleanups.forEach(fn => fn());

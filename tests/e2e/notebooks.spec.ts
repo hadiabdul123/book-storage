@@ -1,4 +1,5 @@
-import { openTools, clickTool } from "./controls";
+import { showPassageAction } from "./controls";
+import { openTools, clickTool, showSavedItem } from "./controls";
 import { test, expect, type Page } from "@playwright/test";
 import path from "node:path";
 async function openPdf(page: Page) {
@@ -57,6 +58,7 @@ test("formatted page notebooks persist, search, export and restore", async ({
   const download = page.waitForEvent("download");
   await page.getByLabel("Export notes").selectOption("json");
   expect((await download).suggestedFilename()).toMatch(/\.json$/);
+  await showSavedItem(page);
   await page.getByRole("button", { name: "Edit", exact: true }).click();
   await expect(
     page
@@ -99,6 +101,7 @@ test("meaning lookup preserves selection and adds definitions to the page notebo
   await page
     .getByLabel("Note for selected passage")
     .fill("Keep this unsaved thought");
+  await showPassageAction(page, "Meaning");
   await page.getByRole("button", { name: "Meaning", exact: true }).click();
   await expect(page.locator(".dictionary-entry").first()).toBeVisible();
   await page.screenshot({
@@ -108,6 +111,7 @@ test("meaning lookup preserves selection and adds definitions to the page notebo
   await expect(page.getByLabel("Note for selected passage")).toHaveValue(
     "Keep this unsaved thought",
   );
+  await showPassageAction(page, "Meaning");
   await page.getByRole("button", { name: "Meaning", exact: true }).click();
   await page
     .getByRole("button", { name: "Add to page note", exact: true })
@@ -179,7 +183,7 @@ test("PDF layout settings persist on this device and continuous scrolling resume
   await page.setViewportSize({ width: 412, height: 900 });
   await expect(page.locator(".pdf-reader")).toHaveAttribute(
     "data-columns",
-    "1",
+    "2",
   );
   await page.setViewportSize({ width: 1440, height: 1000 });
   await expect(page.locator(".pdf-reader")).toHaveAttribute(

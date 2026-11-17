@@ -1,6 +1,9 @@
 import { ReadingPointerControls, useReadingPointer } from "./ReadingPointer";
 import { bindPageSwipes } from "./reader/swipes";
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { PenLine } from "lucide-react";
+import { defaultInkStyle } from "./inkTypes";
+const InkToolbar = lazy(() => import("./InkToolbar").then(m => ({ default: m.InkToolbar })));
 import { useLiveQuery } from "dexie-react-hooks";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
@@ -60,6 +63,8 @@ import {
   readDeviceReading,
   writeDeviceReading,
   devicePdfLayout,
+  initializeDeviceReading,
+  type DeviceReading,
 } from "./deviceReading";
 import {
   ReaderInteractions,
@@ -70,6 +75,9 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   const { id = "" } = useParams(),
     [params] = useSearchParams();
   const book = useLiveQuery(() => get("book", id), [id]);
+  const ink = useLiveQuery(async () => (await list("ink-stroke")).filter(s => s.target.type === "pdf" && s.target.bookId === id), [id]) || [];
+  const [drawing, setDrawing] = useState(false);
+  const [inkStyle, setInkStyle] = useState(defaultInkStyle);
   const annotations =
     useLiveQuery(
       async () => (await list("annotation")).filter((a) => a.bookId === id),
@@ -90,6 +98,17 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   }, [savedPrefs]);
   const pdfPrefs = useLiveQuery(() => get("preferences", `pdf:${id}`), [id]);
   const localView = useLiveQuery(() => readDeviceReading(id), [id]);
+  const [optimisticView, setOptimisticView] = useState<DeviceReading>({});
+  const effectiveView = { ...localView, ...optimisticView };
+  useEffect(() => { setOptimisticView({}); }, [id]);
+  useEffect(() => {
+    if (!localView) return;
+    setOptimisticView(prior => {
+      const next = { ...prior }; let changed = false;
+      for (const key of Object.keys(next) as (keyof DeviceReading)[]) if (JSON.stringify(next[key]) === JSON.stringify(localView[key])) { delete next[key]; changed = true; }
+      return changed ? next : prior;
+    });
+  }, [localView]);
   const [pdfOriginalColors, setPdfOriginalColors] = useState(false);
   useEffect(() => setPdfOriginalColors(!!localView?.pdfOriginalColors), [id, localView?.pdfOriginalColors]);
   const toggleOriginalColors = (enabled: boolean) => {
@@ -110,20 +129,21 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
     });
   };
   const { narrow: phone, touch } = useReaderViewport();
-  const pdfLayout = devicePdfLayout(localView, pdfPrefs?.pdfLayout, phone);
+  const pdfLayout = devicePdfLayout(effectiveView, pdfPrefs?.pdfLayout, phone);
   const prefs = {
     ...comfortablePreferences(savedPrefs || undefined),
-    width: localView?.width ?? savedPrefs?.width ?? defaults.width,
+    ...effectiveView,
+    width: effectiveView.width ?? savedPrefs?.width ?? defaults.width,
     flow:
-      localView?.flow ??
+      effectiveView.flow ??
       (phone ? "scrolled" : savedPrefs?.flow) ??
       defaults.flow,
     spread:
-      localView?.spread ??
+      effectiveView.spread ??
       (phone ? false : savedPrefs?.spread) ??
       defaults.spread,
     pdfLayout,
-    pageTurnEffect: localView?.pageTurnEffect ?? "curl",
+    pageTurnEffect: effectiveView.pageTurnEffect ?? "curl",
   };
   const paginated = book?.format === "pdf" ? pdfLayout.navigation === "paginated" : prefs.flow === "paginated";
   useEffect(() => setSwipeToTurn(localView?.swipeToTurn ?? paginated), [id, localView?.swipeToTurn, paginated]);
@@ -163,6 +183,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   }
   async function changePanel(name: string) {
     if (await flushNotebook()) {
+      setDrawing(false);
       setPanel(name);
       chrome.setMenu(false);
     }
@@ -208,12 +229,14 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
     [ready, setReady] = useState(0),
     [jumped, setJumped] = useState(false);
   const backgroundAllowed = useRef(false);
-  backgroundAllowed.current = !loading && !panel && !editing && !region;
+  const backgroundBlocked = useRef(true);
+  backgroundBlocked.current = loading || !!panel || !!editing || region || drawing;
+  backgroundAllowed.current = !loading && !panel && !editing && !region && !drawing;
   const chrome = useReaderChrome(
     shell,
     host,
     ready,
-    !!panel || !!editing || region,
+    !!panel || !!editing || region || drawing,
     fullscreen.active || quietFullscreen,
   );
   const wasFullscreen = useRef(false);
@@ -228,6 +251,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
     !panel &&
     !editing &&
     !region &&
+    !drawing &&
     (book?.format === "pdf"
       ? pdfLayout.navigation === "paginated" && zoom <= 1
       : book?.format === "epub" && prefs.flow === "paginated");
@@ -307,11 +331,18 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
       position.current = null;
       setError("");
       setCurrent(undefined);
-      const [files, view, shared, legacy, stored] = await Promise.all([
+      const [files, oldView, shared, legacy, stored] = await Promise.all([
         downloadBook(book), readDeviceReading(id), get("preferences", "reader"), get("preferences", `pdf:${id}`), get("position", id),
       ]);
       if (cancelled) return;
+      const view = await initializeDeviceReading(id, { ...comfortablePreferences(shared),
+        flow: phone ? "scrolled" : shared?.flow ?? defaults.flow,
+        spread: phone ? false : shared?.spread ?? defaults.spread,
+        pdfLayout: devicePdfLayout(oldView, legacy?.pdfLayout, phone),
+        ...oldView,
+      });
       const initialPrefs = { ...comfortablePreferences(shared),
+        ...view,
         width: view.width ?? shared?.width ?? defaults.width,
         flow: view.flow ?? (phone ? "scrolled" : shared?.flow) ?? defaults.flow,
         spread: view.spread ?? (phone ? false : shared?.spread) ?? defaults.spread,
@@ -335,6 +366,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
         canSwipe,
         canPrepare: () => backgroundAllowed.current && Date.now() - lastActive > 1000,
         canDragTurn,
+        canEdgeTurn: () => !backgroundBlocked.current && !adapter.current?.hasSelection(),
         onReaderSwipe: turnSwipe,
         onPageNote: (page) => openNotebookRef.current(page),
         onRegionMode: setRegion,
@@ -359,6 +391,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
           interactions.current?.select(value);
           activity();
         },
+        onSelectionInteraction: (adjusting) => interactions.current?.adjusting(adjusting),
         onAnnotation: (markId) => {
           const mark = annotationsRef.current.find((a) => a.id === markId);
           if (mark?.type === "page-note" && mark.locator.type === "pdf")
@@ -429,6 +462,10 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
     adapter.current?.annotate(annotations);
   }, [annotations, ready]);
   useEffect(() => {
+    if (book?.format === "pdf" && opened) (adapter.current as import("./reader/pdf").PdfReader)?.configureInk(ink, drawing, inkStyle);
+  }, [ink, drawing, inkStyle, ready, opened]);
+  useEffect(() => { setDrawing(false); }, [id]);
+  useEffect(() => {
     if (opened && book?.preparedTextPath) void downloadBook(book).catch(() => {});
   }, [opened, book?.preparedTextPath]);
   const sourceParam = params.get("source");
@@ -442,7 +479,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   }, [sourceParam, opened, book?.hash]);
   useEffect(() => {
     if (opened && savedPrefs !== null && localView !== undefined) adapter.current?.configure(prefs);
-  }, [savedPrefs, pdfPrefs, localView, ready, phone, opened]);
+  }, [savedPrefs, pdfPrefs, localView, optimisticView, ready, phone, opened]);
   useEffect(() => {
     if (
       opened &&
@@ -466,27 +503,20 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
       void openNotebook(current.page);
   }, [current?.type === "pdf" ? current.page : 0, pinned, panel]);
   async function configurePdf(patch: Partial<PdfLayout>) {
+    setOptimisticView(prior => ({ ...prior, pdfLayout: { ...pdfLayout, ...prior.pdfLayout, ...patch } }));
     try {
       await writeDeviceReading(id, prior => ({ pdfLayout: { ...devicePdfLayout(prior, pdfPrefs?.pdfLayout, phone), ...patch } }));
     } catch (e) {
+      setOptimisticView({});
       notify(messageOf(e));
     }
   }
   async function configure(patch: Partial<Preferences>) {
+    setOptimisticView(prior => ({ ...prior, ...patch }));
     try {
-      const { width, flow, spread, pageTurnEffect, pdfLayout: _layout, ...shared } = patch;
-      const local = {
-        ...(width !== undefined ? { width } : {}),
-        ...(flow !== undefined ? { flow } : {}),
-        ...(spread !== undefined ? { spread } : {}),
-        ...(pageTurnEffect !== undefined ? { pageTurnEffect } : {}),
-      };
-      if (Object.keys(local).length) await writeDeviceReading(id, local);
-      if (Object.keys(shared).length)
-        await db.transaction("rw", [db.rows, db.outbox, db.conflicts, db.meta], async () => {
-          await save("preferences", { ...comfortablePreferences(await get("preferences", "reader")), ...shared });
-        });
+      await writeDeviceReading(id, patch);
     } catch (e) {
+      setOptimisticView({});
       notify(messageOf(e));
     }
   }
@@ -549,7 +579,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   return (
     <main
       ref={shell}
-      className={`reader-shell theme-${prefs.theme}${chrome.visible ? " controls-visible" : " reading-mode"}${chrome.menu ? " controls-menu-open" : ""}${swipeEnabled ? " swipe-pages" : ""}${hidePageControls ? " hide-page-controls" : ""}${panel ? " panel-open" : ""}`}
+      className={`reader-shell theme-${prefs.theme}${drawing ? " drawing-active" : ""}${chrome.visible ? " controls-visible" : " reading-mode"}${chrome.menu ? " controls-menu-open" : ""}${swipeEnabled ? " swipe-pages" : ""}${hidePageControls ? " hide-page-controls" : ""}${panel ? " panel-open" : ""}`}
       data-original-pdf-colors={pdfOriginalColors}
       data-loading={loading || savedPrefs === null || localView === undefined}
       onPointerMoveCapture={(event) => {
@@ -626,6 +656,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
         <button className="icon-button" aria-label="Contents" aria-pressed={panel === "contents"}
           onClick={() => void changePanel(panel === "contents" ? "" : "contents")}><List size={20} /></button>
         <div className="reader-action-buttons" ref={setActionsHost} />
+        {book.format === "pdf" && <button className="icon-button" aria-label="Draw on PDF" aria-pressed={drawing} disabled={loading} onClick={async () => { if (!(await flushNotebook())) return; interactions.current?.dismiss(); adapter.current?.clearSelection(); (adapter.current as import("./reader/pdf").PdfReader)?.setRegionMode(false); setPanel(""); setRegion(false); setDrawing(!drawing); chrome.reveal(); }}><PenLine size={20} /></button>}
         <button className="icon-button" aria-label="Reading settings" aria-pressed={panel === "settings"}
           onClick={() => void changePanel(panel === "settings" ? "" : "settings")}><Settings2 size={20} /></button>
         <button
@@ -708,6 +739,10 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
           </button>
         </div>
       </header>
+      {drawing && <Suspense fallback={<div className="ink-toolbar" role="status">Opening drawing tools…</div>}><InkToolbar style={inkStyle} change={setInkStyle}
+        undo={() => void (adapter.current as import("./reader/pdf").PdfReader)?.undoInk().catch(e => notify(messageOf(e)))}
+        redo={() => void (adapter.current as import("./reader/pdf").PdfReader)?.undoInk(true).catch(e => notify(messageOf(e)))}
+        close={() => setDrawing(false)} exportPdf={() => { const strokes = (adapter.current as import("./reader/pdf").PdfReader)?.allInk() || ink; notify("Preparing marked PDF…"); void import("./inkExport").then(m => m.exportMarkedPdf(book, strokes)).then(() => notify("Marked PDF downloaded."), e => notify(messageOf(e))); }} /></Suspense>}
       <div className="reader-workspace">
         {panel && <button className="reader-panel-backdrop" aria-label="Close reading panel"
           onClick={() => void changePanel("")} />}
@@ -726,6 +761,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
           {error && (
             <div className="reader-error" role="alert">
               <span>{error}</span>
+              {book.format === "pdf" && (adapter.current as import("./reader/pdf").PdfReader)?.hasUnsavedInk() && <button className="text-button" onClick={() => void (adapter.current as import("./reader/pdf").PdfReader).retryInk().then(() => setError(""), e => setError(messageOf(e)))}>Retry saving drawings</button>}
               {openFailed && (
                 <button
                   className="secondary"
@@ -997,6 +1033,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
               )}
               {panel === "settings" && (
                 <>
+                  <p className="muted" role="status">Changes apply to all books on this device.</p>
                   <label className="pin-controls">
                     <input
                       type="checkbox"
@@ -1213,6 +1250,8 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
                           <option value="page">Fit page</option>
                         </select>
                       </label>
+                      <label className="pin-controls"><input type="checkbox" checked={pdfLayout.trimMargins !== false} onChange={e => void configurePdf({ trimMargins: e.target.checked })} />Trim blank margins in two-page view</label>
+                      <p className="muted">Keep two pages and use more of the screen. Turn this off for original margins.</p>
                       {layoutFallback && (
                         <p className="notice">
                           Showing one page to fit this screen. Two pages return
@@ -1389,7 +1428,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
         controls={actionsHost}
         secondaryControls={secondaryActionsHost}
         ready={!loading}
-        suspended={panel !== ""}
+        suspended={panel !== "" || drawing}
         notify={notify}
         onResearch={openResearch}
         onDefinition={async (page, text) => {

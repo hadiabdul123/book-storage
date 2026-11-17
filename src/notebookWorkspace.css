@@ -1,0 +1,41 @@
+.workspace-notebooks { padding:28px; max-width:none; background:#f5f7fa; min-height:100dvh; }
+.workspace-notebooks .page-header { margin-bottom:20px; }
+.workspace-notebooks .notebook-layout,.workspace-notebooks .notebook-layout.with-research { display:grid; grid-template-columns:180px 220px minmax(0,1fr); background:#fff; border:1px solid #e5e9ed; border-radius:8px; min-height:calc(100dvh - 180px); overflow:hidden; }
+.workspace-notebooks .notebook-layout.with-research { grid-template-columns:160px 200px minmax(320px,1fr) minmax(280px,340px); }
+.workspace-notebooks .notebook-list { padding:18px 12px; gap:12px; background:#edf2f7; border-color:#dce4ec; }
+.workspace-notebooks .notebook-pages { padding:18px 12px; display:flex; flex-direction:column; gap:12px; border-right:1px solid #e5e9ed; background:#f9fafc; min-width:0; }
+.workspace-notebooks .notebook-pages .search-field { flex:none; min-width:0; height:40px; }
+.workspace-notebooks .notebook-pages nav { display:flex; flex-direction:column; gap:2px; max-height:65dvh; overflow:auto; }
+.workspace-notebooks .notebook-pages nav button { display:block; text-align:left; padding:12px; border-left:3px solid transparent; border-radius:0 5px 5px 0; }
+.workspace-notebooks .notebook-pages nav button.active { background:#e5eef8; color:#234461; border-color:#315c86; }
+.workspace-notebooks .notebook-pages nav strong,.workspace-notebooks .notebook-pages nav span,.workspace-notebooks .notebook-pages nav small { display:block; overflow-wrap:anywhere; }
+.workspace-notebooks .notebook-pages nav span { font-size:12px; line-height:1.5; color:#77838e; margin-top:5px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.workspace-notebooks .navigator-heading { margin:6px 0 0; font:600 14px/1.4 "Source Sans 3",sans-serif; color:#526578; }
+.workspace-notebooks .notebook-sections { gap:4px; }
+.workspace-notebooks .notebook-sections button { display:flex; align-items:center; gap:8px; min-height:44px; padding:8px; }
+.workspace-notebooks .notebook-sections button strong { font-size:14px; flex:1; }
+.workspace-notebooks .notebook-sections button small { font-size:12px; color:#77838e; }
+.section-tab { width:5px; height:22px; background:#8abde8; border-radius:0 3px 3px 0; flex-shrink:0; }
+.notebook-sections button:nth-child(3n+2) .section-tab { background:#bb9add; }.notebook-sections button:nth-child(3n+3) .section-tab { background:#91cda4; }
+.section-actions { display:flex; align-items:center; }.section-actions button,.page-organization button { width:44px; min-height:44px; display:grid; place-items:center; }
+.workspace-notebooks .notebook-detail { padding:18px 28px; background:#fff; }
+.workspace-notebooks .notebook-detail-actions { border-bottom:1px solid #e5e9ed; padding-bottom:12px; margin-bottom:10px; }
+.workspace-notebooks .notebook-detail-actions > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.page-organization { display:flex; align-items:center; gap:6px; margin-bottom:16px; font-size:12px; color:#77838e; }
+.page-organization label { display:flex; align-items:center; gap:8px; margin:0; }.page-organization select { padding:6px 8px; width:130px; }
+.workspace-notebooks .topic-editor { max-width:85ch; width:100%; min-width:0; margin-inline:auto; gap:20px; }
+.workspace-notebooks .topic-editor > * { min-width:0; max-width:100%; }
+.workspace-notebooks .topic-title-label { font-size:12px; color:#77838e; }.workspace-notebooks .topic-title-label input { font:600 27px/1.4 "Source Sans 3",sans-serif; color:#293541; padding-bottom:12px; }
+.notebook-ribbon { position:sticky; top:0; z-index:3; background:#f5f7fa; border:1px solid #e5e9ed; border-radius:5px; }
+.ribbon-tabs { display:flex; gap:4px; padding-inline:8px; border-bottom:1px solid #e5e9ed; }
+.ribbon-tabs button { padding:8px 12px; min-height:44px; font-size:14px; border-bottom:2px solid transparent; }.ribbon-tabs button[aria-selected="true"] { color:#315c86; border-bottom-color:#315c86; font-weight:600; }
+.workspace-notebooks .notebook-toolbar { padding:6px; margin:0; border:0; gap:3px; min-height:56px; align-items:center; }
+.workspace-notebooks .notebook-toolbar button { min-height:44px; min-width:44px; font-size:14px; display:inline-flex; align-items:center; justify-content:center; line-height:1.2; }
+.note-text-color { display:flex; align-items:center; gap:5px; font-size:12px; padding-inline:6px; margin:0; }.note-text-color input { width:30px; height:30px; padding:2px; }
+.workspace-notebooks .notebook-writing { font-family:"Source Sans 3",sans-serif; font-size:17px; line-height:1.8; min-height:420px; }
+.notebook-writing a { color:#315c86; text-decoration:underline; }.notebook-writing mark { border-radius:2px; padding-inline:1px; }
+.notebook-navigator-toggle { display:none; }
+.workspace-notebooks.notebook-focus .notebook-layout { display:block; }.workspace-notebooks.notebook-focus .notebook-list,.workspace-notebooks.notebook-focus .notebook-pages { display:none; }.workspace-notebooks.notebook-focus .notebook-navigator-toggle { display:flex; }
+@media(max-width:1450px) { .workspace-notebooks .notebook-layout.with-research { grid-template-columns:180px 220px minmax(0,1fr); }.workspace-notebooks .notebook-research { position:fixed; top:12px; bottom:12px; right:12px; width:min(420px,calc(100vw - 24px)); z-index:60; background:#fff; box-shadow:0 8px 45px #20304024; border:1px solid #e5e9ed; border-radius:10px; overflow:auto; } }
+@media(max-width:1100px) { .workspace-notebooks { padding:20px 16px; }.workspace-notebooks .notebook-layout,.workspace-notebooks .notebook-layout.with-research { grid-template-columns:220px minmax(0,1fr); position:relative; }.workspace-notebooks .notebook-list { display:none; }.workspace-notebooks .notebook-navigator-toggle { display:flex; }.workspace-notebooks.navigator-open .notebook-list { display:flex; position:absolute; top:0; bottom:0; left:0; width:210px; z-index:6; box-shadow:8px 0 20px #20304020; overflow:auto; }.workspace-notebooks.navigator-open .notebook-pages { margin-left:210px; min-width:200px; position:relative; z-index:5; }.workspace-notebooks.navigator-open .notebook-layout { grid-template-columns:410px minmax(0,1fr); }.workspace-notebooks .notebook-detail { padding:18px; } }
+@media(max-width:700px) { .workspace-notebooks { padding:18px 10px 90px; }.workspace-notebooks .page-header .button-row { gap:4px; }.workspace-notebooks .notebook-layout,.workspace-notebooks .notebook-layout.with-research { display:flex; flex-direction:column; overflow:visible; }.workspace-notebooks .notebook-list { display:flex; padding:14px; border:0; }.workspace-notebooks .notebook-list nav { flex-direction:column; overflow:visible; }.workspace-notebooks .notebook-list nav button { max-width:none; }.workspace-notebooks .notebook-pages { border:0; border-bottom:1px solid #e5e9ed; }.workspace-notebooks.has-open-page:not(.navigator-open) .notebook-pages,.workspace-notebooks.has-open-page:not(.navigator-open) .notebook-list { display:none; }.workspace-notebooks.navigator-open .notebook-list { position:static; width:auto; box-shadow:none; }.workspace-notebooks.navigator-open .notebook-pages { margin-left:0; }.workspace-notebooks.navigator-open .notebook-detail { display:none; }.workspace-notebooks .notebook-detail { padding:14px; }.workspace-notebooks .notebook-detail-actions { flex-wrap:wrap; }.workspace-notebooks .notebook-detail-actions > span { flex:1; }.workspace-notebooks .notebook-ribbon { top:0; }.workspace-notebooks .topic-title-label input { font-size:24px; }.workspace-notebooks .notebook-writing { min-height:48dvh; }.workspace-notebooks .notebook-research { top:6dvh; bottom:0; right:0; width:100%; border-radius:12px 12px 0 0; } }

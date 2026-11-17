@@ -2,6 +2,7 @@ import { csvCell } from "./anchors";
 import type { Annotation, Book } from "./model";
 import { markdown } from "./richText";
 import { sourceMarkdown } from "./sourceReferences";
+import type { InkStroke } from "./inkTypes";
 export function downloadText(name: string, text: string, type = "text/plain") {
   const url = URL.createObjectURL(new Blob([text], { type }));
   const a = document.createElement("a");
@@ -14,6 +15,7 @@ export function exportAnnotations(
   items: Annotation[],
   books: Book[],
   format: "md" | "csv" | "json",
+  ink: InkStroke[] = [],
 ) {
   const title = (a: Annotation) =>
     books.find((b) => b.id === a.bookId)?.title || "Unknown book";
@@ -24,7 +26,7 @@ export function exportAnnotations(
     text = JSON.stringify(
       {
         schema: "leafmark.annotations",
-        version: 3,
+        version: 4,
         exportedAt: new Date().toISOString(),
         books: books.map(({ id, title, author, hash, format }) => ({
           id,
@@ -34,6 +36,7 @@ export function exportAnnotations(
           format,
         })),
         annotations: items,
+        ink: ink.filter(s => s.target.type === "pdf"),
       },
       null,
       2,

@@ -7,6 +7,9 @@ import {
 } from "node:fs";
 import "./prepare-dictionary.mjs";
 import { deflateSync } from "node:zlib";
+mkdirSync("public/licenses", { recursive: true });
+cpSync("node_modules/perfect-freehand/LICENSE", "public/licenses/perfect-freehand.txt");
+cpSync("node_modules/pdf-lib/LICENSE.md", "public/licenses/pdf-lib.txt");
 
 mkdirSync("public/pdf-assets", { recursive: true });
 for (const folder of ["cmaps", "standard_fonts", "wasm"]) {

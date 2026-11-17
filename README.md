@@ -16,6 +16,16 @@ If the error specifically says **UnknownError / Internal error**, the browser's 
 
 When an update is ready, return from the reader to the library and choose **Update**. Pending cloud changes no longer block installation: they remain in IndexedDB and resume syncing after reload. App updates are also available from the sign-in screen. Switching PDF **Navigation** preserves the selected fit/zoom and existing rendered pages; change **Fit** separately when desired.
 
+## Reading and writing tools
+
+Open a book and tap the page to reveal the header. **Reading settings** contains **Warm paper**, **Dark**, two-page PDF layout, fit, zoom, and **Trim blank margins**. These choices apply automatically to every book on that browser/device; changing your tablet does not change your phone. Rotation and Original PDF colors remain specific to the document. In paginated PDFs, tap either visible edge to turn at any zoom; drag to pan while zoomed in, or curl from an edge at normal zoom.
+
+Hold a passage to select it. The compact action row stays hidden while you adjust the handles, then appears above the passage. Its highlighter opens a color row; Bookmark, Research, Add note, and More retain the existing passage actions.
+
+For PDFs, use the header's **Draw** button. Pen, highlighter, stroke eraser, colors, thickness, and undo/redo work with a finger or stylus; two fingers pan/zoom, and Pen only is optional. **Export marked PDF** downloads a separate copy with ink. The original stays unchanged. Drawings save locally and sync through the existing private library account.
+
+**Notebooks & research** now organizes notebooks into sections and pages. Home adds text highlighting, underline, text colors, and links; Draw inserts an editable drawing canvas. The Pages button opens navigation on smaller screens, and the expand button focuses the writing page. Notebook JSON backups include sections and drawings; Markdown exports with drawings download a ZIP containing SVG assets. Highlights & notes has a source list, detail view, tag filters, and a Drawings filter. Existing annotation backups remain importable.
+
 ## Run on your PC
 
 Use Node.js 22.18 or newer. In PowerShell, use `npm.cmd` if execution policy blocks `npm.ps1`.

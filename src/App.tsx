@@ -1,7 +1,7 @@
 import type { Session } from "@supabase/supabase-js";
 import { repairSignIn, withDeadline } from "./authRecovery";
 import { UpdateNotice } from "./UpdateNotice";
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   HashRouter,
   NavLink,
@@ -38,7 +38,7 @@ import { messageOf } from "./components";
 import { connectionFailure } from "./accessPolicy";
 import { authStorageKey } from "./authRecovery";
 import { startResearchQueue } from "./research";
-import { Notebooks } from "./Notebooks";
+const Notebooks = lazy(() => import("./Notebooks").then(m => ({ default: m.Notebooks })));
 
 export default function App() {
   return <HashRouter><AccessGate /><UpdateNotice /></HashRouter>;
@@ -228,7 +228,7 @@ function Shell() {
         <Routes>
           <Route path="/" element={<Library notify={notify} />} />
           <Route path="/notes" element={<Notes />} />
-          <Route path="/notebooks" element={<Notebooks />} />
+          <Route path="/notebooks" element={<Suspense fallback={<p className="notice" role="status">Opening notebooks…</p>}><Notebooks /></Suspense>} />
           <Route path="/settings" element={<Settings notify={notify} />} />
           <Route path="/read/:id" element={<Reader notify={notify} />} />
           <Route path="*" element={<Library notify={notify} />} />

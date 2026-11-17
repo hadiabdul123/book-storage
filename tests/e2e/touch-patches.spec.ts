@@ -1,3 +1,4 @@
+import { showPassageAction } from "./controls";
 import { scanPdf } from "../helpers/scanned-pdf";
 import { test, expect, type Page } from "@playwright/test";
 import path from "node:path";
@@ -191,6 +192,7 @@ test("scanned pages recognize automatically, touch-select with handles, and reta
   await expect(page.locator(".selection-excerpt")).toContainText(
     "Reading opens",
   );
+  await showPassageAction(page, "yellow highlight");
   await page
     .getByRole("button", { name: "yellow highlight", exact: true })
     .tap();
@@ -336,6 +338,7 @@ test("desktop mouse selection works on automatically recognized scans and surviv
   await page.mouse.move(second.x + second.width - 2, second.y + second.height / 2, { steps: 12 });
   await page.mouse.up();
   await expect(page.locator(".selection-excerpt")).toContainText("Reading opens");
+  await showPassageAction(page, "blue highlight");
   await page.getByRole("button", { name: "blue highlight", exact: true }).click();
   await expect(page.locator(".pdf-highlight").first()).toBeVisible();
   // Recognized text is cached locally; reopening does not need the OCR worker.
@@ -364,6 +367,7 @@ test("phone pages use the screen width and center vertically with compact select
   const popup = page.locator(".passage-popup");
   await expect(popup).toBeVisible();
   expect((await popup.boundingBox())!.height).toBeLessThan(150);
+  await showPassageAction(page, "yellow highlight");
   const button = (await page.getByRole("button", { name: "yellow highlight", exact: true }).boundingBox())!;
   expect(button.width).toBeGreaterThanOrEqual(44);
   expect(button.height).toBeGreaterThanOrEqual(44);

@@ -49,7 +49,7 @@ export class DocxReader implements ReaderAdapter {
       a.rel = "noopener noreferrer";
     });
     this.host.append(this.article);
-    this.touch = bindTouchSelection(this.article, { selected: range => this.readSelection(range), cleared: () => this.events.onSelection(null), scrollHost: this.host });
+    this.touch = bindTouchSelection(this.article, { selected: range => this.readSelection(range), cleared: () => this.events.onSelection(null), adjusting: this.events.onSelectionInteraction, scrollHost: this.host });
     document.addEventListener("selectionchange", this.selection);
     this.host.addEventListener("scroll", this.scroll, { passive: true });
     this.host.addEventListener("click", this.click);

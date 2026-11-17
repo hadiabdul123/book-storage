@@ -9,7 +9,7 @@ import {
   type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
-import { Bookmark as BookmarkIcon, Undo2, Redo2, X, Eraser } from "lucide-react";
+import { Bookmark as BookmarkIcon, Undo2, Redo2, X, Eraser, Highlighter, Sparkles, StickyNote, MoreHorizontal } from "lucide-react";
 import { db } from "./db";
 import {
   colors,
@@ -29,6 +29,7 @@ import { validLocator } from "./validation";
 import "./readerInteractions.css";
 
 export type InteractionHandle = {
+  adjusting: (active: boolean) => void;
   select: (value: Selection | null) => void;
   openAnnotation: (id: string) => void;
   shortcut: (event: KeyboardEvent) => void;
@@ -79,7 +80,21 @@ export const ReaderInteractions = forwardRef<
   const [selected, setSelected] = useState<Selection | null>(null);
   const [chosen, setChosen] = useState<string>();
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<"tools" | "meaning" | "note">("tools");
+  const [mode, setMode] = useState<"tools" | "meaning" | "note" | "more" | "colors">("tools");
+  const [adjusting, setAdjusting] = useState(false);
+  const [rail, setRail] = useState(false);
+  useEffect(() => { setRail(false); }, [open, book.id]);
+  useEffect(() => {
+    const surface = host.current;
+    if (!surface) return;
+    const active = rail && open && !suspended;
+    if (!active) { surface.classList.remove("selection-top-rail"); return; }
+    const before = parseFloat(getComputedStyle(surface).paddingTop) || 0, scroll = surface.scrollTop;
+    surface.classList.add("selection-top-rail");
+    const delta = (parseFloat(getComputedStyle(surface).paddingTop) || 0) - before;
+    surface.scrollTop = scroll;
+    return () => { const top = surface.scrollTop; surface.classList.remove("selection-top-rail"); surface.scrollTop = Math.max(0, top - delta); };
+  }, [rail, open, suspended, host]);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState("");
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
@@ -105,8 +120,8 @@ export const ReaderInteractions = forwardRef<
     markers: [],
     places: [],
   });
-  const latest = useRef({ selected, bookmarks, current, open });
-  latest.current = { selected, bookmarks, current, open };
+  const latest = useRef({ selected, chosen, bookmarks, current, open });
+  latest.current = { selected, chosen, bookmarks, current, open };
   const matches = selected
     ? annotations.filter(
         (a) =>
@@ -118,6 +133,7 @@ export const ReaderInteractions = forwardRef<
     annotations.find((a) => a.id === chosen && a.type !== "page-note") ||
     (matches.length === 1 ? matches[0] : undefined);
   const ambiguous = matches.length > 1 && !target;
+  useEffect(() => { if (ambiguous && open) setMode("more"); }, [ambiguous, open]);
   const key = selected ? selectionKey(selected) : "";
   const note = drafts[key]?.text ?? target?.note ?? "";
   const selectedBookmark = selected
@@ -182,19 +198,31 @@ export const ReaderInteractions = forwardRef<
       setOpen(false);
       return;
     }
-    if (
-      selectionKey(value) !== (selected ? selectionKey(selected) : "") ||
-      annotationId !== chosen
-    )
+    const prior = latest.current;
+    const same = selectionKey(value) === (prior.selected ? selectionKey(prior.selected) : "");
+    const nextChosen = annotationId ?? (same ? prior.chosen : undefined);
+    if (!same || nextChosen !== prior.chosen)
       setMode("tools");
+    latest.current = { ...prior, selected: value, chosen: nextChosen, open: true };
     setSelected(value);
-    setChosen(annotationId);
+    setChosen(nextChosen);
     setOpen(true);
   };
   const selectionTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
+  const pendingSelection = useRef<{ value: Selection | null; annotationId?: string } | undefined>(undefined);
+  const adjustingRef = useRef(false);
+  const selectionInteraction = (active: boolean) => {
+    if (!active && adjustingRef.current) {
+      clearTimeout(selectionTimer.current);
+      const latest = pendingSelection.current;
+      if (latest) selectNow(latest.value, latest.annotationId);
+    }
+    adjustingRef.current = active; setAdjusting(active);
+  };
   const select = (value: Selection | null, annotationId?: string) => {
+    pendingSelection.current = { value, annotationId };
     clearTimeout(selectionTimer.current);
     if (
       !annotationId &&
@@ -317,6 +345,7 @@ export const ReaderInteractions = forwardRef<
     };
   }, []);
   useImperativeHandle(ref, () => ({
+    adjusting: selectionInteraction,
     select,
     shortcut,
     dismiss: () => setOpen(false),
@@ -383,9 +412,9 @@ export const ReaderInteractions = forwardRef<
       const visible = (locator: Locator) =>
         reader.bounds(locator).filter((r) => overlap(r, clip));
       const state = latest.current;
-      const rect = state.selected
-        ? visible(state.selected.locator)[0]
-        : undefined;
+      const rects = state.selected ? visible(state.selected.locator) : [];
+      const rect = rects.length ? { left: Math.min(...rects.map(r => r.left)), right: Math.max(...rects.map(r => r.right)), top: Math.min(...rects.map(r => r.top)), bottom: Math.max(...rects.map(r => r.bottom)) } : undefined;
+      const compact = mode === "tools" || mode === "colors";
       const popupLimit = innerWidth <= 700 ? Math.min(420, innerHeight * 0.5) : 520;
       const width =
           popup.current?.offsetWidth || Math.min(360, innerWidth - 16),
@@ -417,11 +446,11 @@ export const ReaderInteractions = forwardRef<
         belowSpace = rect
           ? Math.max(0, popupBottom - rect.bottom - handleGap)
           : 0;
-      const above =
-        aboveSpace >= desiredHeight ||
+      if (compact && rect && aboveSpace < desiredHeight && !rail) setRail(true);
+      const above = compact || aboveSpace >= desiredHeight ||
         (belowSpace < desiredHeight && aboveSpace > belowSpace);
       const maxHeight = Math.max(
-        80,
+        compact ? 56 : 80,
         Math.min(popupLimit, above ? aboveSpace : belowSpace),
       );
       // offsetHeight may still be constrained by the previous selection's
@@ -432,7 +461,7 @@ export const ReaderInteractions = forwardRef<
             popupTop + 4,
             Math.min(
               popupBottom - height - 4,
-              above ? rect.top - height - handleGap : rect.bottom + handleGap,
+              compact && rail ? popupTop + 4 : above ? rect.top - height - handleGap : rect.bottom + handleGap,
             ),
           )
         : 0;
@@ -520,7 +549,7 @@ export const ReaderInteractions = forwardRef<
       window.removeEventListener("resize", schedule); window.visualViewport?.removeEventListener("resize", schedule);
       window.visualViewport?.removeEventListener("scroll", schedule); document.fonts.removeEventListener("loadingdone", schedule);
     };
-  }, [adapter, host, selected, bookmarks, current, open, mode, note, busy, feedback, suspended, ready]);
+  }, [adapter, host, selected, bookmarks, current, open, mode, note, busy, feedback, suspended, ready, rail, adjusting]);
   async function colorAction(color: Color) {
     if (!selected || ambiguous) return;
     if (target) {
@@ -558,6 +587,7 @@ export const ReaderInteractions = forwardRef<
       adapter.current?.clearSelection();
       notify("Highlight saved on this device.");
     }
+    if (mode === "colors") setMode("tools");
   }
   async function saveNote() {
     if (!selected || ambiguous) return;
@@ -765,9 +795,16 @@ export const ReaderInteractions = forwardRef<
             left: layout.left,
             top: layout.top,
             maxHeight: layout.maxHeight,
-            visibility: layout.visible ? "visible" : "hidden",
+            visibility: layout.visible && !adjusting ? "visible" : "hidden",
           }}
         >
+          <div className="passage-compact-row" role="toolbar" aria-label="Passage actions">
+            <button aria-label="Choose highlight color" aria-expanded={mode === "colors"} onPointerDown={e => e.preventDefault()} onClick={() => setMode(mode === "colors" ? "tools" : "colors")}><Highlighter size={19} /><i style={{ background: colors[target?.color || "yellow"] }} /></button>
+            <button aria-label={selectedBookmark ? "Remove passage bookmark" : "Bookmark passage"} aria-pressed={!!selectedBookmark} onPointerDown={e => e.preventDefault()} onClick={() => void attempt(togglePassage)}><BookmarkIcon size={19} fill={selectedBookmark ? "currentColor" : "none"} /></button>
+            <button aria-label="Research" disabled={busy} onPointerDown={e => e.preventDefault()} onClick={() => void attempt(() => onResearch(selected))}><Sparkles size={19} /></button>
+            <button aria-label={target?.note ? "Edit note" : "Add note"} disabled={ambiguous} onPointerDown={e => e.preventDefault()} onClick={() => setMode(mode === "note" ? "tools" : "note")}><StickyNote size={19} /></button>
+            <button aria-label="More passage actions" aria-expanded={mode === "more"} onPointerDown={e => e.preventDefault()} onClick={() => setMode(mode === "more" ? "tools" : "more")}><MoreHorizontal size={19} /></button>
+          </div>
           <div className="passage-popup-top">
             <span>{target ? "Highlighted passage" : "Selected passage"}</span>
             <button

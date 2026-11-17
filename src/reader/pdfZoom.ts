@@ -30,7 +30,7 @@ export function bindPdfZoom(host: HTMLElement, actions: ZoomActions) {
     try {
       while (!active && !disposed) {
         const requested = Math.round(target * 100) / 100;
-        if (requested !== actions.value()) await actions.commit(requested, point);
+        if (previewing || requested !== actions.value()) await actions.commit(requested, point);
         if (active || disposed) break;
         if (requested === Math.round(target * 100) / 100 && requested === Math.round(actions.value() * 100) / 100) {
           cancelAnimationFrame(frame); frame = 0; actions.clear(); previewing = false; break;
@@ -65,6 +65,7 @@ export function bindPdfZoom(host: HTMLElement, actions: ZoomActions) {
   const span = (touches: TouchList) => Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY);
   const midpoint = (touches: TouchList) => ({ x: (touches[0].clientX + touches[1].clientX) / 2, y: (touches[0].clientY + touches[1].clientY) / 2 });
   const start = (event: TouchEvent) => {
+    if (host.querySelector('[data-ink-pen-active="true"]')) return;
     if (event.touches.length !== 2 || (event.target as Element).closest("button,a,input,textarea,[contenteditable],.region-mode")) return;
     if (event.cancelable) event.preventDefault(); begin(midpoint(event.touches));
     distance = Math.max(1, span(event.touches)); pinchBase = target; pinchOrigin = midpoint(event.touches); pinchPoint = point;

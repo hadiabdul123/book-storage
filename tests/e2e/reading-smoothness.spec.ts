@@ -1,3 +1,4 @@
+import { showPassageAction } from "./controls";
 import { test, expect, type Page, type Locator } from "@playwright/test";
 import path from "node:path";
 import JSZip from "jszip";
@@ -176,12 +177,15 @@ for (const format of ["pdf", "epub", "docx"]) test(`${format} touch selection us
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (text: string) => { (window as any).__copied = text; } } });
   });
   const passage = await page.locator(".selection-excerpt").textContent();
+  await showPassageAction(page, "Copy");
   await page.getByRole("button", { name: "Copy", exact: true }).tap();
   await expect.poll(() => page.evaluate(() => (window as any).__copied)).toBe(passage);
   await page.evaluate(() => { Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async () => { throw new Error("Denied"); } } }); });
+  await showPassageAction(page, "Copy");
   await page.getByRole("button", { name: "Copy", exact: true }).tap();
   await expect(page.locator(".toast")).toContainText("Copy was blocked");
   expect(await text.evaluate(el => el.ownerDocument.getSelection()?.toString() || "")).toBe("");
+  await showPassageAction(page, "yellow highlight");
   await page.getByRole("button", { name: "yellow highlight", exact: true }).tap();
   await expect.poll(() => page.evaluate(async () => { const { list } = await import(/* @vite-ignore */ "/src/db.ts"); return (await list("annotation")).length; })).toBe(1);
   await page.screenshot({ path: test.info().outputPath(`${format}-app-selection.png`) });
@@ -207,8 +211,9 @@ test("rapid zoom buttons retain a preview until the final zoom is rendered", asy
   await expect(page.locator(".pdf-zoom-preview")).toHaveCount(0);
   await expect(page.getByRole("combobox", { name: "Zoom", exact: true })).toHaveValue("1.25");
   await expect.poll(() => page.evaluate(async () => {
-    const { db, list } = await import(/* @vite-ignore */ "/src/db.ts");
-    const book = (await list("book"))[0]; return JSON.parse((await db.meta.get(`device-reading:${book.id}`))!.value).zoom;
+    const { list } = await import(/* @vite-ignore */ "/src/db.ts");
+    const { readDeviceReading } = await import(/* @vite-ignore */ "/src/deviceReading.ts");
+    const book = (await list("book"))[0]; return (await readDeviceReading(book.id)).zoom;
   })).toBe(1.25);
   await expect(page.locator(".pdf-page canvas")).toHaveCount(1);
   await expect(page.locator(".pdf-page .textLayer")).toHaveCount(1);

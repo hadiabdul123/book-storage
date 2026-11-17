@@ -1,3 +1,4 @@
+import { showPassageAction } from "./controls";
 import { test, expect, type Page } from "@playwright/test";
 import path from "node:path";
 import { textPdf } from "../helpers/text-pdf";
@@ -58,6 +59,7 @@ test("warm PDF pages, Original colors and chosen themes survive reload", async (
     const selection = document.getSelection()!; selection.removeAllRanges(); selection.addRange(range);
     document.dispatchEvent(new Event("selectionchange"));
   });
+  await showPassageAction(page, "yellow highlight");
   await page.getByRole("button", { name: "yellow highlight", exact: true }).tap();
   await expect(page.locator(".pdf-highlight")).toHaveCount(1);
   await clickTool(page, "Reading settings");
@@ -167,7 +169,9 @@ test("EPUB frame colors and text selection survive themes and tablet resizing", 
     const selection = doc.getSelection()!; selection.removeAllRanges(); selection.addRange(range);
     doc.dispatchEvent(new Event("selectionchange"));
   });
+  await showPassageAction(page, "blue highlight");
   await expect(page.getByRole("button", { name: "blue highlight", exact: true })).toBeVisible();
+  await showPassageAction(page, "blue highlight");
   await page.getByRole("button", { name: "blue highlight", exact: true }).tap();
   await expect(page.locator(".leafmark-highlight").first()).toBeVisible();
   await page.setViewportSize({ width: 1280, height: 800 });

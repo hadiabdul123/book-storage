@@ -85,9 +85,10 @@ test("phone pinch zoom keeps chrome fixed, allows panning, and does not turn pag
   await expect.poll(async () => (await paper.boundingBox())!.width).toBeGreaterThan(original.width * 1.7);
   await expect(page.locator(".reader-host")).not.toHaveClass(/pdf-zooming/);
   await expect.poll(() => page.evaluate(async () => {
-    const { db, list } = await import("/src/db.ts");
+    const { list } = await import("/src/db.ts");
+    const { readDeviceReading } = await import("/src/deviceReading.ts");
     const book = (await list("book"))[0];
-    return JSON.parse((await db.meta.get(`device-reading:${book.id}`))!.value).zoom || 1;
+    return (await readDeviceReading(book.id)).zoom || 1;
   })).toBeGreaterThan(1.7);
   expect(await page.evaluate(() => visualViewport!.scale)).toBe(1);
   expect((await page.locator(".reader-header").boundingBox())!.height).toBe(header.height);

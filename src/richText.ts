@@ -1,5 +1,13 @@
 import type { RichNode } from "./model";
 import { validSourceRef, sourceMarkdown } from "./sourceReferences";
+const safeColor = (v: unknown) => typeof v === "string" && (/^#[a-f0-9]{6}$/i.test(v) || /^rgb\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*\)$/i.test(v));
+export function validRichMark(m: any) {
+  if (!m || typeof m !== "object") return false;
+  if (["bold", "italic", "underline"].includes(m.type)) return m.attrs === undefined;
+  if (m.type === "highlight" || m.type === "textStyle") return !!m.attrs && Object.keys(m.attrs).every(k => k === "color") && safeColor(m.attrs.color);
+  if (m.type === "link") return !!m.attrs && typeof m.attrs.href === "string" && m.attrs.href.length <= 4000 && /^(https?:\/\/|mailto:)[^\s]+$/i.test(m.attrs.href) && Object.keys(m.attrs).every(k => ["href", "target", "rel", "class"].includes(k)) && (m.attrs.target == null || ["_blank", "_self"].includes(m.attrs.target)) && m.attrs.class == null;
+  return false;
+}
 export const emptyDocument = (): RichNode => ({
   type: "doc",
   content: [{ type: "paragraph" }],
@@ -9,6 +17,7 @@ export const paragraph = (text: string): RichNode => ({
   content: text ? [{ type: "text", text }] : [],
 });
 export function plainText(node: RichNode): string {
+  if (node.type === "drawing") return "[Drawing]";
   if (node.type === "citation") return validSourceRef(node.attrs?.source) ? `Source: ${node.attrs!.source.title}` : "";
   if (node.type === "text") return node.text || "";
   if (node.type === "hardBreak") return "\n";
@@ -17,12 +26,19 @@ export function plainText(node: RichNode): string {
     .join(["paragraph", "heading"].includes(node.type) ? "" : "\n");
 }
 export function markdown(node: RichNode): string {
+  if (node.type === "drawing") return `![Drawing](drawings/${node.attrs?.blockId}.svg)\n\n`;
   if (node.type === "citation") return validSourceRef(node.attrs?.source) ? `Source: ${sourceMarkdown(node.attrs!.source)}\n\n` : "";
   const children = () => (node.content || []).map(markdown).join("");
   if (node.type === "text") {
     let text = (node.text || "").replace(/([\\`*_\[\]<>])/g, "\\$1");
-    for (const mark of node.marks || [])
-      text = mark.type === "bold" ? `**${text}**` : `*${text}*`;
+    for (const mark of node.marks || []) {
+      if (mark.type === "bold") text = `**${text}**`;
+      if (mark.type === "italic") text = `*${text}*`;
+      if (mark.type === "underline") text = `<u>${text}</u>`;
+      if (mark.type === "highlight" && safeColor(mark.attrs?.color)) text = `<mark style="background-color:${mark.attrs!.color}">${text}</mark>`;
+      if (mark.type === "textStyle" && safeColor(mark.attrs?.color)) text = `<span style="color:${mark.attrs!.color}">${text}</span>`;
+      if (mark.type === "link" && validRichMark(mark)) text = `[${text}](${mark.attrs!.href.replace(/\(/g, "%28").replace(/\)/g, "%29")})`;
+    }
     return text;
   }
   if (node.type === "hardBreak") return "  \n";
@@ -59,6 +75,7 @@ export function validRichDocument(value: unknown): value is RichNode {
     "taskList",
     "taskItem",
     "citation",
+    "drawing",
   ]);
   function check(n: any, depth: number): boolean {
     if (
@@ -71,6 +88,7 @@ export function validRichDocument(value: unknown): value is RichNode {
       return false;
     if (n.type === "citation") return n.text === undefined && n.content === undefined && n.marks === undefined &&
       !!n.attrs && Object.keys(n.attrs).length === 1 && validSourceRef(n.attrs.source);
+    if (n.type === "drawing") return n.text === undefined && n.content === undefined && n.marks === undefined && !!n.attrs && Object.keys(n.attrs).every(k => ["blockId", "height"].includes(k)) && typeof n.attrs.blockId === "string" && /^[a-zA-Z0-9-]{1,100}$/.test(n.attrs.blockId) && Number.isFinite(n.attrs.height) && n.attrs.height >= 140 && n.attrs.height <= 800;
     if (
       n.type === "text" &&
       (typeof n.text !== "string" || n.text.length > 100000)
@@ -83,7 +101,7 @@ export function validRichDocument(value: unknown): value is RichNode {
     if (
       n.marks !== undefined &&
       (!Array.isArray(n.marks) ||
-        n.marks.some((m: any) => !m || !["bold", "italic"].includes(m.type)))
+        n.marks.some((m: any) => !validRichMark(m)))
     )
       return false;
     if (n.attrs !== undefined) {
@@ -107,7 +125,7 @@ export function validRichDocument(value: unknown): value is RichNode {
         return false;
     }
     const children: Record<string, string[]> = {
-      doc: ["paragraph", "heading", "bulletList", "orderedList", "taskList", "citation"],
+      doc: ["paragraph", "heading", "bulletList", "orderedList", "taskList", "citation", "drawing"],
       paragraph: ["text", "hardBreak"],
       heading: ["text", "hardBreak"],
       bulletList: ["listItem"],

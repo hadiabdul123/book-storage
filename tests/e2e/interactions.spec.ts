@@ -1,3 +1,4 @@
+import { showPassageAction } from "./controls";
 import { openTools, clickTool } from "./controls";
 import { test, expect, type Page } from "@playwright/test";
 import path from "node:path";
@@ -49,6 +50,7 @@ test("floating meanings, one-click highlights and partial reselection support un
 }, info) => {
   await openPdf(page);
   await selectPdf(page);
+  await showPassageAction(page, "Meaning");
   await page.getByRole("button", { name: "Meaning", exact: true }).click();
   await expect(
     page.locator(".passage-popup .dictionary-entry").first(),
@@ -69,23 +71,30 @@ test("floating meanings, one-click highlights and partial reselection support un
   await expect(
     page.locator(".passage-popup .dictionary-entry h3").first(),
   ).toHaveText("thoughtful");
+  await showPassageAction(page, "yellow highlight");
   await page
     .getByRole("button", { name: "yellow highlight", exact: true })
     .click();
+  await showPassageAction(page, "yellow highlight");
   await expect(
     page.getByRole("button", { name: "yellow highlight", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
+  await showPassageAction(page, "Meaning");
   await page.getByRole("button", { name: "Meaning", exact: true }).click();
+  await showPassageAction(page, "blue highlight");
   await page
     .getByRole("button", { name: "blue highlight", exact: true })
     .click();
+  await showPassageAction(page, "blue highlight");
   await expect(
     page.getByRole("button", { name: "blue highlight", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
   await selectPdf(page, true);
+  await showPassageAction(page, "blue highlight");
   await expect(
     page.getByRole("button", { name: "blue highlight", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
+  await showPassageAction(page, "blue highlight");
   await page
     .getByRole("button", { name: "blue highlight", exact: true })
     .click();
@@ -178,6 +187,7 @@ test("note typing keeps native undo and unfinished drafts survive dismissal and 
 }) => {
   await openPdf(page);
   await selectPdf(page);
+  await showPassageAction(page, "yellow highlight");
   await page
     .getByRole("button", { name: "yellow highlight", exact: true })
     .click();
@@ -200,6 +210,7 @@ test("note typing keeps native undo and unfinished drafts survive dismissal and 
   await expect(
     page.getByRole("button", { name: /Unfinished notes/ }),
   ).toHaveCount(0);
+  await showPassageAction(page, "Remove highlight");
   await page
     .getByRole("button", { name: "Remove highlight", exact: true })
     .click();
@@ -291,6 +302,7 @@ for (const format of ["epub", "docx"] as const)
       format === "epub" ? "beginning" : "Thoughtful",
     );
     await expect(page.locator(".passage-popup")).toBeVisible();
+    await showPassageAction(page, "green highlight");
     await page
       .getByRole("button", { name: "green highlight", exact: true })
       .click();
@@ -327,6 +339,7 @@ for (const format of ["epub", "docx"] as const)
     )
       await toolsMenu.click();
     await page.locator(".passage-bookmark").click();
+    await showPassageAction(page, "Meaning");
     await page.getByRole("button", { name: "Meaning", exact: true }).click();
     await expect(
       page.locator(".passage-popup .dictionary-entry").first(),
@@ -345,6 +358,7 @@ test("overlapping highlights require a choice and failed removal keeps the mark"
 }) => {
   await openPdf(page);
   await selectPdf(page);
+  await showPassageAction(page, "yellow highlight");
   await page
     .getByRole("button", { name: "yellow highlight", exact: true })
     .click();

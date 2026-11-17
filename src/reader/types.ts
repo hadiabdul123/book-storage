@@ -19,6 +19,8 @@ export type ScreenRect = {
   bottom: number;
 };
 export interface ReaderEvents {
+  onSelectionInteraction?: (adjusting: boolean) => void;
+  canEdgeTurn?: () => boolean;
   onReaderTap?: () => void;
   onZoom?: (zoom: number) => void;
   canSwipe?: () => boolean;

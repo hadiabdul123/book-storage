@@ -1,3 +1,4 @@
+import { showPassageAction } from "./controls";
 import { openTools, clickTool } from "./controls";
 import { test, expect, type Page } from "@playwright/test";
 import path from "node:path";
@@ -96,6 +97,7 @@ test("real EPUB highlight survives reload, typography changes and passage naviga
   await page
     .getByRole("textbox", { name: "Note for selected passage" })
     .fill("A note that must survive.");
+  await showPassageAction(page, "blue highlight");
   await page
     .getByRole("button", { name: "blue highlight", exact: true })
     .click();
@@ -214,6 +216,7 @@ test("DOCX imports semantic text and keeps linked notes", async ({ page }) => {
     s.addRange(range);
     document.dispatchEvent(new Event("selectionchange"));
   });
+  await showPassageAction(page, "yellow highlight");
   await page
     .getByRole("button", { name: "yellow highlight", exact: true })
     .click();

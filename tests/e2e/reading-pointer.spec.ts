@@ -1,3 +1,4 @@
+import { showPassageAction } from "./controls";
 import { test, expect, type Page } from "@playwright/test";
 import { clickTool, openTools } from "./controls";
 
@@ -120,6 +121,7 @@ test("guide fades, stays screen sized at zoom, and leaves selection and regions 
   await expect(pointer(page)).not.toBeVisible();
   await page.mouse.up();
   await expect(page.getByRole("region", { name: "Save selected passage" })).toBeVisible();
+  await showPassageAction(page, "yellow highlight");
   await page.getByRole("button", { name: "yellow highlight", exact: true }).click();
   await expect(page.locator(".pdf-highlight").first()).toBeVisible();
   await clickTool(page, "Reading settings");

@@ -1,4 +1,4 @@
-import { openTools, clickTool } from "./controls";
+import { openTools, clickTool, showSavedItem } from "./controls";
 import { test, expect, type Page } from "@playwright/test";
 import path from "node:path";
 import { readFile } from "node:fs/promises";
@@ -157,6 +157,7 @@ test("annotation edits, filters, exports, JSON restore and malformed backups", a
   await saveNote(page);
   await page.goto("/#/notes");
   await expect(page.locator(".annotation-card")).toHaveCount(1);
+  await showSavedItem(page);
   await page.getByRole("button", { name: "Edit", exact: true }).click();
   const dialog = page.getByRole("dialog");
   await dialog
@@ -216,8 +217,9 @@ test("annotation edits, filters, exports, JSON restore and malformed backups", a
   });
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.goto("/#/notes");
+  await showSavedItem(page);
   await expect(
-    page.getByText("Updated research note", { exact: true }),
+    page.locator(".notes-preview-pane").getByText("Updated research note", { exact: true }),
   ).toBeVisible();
   await page.getByRole("link", { name: "Go to passage" }).click();
   await expect(page.locator(".pdf-highlight").first()).toBeVisible();

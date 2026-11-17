@@ -3,6 +3,7 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { db, list, save } from "../src/db";
 import { restoreAnnotationBackup } from "../src/backup";
 import type { Annotation, Book, Row } from "../src/model";
+import type { InkStroke } from "../src/inkTypes";
 
 vi.stubGlobal("window", new EventTarget());
 const book = { id: "local-book", hash: "a".repeat(64) } as Book;
@@ -12,6 +13,13 @@ const annotation: Annotation = {
   locator: { v: 1, type: "pdf", hash: book.hash, page: 1, y: 0 },
 };
 const backup = (annotations: unknown[]) => ({ schema: "leafmark.annotations", version: 1, annotations });
+it("restores drawing-aware annotation backups by edition hash and validates ink before writing", async () => {
+  const stroke: InkStroke = { id: "ink", target: { type: "pdf", bookId: "old-book", hash: book.hash, page: 1 }, createdAt: annotation.createdAt, color: "#315c86", width: 2, tool: "pen", points: [[40, 50, .5]] };
+  const data = { ...backup([annotation]), version: 4, ink: [stroke] };
+  expect(await restoreAnnotationBackup(data, [book])).toEqual({ restored: 2, skipped: 0 });
+  expect((await list("ink-stroke"))[0].target).toMatchObject({ bookId: "local-book" });
+  await expect(restoreAnnotationBackup({ ...data, ink: [{ ...stroke, points: [[10, 20, Infinity]] }] }, [book])).rejects.toThrow("invalid drawing");
+});
 beforeEach(async () => { for (const table of db.tables) await table.clear(); });
 
 it("validates the entire backup before writing any notes or pending changes", async () => {

@@ -12,7 +12,9 @@ export type SourceRef = {
   retrievedAt?: string;
 };
 export type Notebook = { id: string; title: string; createdAt: string };
+export type NotebookSection = { id: string; notebookId: string; title: string; order: number; createdAt: string };
 export type NotebookNote = {
+  sectionId?: string; order?: number;
   id: string; notebookId: string; title: string; document: RichNode;
   tags: string[]; createdAt: string; updatedAt: string;
 };

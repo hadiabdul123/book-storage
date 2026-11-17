@@ -200,6 +200,7 @@ export class EpubReader implements ReaderAdapter {
         this.selected(contents.cfiFromRange(range), contents, range);
       },
       cleared: () => this.events.onSelection(null),
+      adjusting: this.events.onSelectionInteraction,
       allowed: () => !this.host.dataset.pageTurning,
     });
     this.touchSelections.set(doc, touch);

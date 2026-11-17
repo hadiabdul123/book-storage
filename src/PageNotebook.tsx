@@ -7,6 +7,8 @@ import { pageNoteId, savePageNote } from "./pageNotes";
 import { emptyDocument, validRichDocument } from "./richText";
 import type { Book, RichNode } from "./model";
 import { CitationExtension } from "./Citation";
+import { noteFormatting } from "./noteFormatting";
+import { NoteFormatButtons } from "./NoteFormatButtons";
 
 export type NotebookHandle = { flush: () => Promise<boolean> };
 export function PageNotebook({
@@ -41,15 +43,15 @@ export function PageNotebook({
   const editor = useEditor({
     extensions: [
       CitationExtension,
+      ...noteFormatting(),
       StarterKit.configure({
         heading: { levels: [1, 2, 3] },
         blockquote: false,
         code: false,
         codeBlock: false,
         horizontalRule: false,
-        link: false,
+        link: { openOnClick: false, autolink: false, linkOnPaste: false },
         strike: false,
-        underline: false,
       }),
       TaskList,
       TaskItem.configure({ nested: true }),
@@ -200,10 +202,11 @@ export function PageNotebook({
         className="notebook-toolbar"
         role="toolbar"
         aria-label="Notebook formatting"
-        onMouseDown={(e) => e.preventDefault()}
+        onMouseDown={(e) => { if (!(e.target as Element).closest("input,select")) e.preventDefault(); }}
       >
         {editor && (
           <>
+            <NoteFormatButtons editor={editor} />
             <button
               type="button"
               aria-label="Bold"

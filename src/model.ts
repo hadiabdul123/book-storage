@@ -1,4 +1,5 @@
-import type { Notebook, NotebookNote, ResearchThread, ResearchMessage, SourceRef } from "./researchTypes";
+import type { Notebook, NotebookSection, NotebookNote, ResearchThread, ResearchMessage, SourceRef } from "./researchTypes";
+import type { InkStroke } from "./inkTypes";
 export type Format = "epub" | "pdf" | "docx";
 export type Color = "yellow" | "green" | "blue" | "pink" | "purple";
 export const colors: Record<Color, string> = {
@@ -109,6 +110,7 @@ export type Preferences = {
   spread: boolean;
 };
 export type PdfLayout = {
+  trimMargins?: boolean;
   columns: 1 | 2;
   navigation: "continuous" | "paginated";
   fit: "width" | "page";
@@ -122,7 +124,7 @@ export type RichNode = {
   type: string;
   text?: string;
   attrs?: Record<string, any>;
-  marks?: { type: string }[];
+  marks?: { type: string; attrs?: Record<string, any> }[];
   content?: RichNode[];
 };
 export const defaults: Preferences = {
@@ -136,6 +138,8 @@ export const defaults: Preferences = {
   spread: false,
 };
 export interface EntityMap {
+  "ink-stroke": InkStroke;
+  "notebook-section": NotebookSection;
   notebook: Notebook;
   "notebook-note": NotebookNote;
   "research-thread": ResearchThread;

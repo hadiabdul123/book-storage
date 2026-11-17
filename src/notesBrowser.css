@@ -1,0 +1,12 @@
+.notes-browser .page-kicker,.notes-browser .page-intro { display:none; }
+.notes-browser-layout { display:grid; grid-template-columns:minmax(250px,340px) minmax(0,1fr); border:1px solid var(--line); border-radius:8px; overflow:hidden; min-height:60dvh; }
+.notes-passage-list { background:#f5f7fa; border-right:1px solid var(--line); overflow:auto; max-height:75dvh; padding:16px 10px; }
+.notes-result-count { margin:0 8px 16px; color:#77838e; font-size:13px; }
+.notes-passage-list section h2 { font:600 14px/1.5 "Source Sans 3",sans-serif; margin:18px 8px 8px; color:#315c86; }
+.notes-passage-list section button { display:block; width:100%; text-align:left; padding:12px; border-left:3px solid transparent; min-height:66px; border-radius:0 5px 5px 0; }
+.notes-passage-list section button[aria-current="page"] { background:#e4edf7; }
+.notes-passage-list small { display:block; color:#77838e; margin-bottom:4px; font-size:12px; }.notes-passage-list span { display:block; font:14px/1.6 Literata,serif; }.notes-passage-list em { display:block; font:13px/1.5 "Source Sans 3",sans-serif; color:#526578; margin-top:6px; }
+.notes-preview-pane { padding:28px; min-width:0; }.notes-preview-pane .annotation-card { box-shadow:none; border:0; padding:0; background:transparent; max-width:75ch; margin:auto; }.notes-preview-pane .annotation-card blockquote { font-size:21px; line-height:1.8; }
+.notes-back-list { display:none; }.drawing-detail { display:grid; gap:16px; }.drawing-detail .primary { justify-self:start; }
+.notes-browser .filter-row { flex-wrap:wrap; }.notes-browser .filter-row > select { max-width:200px; }
+@media(max-width:700px) { .notes-browser-layout { display:block; }.notes-preview-pane { display:none; padding:20px 14px; }.notes-detail-open .notes-preview-pane { display:block; }.notes-detail-open .notes-passage-list { display:none; }.notes-back-list { display:block; margin-bottom:20px; min-height:44px; }.notes-passage-list { max-height:none; border:0; }.notes-browser .filter-row > select { max-width:calc(50% - 6px); min-height:44px; }.notes-preview-pane .annotation-card blockquote { font-size:18px; } }

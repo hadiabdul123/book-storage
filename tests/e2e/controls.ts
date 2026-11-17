@@ -20,6 +20,20 @@ export async function clickTool(page: Page, name: string) {
   await openTools(page);
   await page.getByRole("button", { name, exact: true }).click();
 }
+export async function showPassageAction(page: Page, name: string) {
+  const action = page.getByRole("button", { name, exact: true });
+  if (await action.isVisible()) return;
+  const palette = /^(yellow|blue|green|pink|purple) highlight$/.test(name);
+  const toggle = page.getByRole("button", { name: palette ? "Choose highlight color" : "More passage actions", exact: true });
+  await expect.poll(async () => await action.isVisible() || await toggle.isVisible()).toBe(true);
+  if (await action.isVisible()) return;
+  await toggle.click();
+  await expect(action).toBeVisible();
+}
+export async function showSavedItem(page: Page) {
+  if (!page.url().includes("#/notes")) return;
+  if (!(await page.locator(".notes-preview-pane").isVisible())) await page.locator(".notes-passage-list section button").first().click();
+}
 
 /** A short curl can start and finish between Playwright's visibility polls.
  * Observe its real visible/flipping state rather than slowing the animation. */

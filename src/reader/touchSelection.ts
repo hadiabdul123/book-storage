@@ -5,6 +5,7 @@ export type TouchSelection = ReturnType<typeof bindTouchSelection>;
  * selection to attach its action bar to. Text stays in the accessibility tree. */
 export function bindTouchSelection(root: HTMLElement, options: {
   selected: (range: Range) => void;
+  adjusting?: (active: boolean) => void;
   cleared?: () => void;
   prepare?: (element: HTMLElement) => Promise<void>;
   allowed?: () => boolean;
@@ -14,7 +15,7 @@ export function bindTouchSelection(root: HTMLElement, options: {
   const scrollHost = options.scrollHost || root;
   let range: Range | undefined, timer: ReturnType<typeof setTimeout> | undefined;
   let press: { x: number; y: number; element: HTMLElement; at: number; scroll: number } | undefined;
-  let generation = 0, frame = 0, destroyed = false;
+  let generation = 0, frame = 0, destroyed = false, handleDragging = false;
   const handles: HTMLButtonElement[] = [];
   const dragCleanups: (() => void)[] = [];
   const overlay = doc.createElement("div");
@@ -88,12 +89,14 @@ export function bindTouchSelection(root: HTMLElement, options: {
   };
   const schedule = () => { if (range && !frame) frame = win.requestAnimationFrame(paint); };
   function clear(notify = true) {
+    handleDragging = false;
+    options.adjusting?.(false);
     const hadSelection = !!range;
     range = undefined; dragCleanups.splice(0).forEach(cleanup => cleanup()); handles.splice(0).forEach(h => h.remove()); overlay.remove();
     win.cancelAnimationFrame(frame); frame = 0;
     if (notify && hadSelection && !destroyed) options.cleared?.();
   }
-  const cancel = () => { clearTimeout(timer); press = undefined; generation++; };
+  const cancel = () => { clearTimeout(timer); press = undefined; generation++; if (!handleDragging) options.adjusting?.(false); };
   const apply = (next: Range) => {
     if (next.collapsed || !next.toString().trim()) return;
     range = next.cloneRange();
@@ -114,9 +117,9 @@ export function bindTouchSelection(root: HTMLElement, options: {
         else next.setEnd(word.endContainer, word.endOffset);
         apply(next);
       };
-      handle.addEventListener("pointerdown", e => { e.preventDefault(); e.stopPropagation(); dragging = true; handle.setPointerCapture(e.pointerId); });
+      handle.addEventListener("pointerdown", e => { e.preventDefault(); e.stopPropagation(); dragging = handleDragging = true; options.adjusting?.(true); handle.setPointerCapture(e.pointerId); });
       handle.addEventListener("pointermove", e => { if (!dragging) return; e.preventDefault(); pending = e; if (!dragFrame) dragFrame = win.requestAnimationFrame(move); });
-      const stop = () => { if (pending) move(); dragging = false; win.cancelAnimationFrame(dragFrame); };
+      const stop = () => { if (pending) move(); dragging = handleDragging = false; win.cancelAnimationFrame(dragFrame); options.adjusting?.(false); };
       handle.addEventListener("pointerup", stop); handle.addEventListener("pointercancel", stop);
       handle.addEventListener("keydown", e => {
         if (!range || !["ArrowLeft", "ArrowRight"].includes(e.key)) return;
@@ -141,7 +144,7 @@ export function bindTouchSelection(root: HTMLElement, options: {
     } catch { /* OCR errors are reported by the adapter. */ }
   };
   const pointer = (e: PointerEvent) => {
-    if (e.pointerType === "mouse") { root.classList.remove("app-touch-selection"); clear(); return; }
+    if (e.pointerType === "mouse") { cancel(); root.classList.remove("app-touch-selection"); clear(); return; }
     root.classList.add("app-touch-selection");
   };
   const start = (e: TouchEvent) => {
@@ -152,10 +155,21 @@ export function bindTouchSelection(root: HTMLElement, options: {
     clear();
     doc.getSelection()?.removeAllRanges();
     const t = e.touches[0]; press = { x: t.clientX, y: t.clientY, element, at: Date.now(), scroll: scrollHost.scrollTop };
+    options.adjusting?.(true);
     timer = setTimeout(() => void hold(), 500);
   };
   const move = (e: TouchEvent) => { if (press && (e.touches.length !== 1 || Math.hypot(e.touches[0].clientX - press.x, e.touches[0].clientY - press.y) > 10)) cancel(); };
-  const end = () => { clearTimeout(timer); if (press && Date.now() - press.at >= 450) void hold(); press = undefined; };
+  const end = (e: TouchEvent) => {
+    clearTimeout(timer);
+    const token = generation;
+    if (press && Date.now() - press.at >= 450) {
+      // A compatibility click at the release point must not activate freshly
+      // positioned toolbar buttons underneath the lifting finger.
+      if (e.cancelable) e.preventDefault();
+      const finished = hold(); press = undefined;
+      void finished.finally(() => { if (generation === token) options.adjusting?.(false); });
+    } else { press = undefined; if (!handleDragging) options.adjusting?.(false); }
+  };
   const context = (e: Event) => { if (root.classList.contains("app-touch-selection")) { e.preventDefault(); if (press) void hold(); } };
   const selectStart = (e: Event) => { if (root.classList.contains("app-touch-selection") && !(e.target as Element).closest("input,textarea,[contenteditable]")) e.preventDefault(); };
   const nativeChanged = () => {
@@ -165,10 +179,14 @@ export function bindTouchSelection(root: HTMLElement, options: {
     }
   };
   const scroll = () => { cancel(); schedule(); };
+  const resize = new ResizeObserver(schedule); resize.observe(scrollHost);
+  if (scrollHost !== root) resize.observe(root);
+  const layoutChanges = new MutationObserver(schedule);
+  layoutChanges.observe(scrollHost, { attributes: true, attributeFilter: ["class", "style"] });
   const key = (e: KeyboardEvent) => { if (e.key === "Escape") { cancel(); clear(); } else if (e.shiftKey) { clear(); root.classList.remove("app-touch-selection"); } };
   root.addEventListener("pointerdown", pointer, { capture: true });
   root.addEventListener("touchstart", start, { passive: true }); root.addEventListener("touchmove", move, { passive: true });
-  root.addEventListener("touchend", end, { passive: true }); root.addEventListener("touchcancel", cancel);
+  root.addEventListener("touchend", end, { passive: false }); root.addEventListener("touchcancel", cancel);
   root.addEventListener("contextmenu", context); root.addEventListener("selectstart", selectStart);
   doc.addEventListener("selectionchange", nativeChanged);
   doc.addEventListener("scroll", scroll, { capture: true, passive: true }); win.addEventListener("resize", schedule); doc.addEventListener("keydown", key);
@@ -178,6 +196,7 @@ export function bindTouchSelection(root: HTMLElement, options: {
   return { clear: () => { cancel(); clear(false); }, hasSelection: () => !!range,
     select: (x: number, y: number) => { const next = wordAt(x, y); if (next) apply(next); },
     destroy() {
+      resize.disconnect(); layoutChanges.disconnect();
       destroyed = true; cancel(); clear(); style.remove(); root.classList.remove("app-touch-selection");
       root.removeEventListener("pointerdown", pointer, true); root.removeEventListener("touchstart", start); root.removeEventListener("touchmove", move);
       root.removeEventListener("touchend", end); root.removeEventListener("touchcancel", cancel); root.removeEventListener("contextmenu", context); root.removeEventListener("selectstart", selectStart);
