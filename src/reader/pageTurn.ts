@@ -254,7 +254,7 @@ export class PageTurn {
   private disposeRealm() { this.realm?.clock.destroy(); this.realm?.frame.remove(); this.realm = undefined; }
   bind(root: HTMLElement | Document, toViewport: (point: TurnPoint) => TurnPoint = p => p) {
     const doc = root.nodeType === 9 ? root as Document : root.ownerDocument!;
-    type Press = { id: number; start: TurnPoint; latest: TurnPoint; direction: TurnDirection; claimed: boolean; released: boolean; cancelled: boolean; at: number; sample: TurnPoint; sampleAt: number; velocity: number };
+    type Press = { id: number; pointerType: string; start: TurnPoint; latest: TurnPoint; direction: TurnDirection; claimed: boolean; released: boolean; cancelled: boolean; at: number; sample: TurnPoint; sampleAt: number; velocity: number };
     let press: Press | undefined, moveFrame = 0, suppressUntil = 0;
     const cancel = () => { cancelAnimationFrame(moveFrame); moveFrame = 0; if (press) { press.cancelled = true; if (press.claimed) this.invalidate(); } press = undefined; };
     const allowed = () => this.source.enabled() && this.source.canDrag() && !doc.getSelection()?.toString().trim();
@@ -267,7 +267,7 @@ export class PageTurn {
       if (point.y < box.top || point.y > box.bottom || point.x < box.left || point.x > box.right) return;
       const direction = point.x >= box.right - 44 ? "next" : point.x <= box.left + 44 ? "previous" : undefined;
       if (direction) {
-        press = { id: e.pointerId, start: point, latest: point, direction, claimed: false, released: false, cancelled: false, at: performance.now(), sample: point, sampleAt: performance.now(), velocity: 0 };
+        press = { id: e.pointerId, pointerType: e.pointerType, start: point, latest: point, direction, claimed: false, released: false, cancelled: false, at: performance.now(), sample: point, sampleAt: performance.now(), velocity: 0 };
         // The outer mouse grab must not create a native text range underneath
         // the fold. Touch long presses remain available until a drag is claimed.
         if (e.pointerType === "mouse") e.preventDefault();
@@ -316,7 +316,9 @@ export class PageTurn {
       cancelAnimationFrame(moveFrame); moveFrame = 0;
       press = undefined; p.latest = toViewport({ x: e.clientX, y: e.clientY }); p.released = true;
       if (!p.claimed) {
-        if (performance.now() - p.at < 300 && Math.hypot(p.latest.x - p.start.x, p.latest.y - p.start.y) < 8 && this.source.canTap?.() && this.source.navigate) {
+        // Mouse clicks can span slow frames or a deliberate held press. The
+        // cutoff protects touch/stylus long-press selection, not mouse clicks.
+        if ((p.pointerType === "mouse" || performance.now() - p.at < 300) && Math.hypot(p.latest.x - p.start.x, p.latest.y - p.start.y) < 8 && this.source.canTap?.() && this.source.navigate) {
           suppressUntil = performance.now() + 500;
           e.preventDefault(); e.stopPropagation();
           void this.source.navigate(p.direction).catch(error => console.warn("Edge turn unavailable", error));

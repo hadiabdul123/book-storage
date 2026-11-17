@@ -36,8 +36,14 @@ test("layout, appearance and zoom apply across books; zoomed edge taps turn spre
   await expect(page.locator(".reader-host")).not.toHaveAttribute("aria-busy", "true");
   await expect(page.locator(".reader-host")).not.toHaveClass(/pdf-zooming/);
   const box = (await page.locator(".reader-host").boundingBox())!;
-  await page.mouse.click(box.x + box.width - 12, box.y + Math.min(300, box.height / 2));
+  const edgeY = box.y + Math.min(300, box.height / 2);
+  await page.touchscreen.tap(box.x + box.width - 24, edgeY);
   await expect(page.locator('.pdf-page[data-page="3"]')).toBeVisible();
+  // A stationary mouse press may be held or delivered across slow frames.
+  // Only a touch hold needs the long-press cutoff used for text selection.
+  await page.mouse.move(box.x + 24, edgeY); await page.mouse.down();
+  await page.waitForTimeout(400); await page.mouse.up();
+  await expect(page.locator('.pdf-page[data-page="1"]')).toBeVisible();
   await clickTool(page, "Reading settings"); await expect(page.getByRole("combobox", { name: "Zoom", exact: true })).toHaveValue("1.5");
   await page.getByRole("link", { name: "Back to library", exact: true }).click();
   await page.locator("input[type=file]").setInputFiles({ name: "Another book.pdf", mimeType: "application/pdf", buffer: numberedPdf(3) });
