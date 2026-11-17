@@ -771,6 +771,7 @@ export const ReaderInteractions = forwardRef<
         <div
           ref={popup}
           className="passage-popup"
+          aria-busy={busy}
           data-mode={mode}
           role="region"
           aria-label="Save selected passage"
@@ -799,7 +800,7 @@ export const ReaderInteractions = forwardRef<
           }}
         >
           <div className="passage-compact-row" role="toolbar" aria-label="Passage actions">
-            <button aria-label="Choose highlight color" aria-expanded={mode === "colors"} onPointerDown={e => e.preventDefault()} onClick={() => setMode(mode === "colors" ? "tools" : "colors")}><Highlighter size={19} /><i style={{ background: colors[target?.color || "yellow"] }} /></button>
+            <button aria-label="Choose highlight color" disabled={busy} aria-expanded={mode === "colors"} onPointerDown={e => e.preventDefault()} onClick={() => setMode(mode === "colors" ? "tools" : "colors")}><Highlighter size={19} /><i style={{ background: colors[target?.color || "yellow"] }} /></button>
             <button aria-label={selectedBookmark ? "Remove passage bookmark" : "Bookmark passage"} aria-pressed={!!selectedBookmark} onPointerDown={e => e.preventDefault()} onClick={() => void attempt(togglePassage)}><BookmarkIcon size={19} fill={selectedBookmark ? "currentColor" : "none"} /></button>
             <button aria-label="Research" disabled={busy} onPointerDown={e => e.preventDefault()} onClick={() => void attempt(() => onResearch(selected))}><Sparkles size={19} /></button>
             <button aria-label={target?.note ? "Edit note" : "Add note"} disabled={ambiguous} onPointerDown={e => e.preventDefault()} onClick={() => setMode(mode === "note" ? "tools" : "note")}><StickyNote size={19} /></button>

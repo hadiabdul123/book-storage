@@ -83,7 +83,15 @@ test("notebook sections, text highlighting and inline drawings persist", async (
   await page.getByRole("button", { name: "New note", exact: true }).click();
   await page.getByLabel("Topic note title").fill("The useful idea");
   const editor = page.getByRole("textbox", { name: "Topic note content", exact: true });
-  await editor.fill("An important thought worth keeping."); await editor.press("Control+a");
+  await editor.fill("An important thought worth keeping.");
+  // Set a real DOM selection: emulated iPad WebKit has no hardware-keyboard
+  // select-all mapping. Formatting still runs through the actual ribbon button.
+  await editor.evaluate(el => {
+    const range = document.createRange(); range.selectNodeContents(el);
+    const selection = document.getSelection()!; selection.removeAllRanges(); selection.addRange(range);
+    document.dispatchEvent(new Event("selectionchange"));
+  });
+  await expect.poll(() => page.evaluate(() => document.getSelection()?.toString())).toBe("An important thought worth keeping.");
   await page.getByRole("button", { name: "Highlight text", exact: true }).click(); await expect(editor.locator("mark")).toHaveCount(1);
   await editor.press("ArrowRight"); await editor.press("End"); await editor.press("Enter");
   await page.getByRole("tab", { name: "Draw", exact: true }).click(); await page.getByRole("button", { name: "New drawing", exact: true }).click();

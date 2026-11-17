@@ -21,6 +21,7 @@ export async function clickTool(page: Page, name: string) {
   await page.getByRole("button", { name, exact: true }).click();
 }
 export async function showPassageAction(page: Page, name: string) {
+  await expect(page.locator(".passage-popup")).toHaveAttribute("aria-busy", "false");
   const action = page.getByRole("button", { name, exact: true });
   if (await action.isVisible()) return;
   const palette = /^(yellow|blue|green|pink|purple) highlight$/.test(name);
