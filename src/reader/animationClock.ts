@@ -1,6 +1,6 @@
 /** Private curl clock: no browser work while idle, and no idle-time jump when
  * resumed. A bounded timer keeps active folds moving when WebKit throttles RAF. */
-export function animationClock(request = requestAnimationFrame, cancel = cancelAnimationFrame) {
+export function animationClock(request = requestAnimationFrame, cancel = cancelAnimationFrame, now = () => performance.now()) {
   let running = false, next = 0, frame = 0, disposed = false, ticket = 0;
   let fallback: ReturnType<typeof setTimeout> | undefined;
   let time = 0, previous: number | undefined;
@@ -16,11 +16,11 @@ export function animationClock(request = requestAnimationFrame, cancel = cancelA
     frame = request(deliver);
     // Used only during an active turn/held fold. It is cancelled whenever the
     // normal animation frame arrives, and stopped entirely between turns.
-    fallback = setTimeout(() => deliver(performance.now()), 32);
+    fallback = setTimeout(() => deliver(now()), 32);
   };
   const tick = (timestamp: number) => {
     if (!running || disposed) return;
-    if (previous !== undefined) time += Math.max(0, Math.min(50, timestamp - previous));
+    if (previous !== undefined) time += Math.max(0, timestamp - previous);
     previous = timestamp;
     const pending = [...callbacks]; callbacks.clear();
     // Book in the owner realm before handing control to the vendor iframe.
@@ -31,7 +31,9 @@ export function animationClock(request = requestAnimationFrame, cancel = cancelA
   return {
     request: (callback: FrameRequestCallback) => { const id = ++next; callbacks.set(id, callback); if (callbacks.size) arm(); return id; },
     cancel: (id: number) => { callbacks.delete(id); if (!callbacks.size) disarm(); },
-    resume: () => { running = true; if (callbacks.size) arm(); },
+    // Exclude the idle gap, but count all active time. Capping frame deltas
+    // stretches animations under CPU load and can exceed their recovery limit.
+    resume: () => { if (!running) { running = true; previous = now(); } if (callbacks.size) arm(); },
     pause: () => { running = false; previous = undefined; disarm(); },
     destroy: () => { disposed = true; running = false; disarm(); callbacks.clear(); },
   };

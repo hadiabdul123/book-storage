@@ -8,7 +8,8 @@ it("pauses the vendor's perpetual animation without losing its pending frame", (
   let frame: FrameRequestCallback | undefined;
   const request = vi.fn((callback: FrameRequestCallback) => { frame = callback; return 1; });
   const cancel = vi.fn();
-  const clock = animationClock(request, cancel), draw = vi.fn();
+  let wall = 1000;
+  const clock = animationClock(request, cancel, () => wall), draw = vi.fn();
   const loop: FrameRequestCallback = time => { draw(time); clock.request(loop); };
   clock.request(loop);
   expect(request).not.toHaveBeenCalled();
@@ -19,6 +20,7 @@ it("pauses the vendor's perpetual animation without losing its pending frame", (
   expect(cancel).toHaveBeenCalledWith(1);
   const requests = request.mock.calls.length;
   expect(request).toHaveBeenCalledTimes(requests);
+  wall = 20_000;
   clock.resume(); frame!(20_000);
   expect(draw).toHaveBeenCalledTimes(2);
   expect(draw).toHaveBeenLastCalledWith(0);
@@ -59,11 +61,24 @@ it("keeps active folds moving when native RAF is throttled, then stops every wak
   clock.request(loop); clock.resume();
   await vi.advanceTimersByTimeAsync(100);
   expect(draw).toHaveBeenCalledTimes(3);
-  expect(draw).toHaveBeenLastCalledWith(64);
+  expect(draw).toHaveBeenLastCalledWith(96);
   clock.pause();
   const frames = request.mock.calls.length;
   await vi.advanceTimersByTimeAsync(1000);
   expect(draw).toHaveBeenCalledTimes(3);
   expect(request).toHaveBeenCalledTimes(frames);
+  clock.destroy();
+});
+
+it("counts sparse active frames fully without counting a long idle gap", () => {
+  let frame!: FrameRequestCallback, wall = 0;
+  const request = (callback: FrameRequestCallback) => { frame = callback; return 1; };
+  const clock = animationClock(request, () => {}, () => wall), draw = vi.fn();
+  const loop: FrameRequestCallback = time => { draw(time); clock.request(loop); };
+  clock.request(loop); clock.resume();
+  frame(250); frame(750);
+  expect(draw).toHaveBeenLastCalledWith(750);
+  clock.pause(); wall = 20_000; clock.resume(); frame(20_100);
+  expect(draw).toHaveBeenLastCalledWith(850);
   clock.destroy();
 });
