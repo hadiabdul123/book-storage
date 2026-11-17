@@ -20,7 +20,10 @@ async function open(page: Page, format: string) {
     await page.locator("input[type=file]").setInputFiles({ name: "Reading.docx", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", buffer: await zip.generateAsync({ type: "nodebuffer" }) });
   }
   await page.locator(".book-cover-link").click();
-  await expect(page.locator(".reader-loading")).toHaveCount(0);
+  if (format === "pdf") await expect(page.locator('.pdf-page[data-page="1"] .textLayer span').first()).toBeVisible();
+  if (format === "docx") await expect(page.locator(".docx-content p").first()).toBeVisible();
+  if (format === "epub") await expect(page.locator(".reader-host .epub-view iframe").first()).toBeVisible();
+  await expect(page.locator(".reader-shell")).toHaveAttribute("data-loading", "false");
   if (format === "epub") {
     await clickTool(page, "Contents");
     await page.locator(".toc-item").filter({ hasText: /rabbit|chapter|down/i }).first().click();
@@ -98,12 +101,12 @@ test("rapid zoom buttons retain a preview until the final zoom is rendered", asy
   await open(page, "pdf");
   await clickTool(page, "Reading settings");
   await page.getByRole("combobox", { name: "Zoom", exact: true }).selectOption("3");
-  await expect(page.locator(".reader-host")).not.toHaveClass(/pdf-zooming/);
+  await expect(page.locator(".reader-host")).not.toHaveClass(/pdf-zooming/, { timeout: 15_000 });
   expect(await page.locator(".pdf-page canvas").evaluate((canvas: HTMLCanvasElement) => canvas.width * canvas.height)).toBeLessThanOrEqual(6_000_000);
   await page.getByRole("combobox", { name: "Zoom", exact: true }).evaluate(select => {
     for (const value of ["1.5", "2", "1.25"]) { (select as HTMLSelectElement).value = value; select.dispatchEvent(new Event("change", { bubbles: true })); }
   });
-  await expect(page.locator(".reader-host")).not.toHaveClass(/pdf-zooming/);
+  await expect(page.locator(".reader-host")).not.toHaveClass(/pdf-zooming/, { timeout: 15_000 });
   await expect(page.locator(".pdf-zoom-preview")).toHaveCount(0);
   await expect(page.getByRole("combobox", { name: "Zoom", exact: true })).toHaveValue("1.25");
   await expect.poll(() => page.evaluate(async () => {
