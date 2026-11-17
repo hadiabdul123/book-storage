@@ -102,6 +102,13 @@ test("real EPUB highlight survives reload, typography changes and passage naviga
     .getByRole("button", { name: "blue highlight", exact: true })
     .click();
   await page.getByRole("button", { name: "Save note", exact: true }).click();
+  // The color action emitted the same toast. Wait for this note's committed
+  // action state before reloading, rather than accepting that earlier message.
+  await expect(page.locator(".passage-popup")).toHaveAttribute("data-mode", "tools");
+  await expect.poll(() => page.evaluate(async () => {
+    const { list } = await import("/src/db.ts");
+    return (await list("annotation")).some(a => a.note === "A note that must survive.");
+  })).toBe(true);
   await expect(
     page.getByText("Highlight saved on this device.", { exact: true }),
   ).toBeVisible();

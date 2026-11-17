@@ -12,6 +12,8 @@
 
 - The parallel offline check in run `44159854734` found background preparation appending an outbox item during the worker update (11 operations after, versus 10 before). The persistence assertion now compares the complete original operation IDs and payloads against the updated outbox, preserving the no-data-loss requirement while permitting new preparation work. Both production offline/update cases passed locally afterward. Application code is unchanged by this assertion correction.
 
+- Run `44161871282` passed all tablet, cloud, unit and offline checks, but two desktop/phone fixture races remained. The EPUB trace showed reload starting while Save note was still busy, because its assertion matched the preceding color-save toast. It now waits for the note action to finish and verifies the committed note before reload. The mobile notebook trace showed text already replaced before saving: emulated ArrowRight retained its select-all range, so Enter replaced the selected passage. The fixture now explicitly collapses its native range before Enter, verifies the marked text remains, and waits for saved status. All 12 repeated desktop/phone cases and type checking passed. These corrections change test synchronization only; application code is unchanged.
+
 ## Local highlight, page-turn and stylus follow-up on 2026-11-17
 
 Verified locally and not yet deployed. The owner requested committing the complete update after testing.

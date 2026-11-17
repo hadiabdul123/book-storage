@@ -99,12 +99,23 @@ test("notebook sections, text highlighting and inline drawings persist", async (
   });
   await expect.poll(() => page.evaluate(() => document.getSelection()?.toString())).toBe("An important thought worth keeping.");
   await page.getByRole("button", { name: "Highlight text", exact: true }).click(); await expect(editor.locator("mark")).toHaveCount(1);
-  await editor.press("ArrowRight"); await editor.press("End"); await editor.press("Enter");
+  // Mobile browser emulation can retain the DOM range through ArrowRight.
+  // Collapse the real selection before Enter so it cannot replace the passage.
+  await editor.evaluate(el => {
+    (el as HTMLElement).focus();
+    const range = document.createRange(); range.selectNodeContents(el); range.collapse(false);
+    const selection = document.getSelection()!; selection.removeAllRanges(); selection.addRange(range);
+    document.dispatchEvent(new Event("selectionchange"));
+  });
+  await expect.poll(() => page.evaluate(() => document.getSelection()?.isCollapsed)).toBe(true);
+  await editor.press("Enter");
+  await expect(editor.locator("mark")).toHaveText("An important thought worth keeping.");
   await page.getByRole("tab", { name: "Draw", exact: true }).click(); await page.getByRole("button", { name: "New drawing", exact: true }).click();
   await page.getByRole("button", { name: "Edit drawing", exact: true }).click();
   await draw(page, ".notebook-ink"); await expect(page.locator(".notebook-ink path")).toHaveCount(1);
   await page.getByRole("button", { name: "Done drawing", exact: true }).click();
   await page.getByRole("button", { name: "Save now", exact: true }).click();
+  await expect(page.locator(".topic-save-status")).toContainText("Saved on this device");
   await page.reload(); await expect(editor.locator("mark")).toHaveCount(1); await expect(page.locator(".notebook-ink path")).toHaveCount(1);
   await expect(page.getByLabel("Move page to section")).toHaveValue(await page.evaluate(async () => { const { list } = await import("/src/db.ts"); return (await list("notebook-section")).find(s => s.title === "Questions")!.id; }));
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
