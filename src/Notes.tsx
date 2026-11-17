@@ -1,4 +1,5 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
+import { BrowsePages, SourceNavigator, pageOf, useBrowseState } from "./browse";
 import { Link } from "react-router-dom";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Search, Download, Highlighter } from "lucide-react";
@@ -15,24 +16,22 @@ export function Notes() {
   const ink = useLiveQuery(() => list("ink-stroke"), []) || [];
   const notebookPages = useLiveQuery(() => list("notebook-note"), []) || [];
   const notebooks = useLiveQuery(() => list("notebook"), []) || [];
-  const [selected, setSelected] = useState("");
-  const [tag, setTag] = useState("");
-  const [detail, setDetail] = useState(false);
-  const [query, setQuery] = useState(""),
-    [bookId, setBookId] = useState(""),
-    [color, setColor] = useState(""),
-    [sort, setSort] = useState("newest"),
-    [type, setType] = useState("all"),
-    [editing, setEditing] = useState<Annotation>();
+  const browse = useBrowseState();
+  const selected = browse.value("item");
+  const query = browse.value("q"), bookId = browse.value("book"), notebookSource = browse.value("notebook"), color = browse.value("color"), sort = browse.value("sort", "newest"), type = browse.value("type", "all"), tag = browse.value("tag");
+  const change = (key: string, value: string) => browse.update({ [key]: value, page: "1" });
+  const setQuery = (v: string) => change("q", v), setBookId = (v: string) => browse.update({ book: v, notebook: "", page: "1", item: "" }), setColor = (v: string) => change("color", v), setSort = (v: string) => change("sort", v), setType = (v: string) => change("type", v), setTag = (v: string) => change("tag", v);
+  const [editing, setEditing] = useState<Annotation>();
+  const bookMap = useMemo(() => new Map(books.map(b => [b.id, b])), [books]);
   const filtered = annotations
     .filter(
       (a) =>
-        books.some((b) => b.id === a.bookId) &&
+        bookMap.has(a.bookId) &&
         (!bookId || a.bookId === bookId) &&
         (!color || a.color === color) &&
         (!tag || a.tags.includes(tag)) &&
         (type === "all" || (a.type || "highlight") === type) &&
-        `${a.text} ${a.note} ${a.locator.type === "pdf" ? a.locator.page : ""} ${a.tags.join(" ")} ${books.find((b) => b.id === a.bookId)?.title}`
+        `${a.text} ${a.note} ${a.locator.type === "pdf" ? a.locator.page : ""} ${a.tags.join(" ")} ${bookMap.get(a.bookId)?.title}`
           .toLowerCase()
           .includes(query.toLowerCase()),
     )
@@ -41,26 +40,30 @@ export function Notes() {
         ? a.createdAt.localeCompare(b.createdAt)
         : b.createdAt.localeCompare(a.createdAt),
     );
-  const drawingGroups = new Map<string, { title: string; subtitle: string; href: string; strokes: InkStroke[] }>();
+  const drawingGroups = new Map<string, { sourceId: string; title: string; subtitle: string; href: string; strokes: InkStroke[] }>();
   for (const s of ink) {
     const t = s.target;
     if (t.type === "pdf") {
-      const book = books.find(b => b.id === t.bookId); if (!book || book.hash !== t.hash || bookId && bookId !== book.id) continue;
+      const book = bookMap.get(t.bookId); if (!book || book.hash !== t.hash) continue;
       const key = `drawing:${book.id}:${t.page}`;
-      if (!drawingGroups.has(key)) drawingGroups.set(key, { title: book.title, subtitle: `Drawing on page ${t.page}`, href: `/read/${book.id}?source=${encodeURIComponent(JSON.stringify({ v: 1, type: "pdf", hash: t.hash, page: t.page, y: 0 }))}`, strokes: [] });
+      if (!drawingGroups.has(key)) drawingGroups.set(key, { sourceId: `book:${book.id}`, title: book.title, subtitle: `Drawing on page ${t.page}`, href: `/read/${book.id}?source=${encodeURIComponent(JSON.stringify({ v: 1, type: "pdf", hash: t.hash, page: t.page, y: 0 }))}`, strokes: [] });
       drawingGroups.get(key)!.strokes.push(s);
-    } else if (!bookId) {
+    } else {
       const note = notebookPages.find(n => n.id === t.noteId), notebook = note && notebooks.find(n => n.id === note.notebookId);
       if (!note || !notebook || !JSON.stringify(note.document).includes(t.blockId)) continue;
       const key = `drawing:${note.id}:${t.blockId}`;
-      if (!drawingGroups.has(key)) drawingGroups.set(key, { title: notebook.title, subtitle: `Drawing · ${note.title}`, href: `/notebooks?note=${note.id}`, strokes: [] });
+      if (!drawingGroups.has(key)) drawingGroups.set(key, { sourceId: `notebook:${notebook.id}`, title: notebook.title, subtitle: `Drawing · ${note.title}`, href: `/notebooks?note=${note.id}`, strokes: [] });
       drawingGroups.get(key)!.strokes.push(s);
     }
   }
-  const drawings = [...drawingGroups].filter(([, d]) => !color && !tag && `${d.title} ${d.subtitle}`.toLowerCase().includes(query.toLowerCase()));
-  const rows = [...filtered.map(a => ({ id: a.id, title: books.find(b => b.id === a.bookId)?.title || "Book", subtitle: a.locator.type === "pdf" ? `Page ${a.locator.page}` : a.locator.type === "epub" ? "Book passage" : "Document passage", text: a.text || a.note, color: colors[a.color], annotation: a, drawing: undefined as typeof drawings[number][1] | undefined })), ...(type === "all" || type === "drawing" ? drawings.map(([id, d]) => ({ id, title: d.title, subtitle: d.subtitle, text: "Handwritten notes and marks", color: "#315c86", annotation: undefined, drawing: d })) : [])];
-  const active = rows.find(r => r.id === selected) || rows[0];
-  const grouped = [...new Set(rows.map(r => r.title))];
+  const drawings = [...drawingGroups].filter(([, d]) => !color && !tag && (!bookId || d.sourceId === `book:${bookId}`) && (!notebookSource || d.sourceId === `notebook:${notebookSource}`) && `${d.title} ${d.subtitle}`.toLowerCase().includes(query.toLowerCase()));
+  const rows = [...(notebookSource ? [] : filtered).map(a => ({ id: a.id, sourceId: `book:${a.bookId}`, title: bookMap.get(a.bookId)?.title || "Book", subtitle: a.locator.type === "pdf" ? `Page ${a.locator.page}` : a.locator.type === "epub" ? "Book passage" : "Document passage", text: a.text || a.note, color: colors[a.color], annotation: a, drawing: undefined as typeof drawings[number][1] | undefined })), ...(type === "all" || type === "drawing" ? drawings.map(([id, d]) => ({ id, sourceId: d.sourceId, title: d.title, subtitle: d.subtitle, text: "Handwritten notes and marks", color: "#315c86", annotation: undefined, drawing: d })) : [])];
+  const page = pageOf(rows, browse.value("page"));
+  const active = rows.find(r => r.id === selected) || page.items[0];
+  const detail = !!selected && !!active;
+  const grouped = [...new Set(page.items.map(r => r.sourceId))];
+  const drawingCount = (id: string) => [...drawingGroups.values()].filter(d => d.sourceId === id).length;
+  const sourceItems = [...books.map(b => ({ id: `book:${b.id}`, title: b.title, detail: b.author, count: annotations.filter(a => a.bookId === b.id).length + drawingCount(`book:${b.id}`) })), ...notebooks.map(n => ({ id: `notebook:${n.id}`, title: n.title, detail: "Notebook drawings", count: drawingCount(`notebook:${n.id}`) }))];
   return (
     <div className={`notes-page notes-browser ${detail ? "notes-detail-open" : ""}`}>
       <header className="page-header">
@@ -70,7 +73,7 @@ export function Notes() {
             Highlights & notes
             <span className="count">
               {
-                annotations.filter((a) => books.some((b) => b.id === a.bookId))
+                annotations.filter((a) => bookMap.has(a.bookId))
                   .length
               }
             </span>
@@ -82,7 +85,7 @@ export function Notes() {
             aria-label="Export notes"
             value=""
             onChange={(e) => {
-              if (e.target.value && type === "drawing") { void import("./researchBackup").then(m => m.exportInkBackup(drawings.flatMap(([, d]) => d.strokes))); return; }
+              if (e.target.value && (type === "drawing" || !!notebookSource)) { void import("./researchBackup").then(m => m.exportInkBackup(drawings.flatMap(([, d]) => d.strokes))); return; }
               if (e.target.value)
                 exportAnnotations(
                   filtered,
@@ -93,8 +96,8 @@ export function Notes() {
             }}
           >
             <option value="">Export</option>
-            <option value="md" disabled={type === "drawing"}>Markdown</option>
-            <option value="csv" disabled={type === "drawing"}>CSV</option>
+            <option value="md" disabled={type === "drawing" || !!notebookSource}>Markdown</option>
+            <option value="csv" disabled={type === "drawing" || !!notebookSource}>CSV</option>
             <option value="json">JSON backup</option>
           </select>
         </label>
@@ -154,19 +157,13 @@ export function Notes() {
         </select>
         <select aria-label="Filter by tag" value={tag} onChange={e => setTag(e.target.value)}><option value="">Every tag</option>{[...new Set(annotations.flatMap(a => a.tags))].sort().map(t => <option key={t}>{t}</option>)}</select>
       </div>
+      <div className="filter-summary"><span>{rows.length} matching saved items</span>{(query || bookId || notebookSource || color || tag || type !== "all") && <button onClick={() => browse.update({ q: "", book: "", notebook: "", color: "", tag: "", type: "", page: "1", item: "" })}>Clear filters</button>}</div>
+      <div className="source-layout"><SourceNavigator label="Books & notebooks" value={bookId ? `book:${bookId}` : notebookSource ? `notebook:${notebookSource}` : ""} items={sourceItems} onChange={id => browse.update({ book: id.startsWith("book:") ? id.slice(5) : "", notebook: id.startsWith("notebook:") ? id.slice(9) : "", page: "1", item: "" })} /><div>
       {rows.length ? (
         <div className="notes-browser-layout">
-          <nav className="notes-passage-list" aria-label="Saved passages and drawings"><p className="notes-result-count">{rows.length} saved {rows.length === 1 ? "item" : "items"}</p>{grouped.map(title => <section key={title}><h2>{title}</h2>{rows.filter(r => r.title === title).map(r => <button key={r.id} aria-current={active?.id === r.id ? "page" : undefined} style={{ borderLeftColor: r.color }} onClick={() => { setSelected(r.id); setDetail(true); }}><small>{r.subtitle}</small><span>{r.text.slice(0, 150)}</span>{r.annotation?.note && <em>{r.annotation.note.slice(0, 80)}</em>}</button>)}</section>)}</nav>
-          <div className="notes-preview-pane"><button className="text-button notes-back-list" onClick={() => setDetail(false)}>Back to saved items</button>
-          {filtered.map((a) => (
-            <div key={a.id} hidden={active?.id !== a.id}>
-            <AnnotationCard
-              annotation={a}
-              book={books.find((b) => b.id === a.bookId)}
-              onEdit={() => setEditing(a)}
-            />
-            </div>
-          ))}
+          <nav className="notes-passage-list" aria-label="Saved passages and drawings"><p className="notes-result-count">{rows.length} saved {rows.length === 1 ? "item" : "items"}</p>{grouped.map(source => <section key={source}><h2>{page.items.find(r => r.sourceId === source)?.title}</h2>{page.items.filter(r => r.sourceId === source).map(r => <button key={r.id} aria-current={active?.id === r.id ? "page" : undefined} style={{ borderLeftColor: r.color }} onClick={() => browse.update({ item: r.id }, false)}><small>{r.subtitle}</small><span>{r.text.slice(0, 150)}</span>{r.annotation?.note && <em>{r.annotation.note.slice(0, 80)}</em>}</button>)}</section>)}</nav>
+          <div className="notes-preview-pane"><button className="text-button notes-back-list" onClick={() => browse.update({ item: "" })}>Back to saved items</button>
+          {active?.annotation && <AnnotationCard annotation={active.annotation} book={bookMap.get(active.annotation.bookId)} onEdit={() => setEditing(active.annotation)} />}
           {active?.drawing && <article className="drawing-detail"><h2>{active.title}</h2><p>{active.subtitle}</p><Suspense fallback={<p>Opening drawing preview…</p>}><InkPreview strokes={active.drawing.strokes} /></Suspense><Link className="primary" to={active.drawing.href}>Open drawing</Link><p className="muted">Use Draw to edit or erase strokes. Drawings sync with your library.</p></article>}
           </div>
         </div>
@@ -186,6 +183,7 @@ export function Notes() {
           </p>
         </Empty>
       )}
+      <BrowsePages {...page} label="Items" onChange={n => browse.update({ page: String(n), item: "" })} /></div></div>
       {editing && (
         <EditAnnotation
           annotation={editing}

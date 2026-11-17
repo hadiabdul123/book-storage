@@ -1,5 +1,8 @@
 type Point = { x: number; y: number };
 type ZoomActions = {
+  interaction?: (active: boolean) => void;
+  target?: (zoom: number) => void;
+  settled?: (zoom: number) => void;
   value: () => number;
   preview: (ratio: number, point: Point, origin: Point) => void;
   clear: () => void;
@@ -19,16 +22,18 @@ export function bindPdfZoom(host: HTMLElement, actions: ZoomActions) {
   let pinchOrigin = point, pinchPoint = point;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const paint = () => { frame = 0; if (!disposed && previewing) actions.preview(target / base, point, origin); };
-  const show = (value: number) => { target = clamp(value); if (!frame) frame = requestAnimationFrame(paint); };
+  const show = (value: number) => { target = clamp(value); actions.target?.(target); if (!frame) frame = requestAnimationFrame(paint); };
   const begin = (at: Point) => {
     if (!previewing) { base = target = actions.value(); origin = point = at; previewing = true; }
-    active = true; clearTimeout(timer);
+    active = true; actions.interaction?.(true); clearTimeout(timer);
   };
   const drain = async () => {
     if (busy || active || disposed) return;
     busy = true;
+    let attempts = 0;
     try {
       while (!active && !disposed) {
+        if (++attempts > 8) throw new Error("The view could not settle. Reset zoom or reopen the book.");
         const requested = Math.round(target * 100) / 100;
         if (previewing || requested !== actions.value()) await actions.commit(requested, point);
         if (active || disposed) break;
@@ -42,7 +47,7 @@ export function bindPdfZoom(host: HTMLElement, actions: ZoomActions) {
   };
   const finish = () => {
     clearTimeout(timer); if (!active) return;
-    active = false; distance = 0; cancelAnimationFrame(frame); paint(); void drain();
+    active = false; actions.interaction?.(false); actions.settled?.(Math.round(target * 100) / 100); distance = 0; cancelAnimationFrame(frame); paint(); void drain();
   };
   const request = (value: number) => {
     const box = host.getBoundingClientRect(); begin({ x: box.left + box.width / 2, y: box.top + 28 });
@@ -77,7 +82,7 @@ export function bindPdfZoom(host: HTMLElement, actions: ZoomActions) {
     show(pinchBase * span(event.touches) / distance);
   };
   const end = (event: TouchEvent) => { if (distance && event.touches.length < 2) { if (event.cancelable) event.preventDefault(); finish(); } };
-  const cancel = () => { clearTimeout(timer); active = false; distance = 0; target = actions.value(); cancelAnimationFrame(frame); frame = 0; actions.clear(); previewing = false; };
+  const cancel = () => { clearTimeout(timer); active = false; actions.interaction?.(false); distance = 0; target = actions.value(); cancelAnimationFrame(frame); frame = 0; actions.clear(); previewing = false; };
   host.addEventListener("wheel", wheel, { passive: false }); host.addEventListener("touchstart", start, { passive: false });
   host.addEventListener("touchmove", move, { passive: false }); host.addEventListener("touchend", end, { passive: false });
   host.addEventListener("touchcancel", cancel); doc.addEventListener("keydown", key);

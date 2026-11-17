@@ -56,6 +56,7 @@ test("an authenticated production install opens offline with an expired session 
     await offlinePage.getByRole("textbox", { name: "Research question" }).fill("What is cosmic expansion?"); await offlinePage.getByRole("button", { name: "Save question for later" }).click(); await expect(offlinePage.locator(".research-pending")).toContainText("cosmic expansion");
     await context.setOffline(false); await offlinePage.evaluate(() => window.dispatchEvent(new Event("online")));
     await expect(offlinePage.locator(".research-answer")).toContainText("universe expands", { timeout: 25000 });
+    await offlinePage.getByRole("tab", { name: "Notes", exact: true }).click();
     await expect(offlinePage.getByRole("textbox", { name: "Topic note content" })).toContainText("Edited while fully offline");
     expect(errors).toEqual([]);
   } finally { await context.close(); if (path.dirname(profile) !== root) throw new Error("Unexpected test profile"); rmSync(profile, { recursive: true, force: true }); }

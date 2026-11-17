@@ -61,7 +61,8 @@ import "./readerChrome.css";
 import { useReaderChrome } from "./useReaderChrome";
 import {
   readDeviceReading,
-  writeDeviceReading,
+  queueDeviceReading as writeDeviceReading,
+  flushDeviceReading,
   devicePdfLayout,
   initializeDeviceReading,
   type DeviceReading,
@@ -98,9 +99,10 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   }, [savedPrefs]);
   const pdfPrefs = useLiveQuery(() => get("preferences", `pdf:${id}`), [id]);
   const localView = useLiveQuery(() => readDeviceReading(id), [id]);
+  const [settingsSaveError, setSettingsSaveError] = useState(false);
   const [optimisticView, setOptimisticView] = useState<DeviceReading>({});
   const effectiveView = { ...localView, ...optimisticView };
-  useEffect(() => { setOptimisticView({}); }, [id]);
+  useEffect(() => { setOptimisticView({}); return () => { void flushDeviceReading(id); }; }, [id]);
   useEffect(() => {
     if (!localView) return;
     setOptimisticView(prior => {
@@ -110,21 +112,21 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
     });
   }, [localView]);
   const [pdfOriginalColors, setPdfOriginalColors] = useState(false);
-  useEffect(() => setPdfOriginalColors(!!localView?.pdfOriginalColors), [id, localView?.pdfOriginalColors]);
+  useEffect(() => setPdfOriginalColors(!!effectiveView.pdfOriginalColors), [id, effectiveView.pdfOriginalColors]);
   const toggleOriginalColors = (enabled: boolean) => {
-    setPdfOriginalColors(enabled);
+    setPdfOriginalColors(enabled); setOptimisticView(prior => ({ ...prior, pdfOriginalColors: enabled }));
     void writeDeviceReading(id, { pdfOriginalColors: enabled }).catch(error => {
-      setPdfOriginalColors(current => current === enabled ? !enabled : current);
+      setSettingsSaveError(true);
       notify(messageOf(error));
     });
   };
   const [swipeToTurn, setSwipeToTurn] = useState(false);
   const [hidePageControls, setHidePageControls] = useState(false);
-  useEffect(() => setHidePageControls(!!localView?.hidePageControls), [id, localView?.hidePageControls]);
+  useEffect(() => setHidePageControls(!!effectiveView.hidePageControls), [id, effectiveView.hidePageControls]);
   const togglePageControls = (hidden: boolean) => {
-    setHidePageControls(hidden);
+    setHidePageControls(hidden); setOptimisticView(prior => ({ ...prior, hidePageControls: hidden }));
     void writeDeviceReading(id, { hidePageControls: hidden }).catch(error => {
-      setHidePageControls(current => current === hidden ? !hidden : current);
+      setSettingsSaveError(true);
       notify(messageOf(error));
     });
   };
@@ -146,7 +148,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
     pageTurnEffect: effectiveView.pageTurnEffect ?? "curl",
   };
   const paginated = book?.format === "pdf" ? pdfLayout.navigation === "paginated" : prefs.flow === "paginated";
-  useEffect(() => setSwipeToTurn(localView?.swipeToTurn ?? paginated), [id, localView?.swipeToTurn, paginated]);
+  useEffect(() => setSwipeToTurn(effectiveView.swipeToTurn ?? paginated), [id, effectiveView.swipeToTurn, paginated]);
   const shell = useRef<HTMLElement>(null);
   const fullscreen = useReaderFullscreen(shell, notify);
   const [quietFullscreen, setQuietFullscreen] = useState(false);
@@ -366,7 +368,8 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
         canSwipe,
         canPrepare: () => backgroundAllowed.current && Date.now() - lastActive > 1000,
         canDragTurn,
-        canEdgeTurn: () => !backgroundBlocked.current && !adapter.current?.hasSelection(),
+        canEdgeTurn: () => !backgroundBlocked.current && !adapter.current?.hasSelection() &&
+          !shell.current?.querySelector(".passage-popup,.pdf-selection-handle"),
         onReaderSwipe: turnSwipe,
         onPageNote: (page) => openNotebookRef.current(page),
         onRegionMode: setRegion,
@@ -503,20 +506,22 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
       void openNotebook(current.page);
   }, [current?.type === "pdf" ? current.page : 0, pinned, panel]);
   async function configurePdf(patch: Partial<PdfLayout>) {
+    setSettingsSaveError(false);
     setOptimisticView(prior => ({ ...prior, pdfLayout: { ...pdfLayout, ...prior.pdfLayout, ...patch } }));
     try {
       await writeDeviceReading(id, prior => ({ pdfLayout: { ...devicePdfLayout(prior, pdfPrefs?.pdfLayout, phone), ...patch } }));
     } catch (e) {
-      setOptimisticView({});
+      setSettingsSaveError(true);
       notify(messageOf(e));
     }
   }
   async function configure(patch: Partial<Preferences>) {
+    setSettingsSaveError(false);
     setOptimisticView(prior => ({ ...prior, ...patch }));
     try {
       await writeDeviceReading(id, patch);
     } catch (e) {
-      setOptimisticView({});
+      setSettingsSaveError(true);
       notify(messageOf(e));
     }
   }
@@ -534,6 +539,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   async function setPdfView(z: number, r: number) {
     setZoom(z);
     setRotation(r);
+    void writeDeviceReading(id, { zoom: z, rotation: r }).catch(e => notify(messageOf(e)));
     try {
       if (r === rotation) {
         (adapter.current as import("./reader/pdf").PdfReader)?.requestZoom(z);
@@ -543,7 +549,6 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
         z,
         r,
       );
-      await writeDeviceReading(id, { zoom: z, rotation: r });
     } catch (e) {
       notify(messageOf(e));
     }
@@ -1033,7 +1038,8 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
               )}
               {panel === "settings" && (
                 <>
-                  <p className="muted" role="status">Changes apply to all books on this device.</p>
+                  {settingsSaveError && <button className="secondary" onClick={() => { void writeDeviceReading(id, { ...effectiveView, zoom, rotation }).then(() => setSettingsSaveError(false), e => notify(messageOf(e))); }}>Retry saving settings</button>}
+                    <p className="muted" role="status">Changes apply to all books on this device.</p>
                   <label className="pin-controls">
                     <input
                       type="checkbox"
@@ -1063,7 +1069,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
                             checked={swipeToTurn}
                             onChange={(e) => {
                               const enabled = e.target.checked;
-                              setSwipeToTurn(enabled);
+                              setSwipeToTurn(enabled); setOptimisticView(prior => ({ ...prior, swipeToTurn: enabled }));
                               void writeDeviceReading(id, prior => ({
                                 swipeToTurn: enabled,
                                 ...(book.format === "pdf"
@@ -1080,7 +1086,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
                                       flow: enabled ? "paginated" : "scrolled",
                                     }),
                               })).catch((error) => {
-                                setSwipeToTurn(current => current === enabled ? !enabled : current);
+                                setSettingsSaveError(true);
                                 notify(messageOf(error));
                               });
                             }}

@@ -232,6 +232,13 @@ export const ReaderInteractions = forwardRef<
       selectionTimer.current = setTimeout(() => selectNow(value), 180);
     } else selectNow(value, annotationId);
   };
+  const closeSelection = () => {
+    clearTimeout(selectionTimer.current);
+    pendingSelection.current = undefined;
+    latest.current = { ...latest.current, selected: null, chosen: undefined, open: false };
+    setOpen(false); setSelected(null); setChosen(undefined); setMode("tools");
+    adapter.current?.clearSelection();
+  };
   useEffect(() => () => clearTimeout(selectionTimer.current), []);
   async function perform(
     label: string,
@@ -270,8 +277,7 @@ export const ReaderInteractions = forwardRef<
   const shortcut = (event: KeyboardEvent) => {
     if (event.key === "Escape" && open) {
       event.preventDefault();
-      setOpen(false);
-      adapter.current?.clearSelection();
+      closeSelection();
       return;
     }
     if (event.defaultPrevented || typingTarget(event.target)) return;
@@ -313,24 +319,25 @@ export const ReaderInteractions = forwardRef<
           ".passage-popup, .passage-bookmark, .reader-action-buttons, .reader-feedback, .pdf-selection-handle",
         )
       ) {
-        setOpen(false);
-        if (!host.current?.contains(element)) adapter.current?.clearSelection();
+        closeSelection();
       }
     };
-    let began: { x: number; y: number; time: number } | undefined;
+    let began: { x: number; y: number; time: number; open: boolean } | undefined;
     const touchStart = (e: PointerEvent) => {
       began = host.current?.contains(e.target as Node)
-        ? { x: e.clientX, y: e.clientY, time: Date.now() }
+        ? { x: e.clientX, y: e.clientY, time: Date.now(), open: latest.current.open }
         : undefined;
     };
     const touchEnd = (e: PointerEvent) => {
       if (
         began &&
+        began.open &&
+        !(e.target as Element).closest?.(".pdf-selection-handle") &&
         Date.now() - began.time < 250 &&
         Math.hypot(e.clientX - began.x, e.clientY - began.y) < 8 &&
         document.getSelection()?.isCollapsed
       )
-        setOpen(false);
+        closeSelection();
       began = undefined;
     };
     document.addEventListener("pointerdown", touchStart);
@@ -348,7 +355,7 @@ export const ReaderInteractions = forwardRef<
     adjusting: selectionInteraction,
     select,
     shortcut,
-    dismiss: () => setOpen(false),
+    dismiss: closeSelection,
     openAnnotation: (id) => {
       const a = annotations.find((a) => a.id === id);
       if (a) select({ text: a.text, locator: a.locator }, id);
@@ -738,7 +745,9 @@ export const ReaderInteractions = forwardRef<
                   void attempt(async () => {
                     const d = Object.values(drafts)[0];
                     await adapter.current?.goTo(d.selection.locator);
-                    select(d.selection, d.annotationId);
+                    clearTimeout(selectionTimer.current);
+                    pendingSelection.current = undefined;
+                    selectNow(d.selection, d.annotationId);
                     setMode("note");
                   })
                 }
@@ -812,8 +821,7 @@ export const ReaderInteractions = forwardRef<
               className="icon-button"
               aria-label="Close selection tools"
               onClick={() => {
-                setOpen(false);
-                adapter.current?.clearSelection();
+                closeSelection();
               }}
             >
               <X size={16} />

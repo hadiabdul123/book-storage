@@ -1,0 +1,110 @@
+import { test, expect, type Page } from "@playwright/test";
+import { PDFDocument, StandardFonts } from "pdf-lib";
+import { clickTool, showPassageAction } from "./controls";
+test.use({ hasTouch: true });
+test.beforeEach(async ({ page }) => { await page.addInitScript(() => localStorage.setItem("leafmark-controls-pinned", "true")); });
+async function drawingReady(page: Page) {
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  await expect(page.locator(".reader-host")).toHaveAttribute("aria-busy", "false");
+}
+async function open(page: Page) {
+  const pdf = await PDFDocument.create(), font = await pdf.embedFont(StandardFonts.Helvetica), text = "Keep this thoughtful passage";
+  for (let i = 0; i < 3; i++) pdf.addPage([400,600]).drawText(text, { x: 392 - font.widthOfTextAtSize(text, 18), y: 400, size: 18, font });
+  await page.goto("/"); await page.locator("input[type=file]").setInputFiles({ name: "Gesture safety.pdf", mimeType: "application/pdf", buffer: Buffer.from(await pdf.save()) });
+  await expect(page.locator(".book-card")).toHaveCount(1); await page.locator(".book-cover-link").click();
+  await expect(page.locator(".reader-shell")).toHaveAttribute("data-loading", "false");
+  await clickTool(page, "Reading settings");
+  await page.getByRole("combobox", { name: "Navigation", exact: true }).selectOption("paginated"); await page.getByRole("combobox", { name: "Fit", exact: true }).selectOption("page");
+  await page.getByRole("button", { name: "Close panel", exact: true }).click();
+  await expect(page.locator(".reader-host")).toHaveAttribute("aria-busy", "false");
+  await expect(page.locator('.pdf-page[data-page="1"] .textLayer span').first()).toBeVisible();
+}
+test("holding and adjusting an edge passage never turns the highlighted page", async ({ page, browserName }) => {
+  test.skip(browserName !== "chromium", "Real long-press injection requires CDP.");
+  await open(page); await clickTool(page, "Reading mode");
+  const r = (await page.locator('.pdf-page[data-page="1"] .textLayer span').first().boundingBox())!;
+  const cdp = await page.context().newCDPSession(page), x = r.x + r.width - 3, y = r.y + r.height / 2;
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{x,y}] }); await page.waitForTimeout(650);
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: x - 100, y }] });
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await expect(page.locator(".passage-popup")).toBeVisible();
+  const handle = (await page.getByRole("button", { name: "Drag selection start", exact: true }).boundingBox())!;
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: handle.x + 22, y: handle.y + 22 }] });
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: r.x + 10, y: r.y - 6 }] });
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] }); await cdp.detach();
+  await expect(page.locator('.pdf-page[data-page="1"]')).toBeVisible(); await expect(page.locator('.pdf-page[data-page="2"]')).toBeHidden();
+  await expect(page.locator(".paper-turn-stage")).toHaveCount(0);
+});
+test("mouse text selection starting inside the turn edge keeps the page still", async ({ page }) => {
+  await open(page); await clickTool(page, "Reading mode");
+  const r = (await page.locator('.pdf-page[data-page="1"] .textLayer span').first().boundingBox())!;
+  await page.mouse.move(r.x + r.width - 3, r.y + r.height / 2); await page.mouse.down();
+  await page.mouse.move(r.x + 8, r.y + r.height / 2, { steps: 12 }); await page.mouse.up();
+  await expect.poll(() => page.evaluate(() => document.getSelection()?.toString().length || 0)).toBeGreaterThan(5);
+  await expect(page.locator(".passage-popup")).toBeVisible(); await expect(page.locator('.pdf-page[data-page="2"]')).toBeHidden();
+  await expect(page.locator(".paper-turn-stage")).toHaveCount(0);
+});
+test("stylus wins over a resting palm and unrelated palm cancellation at zoom", async ({ page, browserName }) => {
+  test.skip(browserName !== "chromium", "Native stylus injection requires CDP.");
+  await open(page); await clickTool(page, "Draw on PDF"); await drawingReady(page);
+  const svg = page.locator('.pdf-page[data-page="1"] .pdf-ink-layer'), host = (await page.locator(".reader-host").boundingBox())!;
+  const x = host.x + host.width * .45, y = host.y + Math.min(250, host.height * .4), cdp = await page.context().newCDPSession(page);
+  // Pinch while drawing is enabled, then write with the pen after sharpening.
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: x - 45, y }, { x: x + 45, y }] });
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: x - 90, y }, { x: x + 90, y }] });
+  await expect(page.locator(".pdf-zoom-preview")).toHaveCount(1);
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await drawingReady(page); await expect(page.locator(".pdf-zoom-preview")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Reset page zoom", exact: true })).toContainText("200%");
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: x + 80, y: y + 80 }] });
+  await cdp.send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", buttons: 1, pointerType: "pen", force: .4 });
+  await expect(svg).toHaveAttribute("data-ink-pen-active", "true");
+  await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: x + 35, y: y + 20, button: "left", buttons: 1, pointerType: "pen", force: .7 });
+  await svg.dispatchEvent("pointercancel", { pointerId: 999, pointerType: "touch", bubbles: true });
+  await expect(svg).toHaveAttribute("data-ink-pen-active", "true");
+  await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: x + 70, y, button: "left", buttons: 1, pointerType: "pen", force: .6 });
+  await cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: x + 70, y, button: "left", buttons: 0, pointerType: "pen" });
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] }); await cdp.detach();
+  await expect(svg.locator("path")).toHaveCount(1);
+  const strokes = await page.evaluate(async () => { const { list } = await import("/src/db.ts"); return list("ink-stroke"); });
+  expect(strokes).toHaveLength(1); expect(strokes[0].points.length).toBeGreaterThan(2);
+  expect(strokes[0].points.some(p => p[2] > .6)).toBe(true);
+  await page.reload(); await expect(page.locator('.pdf-page[data-page="1"] .pdf-ink-layer path')).toHaveCount(1);
+});
+test("zoom finishes an active pen stroke in the old coordinates before redrawing", async ({ page, browserName }) => {
+  test.skip(browserName !== "chromium", "Native stylus injection requires CDP.");
+  await open(page); await clickTool(page, "Draw on PDF"); await drawingReady(page);
+  const host = (await page.locator(".reader-host").boundingBox())!, x = host.x + host.width * .4, y = host.y + Math.min(260, host.height * .4);
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", buttons: 1, pointerType: "pen", force: .5 });
+  await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: x + 30, y: y + 20, button: "left", buttons: 1, pointerType: "pen", force: .7 });
+  await expect(page.locator(".pdf-ink-layer[data-ink-pen-active=true]")).toHaveCount(1);
+  await page.getByRole("button", { name: "Reading settings", exact: true }).evaluate((button: HTMLButtonElement) => button.click());
+  await page.getByRole("combobox", { name: "Zoom", exact: true }).selectOption("2");
+  await expect(page.locator(".reader-host")).toHaveAttribute("aria-busy", "false");
+  await expect(page.locator(".pdf-zoom-preview")).toHaveCount(0);
+  await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: x + 100, y: y + 80, button: "left", buttons: 1, pointerType: "pen", force: .8 });
+  await cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: x + 100, y: y + 80, button: "left", buttons: 0, pointerType: "pen" }); await cdp.detach();
+  await expect(page.locator('.pdf-page[data-page="1"] .pdf-ink-layer path')).toHaveCount(1);
+  const strokes = await page.evaluate(async () => { const { list } = await import("/src/db.ts"); return list("ink-stroke"); });
+  expect(strokes).toHaveLength(1); expect(strokes[0].points).toHaveLength(2);
+});
+
+
+test("an edge tap dismisses saved-highlight tools without turning until the next tap", async ({ page }) => {
+  await open(page); await clickTool(page, "Reading mode");
+  const span = page.locator('.pdf-page[data-page="1"] .textLayer span').first();
+  await span.evaluate(el => { const r = document.createRange(); r.selectNodeContents(el); const s = document.getSelection()!; s.removeAllRanges(); s.addRange(r); document.dispatchEvent(new Event("selectionchange")); });
+  await showPassageAction(page, "yellow highlight"); await page.getByRole("button", { name: "yellow highlight", exact: true }).click();
+  await expect(page.locator(".pdf-highlight")).toHaveCount(1); await page.keyboard.press("Escape");
+  await expect(page.locator(".passage-popup")).toHaveCount(0);
+  const mark = (await page.locator(".pdf-highlight").boundingBox())!;
+  await page.touchscreen.tap(mark.x + mark.width / 2, mark.y + mark.height / 2);
+  await expect(page.locator(".passage-popup")).toBeVisible();
+  expect(await page.evaluate(() => document.getSelection()?.toString() || "")).toBe("");
+  const paper = (await page.locator('.pdf-page[data-page="1"]').boundingBox())!;
+  const x = paper.x + paper.width - 8, y = paper.y + paper.height * .75;
+  await page.touchscreen.tap(x, y);
+  await expect(page.locator(".passage-popup")).toHaveCount(0); await expect(page.locator('.pdf-page[data-page="2"]')).toBeHidden();
+  await page.touchscreen.tap(x, y); await expect(page.locator('.pdf-page[data-page="2"]')).toBeVisible();
+});

@@ -1,5 +1,6 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
+import { BrowsePages, SourceNavigator, pageOf, useBrowseState } from "./browse";
 import { Link } from "react-router-dom";
 import {
   Plus,
@@ -29,12 +30,13 @@ export function Library({ notify }: { notify: (message: string) => void }) {
     members = useLiveQuery(() => list("membership"), []) || [],
     files = useLiveQuery(() => db.files.toCollection().primaryKeys(), []) || [];
   useBookPreparation(books);
-  const [query, setQuery] = useState(""),
-    [filter, setFilter] = useState("all"),
-    [sort, setSort] = useState("recent"),
-    [layout, setLayout] = useState("grid"),
-    [collection, setCollection] = useState(""),
-    [importing, setImporting] = useState(""),
+  const browse = useBrowseState();
+  const query = browse.value("q"), filter = browse.value("status", "all"), sort = browse.value("sort", "recent"), collection = browse.value("collection");
+  const change = (key: string, value: string) => browse.update({ [key]: value, page: "1" });
+  const setQuery = (v: string) => change("q", v), setFilter = (v: string) => change("status", v), setSort = (v: string) => change("sort", v), setCollection = (v: string) => change("collection", v);
+  const [layout, setLayout] = useState(() => { try { return localStorage.getItem("library-layout") || "grid"; } catch { return "grid"; } });
+  useEffect(() => { try { localStorage.setItem("library-layout", layout); } catch {} }, [layout]);
+  const [importing, setImporting] = useState(""),
     [errors, setErrors] = useState<string[]>([]),
     [warnings, setWarnings] = useState<string[]>([]),
     [detail, setDetail] = useState<Book>(),
@@ -76,6 +78,7 @@ export function Library({ notify }: { notify: (message: string) => void }) {
         ),
     [books, query, filter, collection, members, sort, positions, files],
   );
+  const page = pageOf(shown, browse.value("page"));
   async function importFiles(selected: FileList | File[]) {
     if (importing) return;
     setErrors([]);
@@ -266,6 +269,8 @@ export function Library({ notify }: { notify: (message: string) => void }) {
           </button>
         </div>
       </div>
+      <div className="filter-summary"><span>{shown.length} matching books</span>{(query || collection || filter !== "all") && <button onClick={() => browse.update({ q: "", collection: "", status: "", page: "1" })}>Clear filters</button>}</div>
+      <div className="source-layout"><SourceNavigator total={books.length} label="Collections" value={collection} onChange={setCollection} items={collections.map(c => ({ id: c.id, title: c.name, count: members.filter(m => m.collectionId === c.id && books.some(b => b.id === m.bookId)).length }))} /><div>
       {collection && (
         <div className="collection-heading">
           <h2>{collections.find((c) => c.id === collection)?.name}</h2>
@@ -313,7 +318,7 @@ export function Library({ notify }: { notify: (message: string) => void }) {
         </Empty>
       ) : (
         <div className={layout === "grid" ? "books-grid" : "books-list"}>
-          {shown.map((book) => (
+          {page.items.map((book) => (
             <BookCard
               key={book.id}
               book={book}
@@ -324,6 +329,7 @@ export function Library({ notify }: { notify: (message: string) => void }) {
           ))}
         </div>
       )}
+      <BrowsePages {...page} label="Books" onChange={n => browse.update({ page: String(n) })} /></div></div>
       {drag && (
         <div className="drop-overlay">
           <Upload size={42} />
@@ -406,6 +412,7 @@ function BookDetails({
           }
         }}
       >
+        <div className="button-row"><Link className="text-button" to={`/notes?book=${book.id}`}>Highlights & notes</Link><Link className="text-button" to={`/notebooks?view=research&book=${book.id}`}>Research</Link></div>
         <div className="details-summary">
           <Cover book={draft} small />
           <div>

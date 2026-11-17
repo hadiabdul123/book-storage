@@ -3,6 +3,13 @@ import { animationClock } from "../src/reader/animationClock";
 import { bindPdfZoom } from "../src/reader/pdfZoom";
 
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
+it("applies the newest finger position before rendering the same animation frame", () => {
+  let frame!: FrameRequestCallback;
+  const order: string[] = [];
+  const clock = animationClock(callback => { frame = callback; return 1; }, () => {}, () => 0, () => order.push("finger"));
+  clock.request(() => order.push("draw")); clock.resume(); frame(16);
+  expect(order).toEqual(["finger", "draw"]); clock.destroy();
+});
 
 it("pauses the vendor's perpetual animation without losing its pending frame", () => {
   let frame: FrameRequestCallback | undefined;

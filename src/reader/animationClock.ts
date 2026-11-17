@@ -1,6 +1,6 @@
 /** Private curl clock: no browser work while idle, and no idle-time jump when
  * resumed. A bounded timer keeps active folds moving when WebKit throttles RAF. */
-export function animationClock(request = requestAnimationFrame, cancel = cancelAnimationFrame, now = () => performance.now()) {
+export function animationClock(request = requestAnimationFrame, cancel = cancelAnimationFrame, now = () => performance.now(), beforeFrame?: () => void) {
   let running = false, next = 0, frame = 0, disposed = false, ticket = 0;
   let fallback: ReturnType<typeof setTimeout> | undefined;
   let time = 0, previous: number | undefined;
@@ -25,6 +25,7 @@ export function animationClock(request = requestAnimationFrame, cancel = cancelA
     const pending = [...callbacks]; callbacks.clear();
     // Book in the owner realm before handing control to the vendor iframe.
     arm();
+    beforeFrame?.();
     for (const [, callback] of pending) { if (disposed || !running) break; callback(time); }
     if (!callbacks.size) disarm();
   };

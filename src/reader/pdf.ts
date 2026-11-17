@@ -1,4 +1,5 @@
 import { bindPdfZoom } from "./pdfZoom";
+import { ViewIntent, abortable } from "./viewIntent";
 import { PageTurn } from "./pageTurn";
 import { pageViewport, blankMargins } from "./pdfGeometry";
 import { bindInkSurface, InkHistory, recoverInkDrafts } from "../ink";
@@ -46,6 +47,8 @@ type PageState = {
   loaded: boolean;
   rendering: boolean;
   task?: RenderTask;
+  textTask?: { render: () => Promise<unknown>; cancel: () => unknown };
+  renderAbort?: AbortController;
   generation: number;
 };
 function viewportRect(viewport: PageViewport, rect: Rect): Rect {
@@ -96,7 +99,9 @@ export class PdfReader implements ReaderAdapter {
   private zoom = 1;
   private zoomController?: ReturnType<typeof bindPdfZoom>;
   private zoomPreview?: { element: HTMLElement; paper: HTMLElement; state: PageState; point: number[]; origin: { x: number; y: number } };
-  private viewRevision = 0;
+  private requestedLayout: PdfLayout = { ...defaultPdfLayout };
+  private forceView = false;
+  private view?: ViewIntent<{ zoom: number; rotation: number; layout: PdfLayout }>;
   private rotation = 0;
   private current = 1;
   private region = false;
@@ -111,6 +116,19 @@ export class PdfReader implements ReaderAdapter {
     private book: Book,
     private events: ReaderEvents,
   ) {
+    this.view = new ViewIntent({ zoom: 1, rotation: 0, layout: this.layout }, async (intent, signal) => {
+      const force = this.forceView; this.forceView = false;
+      const geometry = force || intent.zoom !== this.zoom || intent.rotation !== this.rotation ||
+        intent.layout.columns !== this.layout.columns || intent.layout.fit !== this.layout.fit || intent.layout.trimMargins !== this.layout.trimMargins;
+      const anchor = this.pages.length ? this.location() : undefined;
+      const navigation = intent.layout.navigation !== this.layout.navigation;
+      this.layout = { ...intent.layout };
+      if (geometry) await this.relayout(intent.zoom, intent.rotation, signal, anchor);
+      else if (navigation && anchor && !signal.aborted) { this.host.dataset.navigation = this.layout.navigation; await this.goTo(anchor); }
+    }, () => {
+      if (this.layingOut) this.forceView = true;
+      for (const page of this.pages) { page.generation++; page.task?.cancel(); page.textTask?.cancel(); page.renderAbort?.abort(); }
+    });
     this.turn = new PageTurn(host, {
       enabled: () => this.layout.navigation === "paginated" && this.effect !== "none" && this.zoom <= 1 && !this.drawing && !this.region && !this.layingOut && !this.host.classList.contains("pdf-zooming"),
       canDrag: () => !!this.events.canDragTurn?.() && !host.classList.contains("pdf-zooming"),
@@ -126,6 +144,7 @@ export class PdfReader implements ReaderAdapter {
   }
   restoreInitialView(zoom: number, rotation: number, locator?: Locator) {
     this.zoom = Math.max(1, Math.min(3, zoom)); this.rotation = rotation;
+    if (this.view) this.view.target = { zoom: this.zoom, rotation, layout: this.layout };
     if (locator?.type === "pdf" && locator.hash === this.book.hash) this.current = locator.page;
   }
   async open(source: Blob) {
@@ -243,23 +262,26 @@ export class PdfReader implements ReaderAdapter {
       ) {
         this.hostWidth = this.host.clientWidth;
         this.hostHeight = this.host.clientHeight;
-        void this.setView(this.zoomController?.target() ?? this.zoom, this.rotation).catch((e) =>
+        void this.setView(this.zoomController?.target() ?? this.zoom, this.view?.target.rotation ?? this.rotation, true).catch((e) =>
           this.events.onError(e.message),
         );
       }
     });
     this.resizeObserver.observe(this.host);
     this.zoomController = bindPdfZoom(this.host, {
+      interaction: active => this.view?.pause(active),
+      target: zoom => { void this.setView(zoom, this.view?.target.rotation ?? this.rotation).catch(e => this.events.onError(e.message)); },
       value: () => this.zoom,
       preview: (ratio, point, origin) => {
         if (!this.zoomPreview) {
-          this.turn.invalidate(); this.clearSelection(); this.events.onSelection(null);
+          this.turn.invalidate(); this.clearSurfaces(); this.clearSelection(); this.events.onSelection(null);
           const box = this.host.getBoundingClientRect();
           const element = document.createElement("div"), paper = document.createElement("div");
           element.className = "pdf-zoom-preview"; element.setAttribute("aria-hidden", "true"); element.inert = true;
           Object.assign(element.style, { position: "fixed", left: `${box.left}px`, top: `${box.top}px`, width: `${box.width}px`, height: `${box.height}px`, overflow: "hidden", pointerEvents: "none", zIndex: "10", background: getComputedStyle(this.host).backgroundColor });
           Object.assign(paper.style, { position: "absolute", inset: "0", willChange: "transform", transformOrigin: `${origin.x - box.left}px ${origin.y - box.top}px` });
-          for (const state of this.pages) {
+          const visible = this.pages.filter(state => { const r = state.element.getBoundingClientRect(); return state.loaded && !state.element.hidden && r.bottom >= box.top && r.top <= box.bottom && r.right >= box.left && r.left <= box.right; });
+          for (const state of visible) {
             if (!state.loaded || state.element.hidden) continue;
             const r = state.element.getBoundingClientRect();
             if (r.bottom < box.top || r.top > box.bottom || r.right < box.left || r.left > box.right) continue;
@@ -270,7 +292,7 @@ export class PdfReader implements ReaderAdapter {
             clone.querySelectorAll(".textLayer,button").forEach(el => el.remove());
             const original = state.element.querySelector("canvas"), copy = clone.querySelector("canvas");
             if (original && copy) {
-              const scale = Math.min(1, Math.sqrt(2_000_000 / (original.width * original.height)));
+              const scale = Math.min(1, Math.sqrt(1_500_000 / Math.max(1, visible.length) / (original.width * original.height)));
               copy.width = Math.max(1, Math.floor(original.width * scale)); copy.height = Math.max(1, Math.floor(original.height * scale));
               copy.getContext("2d")?.drawImage(original, 0, 0, copy.width, copy.height); copy.style.filter = getComputedStyle(original).filter;
             }
@@ -290,9 +312,10 @@ export class PdfReader implements ReaderAdapter {
         this.zoomPreview?.element.remove(); this.zoomPreview = undefined;
         this.host.classList.remove("pdf-zooming"); this.onScroll();
       },
+      settled: zoom => this.events.onZoom?.(zoom),
       commit: async (zoom, point) => {
         const preview = this.zoomPreview;
-        await this.setView(zoom, this.rotation);
+        await this.setView(zoom, this.view?.target.rotation ?? this.rotation);
         let pending: Promise<void>;
         do { pending = this.viewQueue; await pending; } while (pending !== this.viewQueue);
         if (this.disposed || !preview) return;
@@ -351,7 +374,7 @@ export class PdfReader implements ReaderAdapter {
   }
   private async preload() {
     if (this.disposed || this.preloading) return;
-    if (this.layingOut || this.host.classList.contains("pdf-zooming") || this.events.canPrepare?.() === false) {
+    if (this.layingOut || this.host.getAttribute("aria-busy") === "true" || this.host.classList.contains("pdf-zooming") || this.events.canPrepare?.() === false) {
       const first = this.renderQueue.values().next().value;
       if (first) this.queueRender(first, 500);
       return;
@@ -369,11 +392,12 @@ export class PdfReader implements ReaderAdapter {
       await new Promise((resolve) => setTimeout(resolve, 10));
     if (state.loaded || this.disposed) return;
     state.rendering = true;
+    const controller = new AbortController(); state.renderAbort = controller;
     const generation = state.generation;
     let layer: HTMLDivElement | undefined;
     try {
       const canvas = document.createElement("canvas"),
-        ratio = Math.min(devicePixelRatio || 1, 2, Math.sqrt(6_000_000 / (state.viewport.width * state.viewport.height)));
+        ratio = Math.min(devicePixelRatio || 1, 2, Math.sqrt((matchMedia("(pointer:coarse)").matches ? 6_000_000 / this.columns : 6_000_000) / (state.viewport.width * state.viewport.height)));
       canvas.width = Math.floor(state.viewport.width * ratio);
       canvas.height = Math.floor(state.viewport.height * ratio);
       canvas.style.width = "100%";
@@ -391,13 +415,14 @@ export class PdfReader implements ReaderAdapter {
       layer.className = "textLayer";
       layer.style.visibility = "hidden";
       state.element.append(layer);
-      const text = await pageText(this.book, state.page);
+      const text = await abortable(pageText(this.book, state.page), controller.signal);
       if (this.disposed || generation !== state.generation) return;
-      await new this.lib.TextLayer({
+      state.textTask = new this.lib.TextLayer({
         textContentSource: text,
         container: layer,
         viewport: state.viewport,
-      }).render();
+      });
+      await state.textTask!.render();
       if (this.disposed || generation !== state.generation) { layer.remove(); return; }
       state.element.querySelectorAll("canvas,.textLayer").forEach(old => { if (old !== layer) old.remove(); });
       layer.style.visibility = "";
@@ -414,10 +439,12 @@ export class PdfReader implements ReaderAdapter {
       this.drawInk(state);
       this.scheduleRecognition();
     } catch (error: any) {
-      if (error?.name !== "RenderingCancelledException") throw error;
+      if (error?.name !== "RenderingCancelledException" && error?.name !== "AbortException" && error?.name !== "AbortError") throw error;
     } finally {
       if (layer?.style.visibility === "hidden") layer.remove();
       state.rendering = false;
+      state.textTask = undefined;
+      state.renderAbort = undefined;
     }
   }
   private async loadOcrCache(state: PageState) {
@@ -449,7 +476,7 @@ export class PdfReader implements ReaderAdapter {
       if (this.disposed) return;
       if (this.events.canPrepare?.() === false || this.hasSelection() || this.host.dataset.pageTurning || this.host.classList.contains("pdf-zooming")) { this.scheduleCrop(); return; }
       this.cropPending = false;
-      void this.setView(this.zoom, this.rotation).catch(e => this.events.onError(e.message));
+      void this.setView(this.zoomController?.target() ?? this.zoom, this.view?.target.rotation ?? this.rotation, true).catch(e => this.events.onError(e.message));
     }, 500);
   };
   // Prioritize the visible page, then prepare the rest quietly, one at a time.
@@ -662,7 +689,7 @@ export class PdfReader implements ReaderAdapter {
     this.scheduleRecognition();
     clearTimeout(this.timer);
     this.timer = setTimeout(() => {
-      if (this.disposed || this.host.classList.contains("pdf-zooming")) return;
+      if (this.disposed || this.layingOut || this.host.getAttribute("aria-busy") === "true" || this.host.classList.contains("pdf-zooming")) return;
       const top = this.host.getBoundingClientRect().top;
       let state = this.visiblePage();
       if (!state) return;
@@ -773,7 +800,7 @@ export class PdfReader implements ReaderAdapter {
       return;
     if (
       ["ArrowRight", "PageDown", "ArrowLeft", "PageUp"].includes(event.key) &&
-      this.layout.navigation === "paginated"
+      this.requestedLayout.navigation === "paginated"
     ) {
       event.preventDefault();
       void (["ArrowRight", "PageDown"].includes(event.key)
@@ -920,21 +947,20 @@ export class PdfReader implements ReaderAdapter {
     this.events.onRegionMode?.(false);
   };
   requestZoom(zoom: number) { this.zoomController?.request(zoom); }
-  private queueView(action: () => Promise<void> | void) {
+  setView(zoom: number, rotation: number, force = false) {
+    // Finish using the old projection before changing viewport coordinates.
+    this.inkLayers.forEach(layer => layer.binding.flush());
+    this.forceView ||= force;
     this.host.setAttribute("aria-busy", "true");
-    const pending: Promise<void> = this.viewQueue.catch(() => {}).then(action)
-      .finally(() => { if (!this.disposed && this.viewQueue === pending) this.host.setAttribute("aria-busy", "false"); });
+    const pending = this.view!.request({ zoom, rotation, layout: { ...this.requestedLayout } });
     this.viewQueue = pending;
+    void pending.finally(() => { if (!this.disposed && this.viewQueue === pending) this.host.setAttribute("aria-busy", "false"); }).catch(() => {});
     return pending;
   }
-  setView(zoom: number, rotation: number) {
-    const revision = ++this.viewRevision;
-    return this.queueView(() => revision === this.viewRevision ? this.relayout(zoom, rotation) : undefined);
-  }
-  private async relayout(zoom: number, rotation: number) {
+  private async relayout(zoom: number, rotation: number, signal?: AbortSignal, savedAnchor?: Locator) {
     this.turn.invalidate(); this.clearSurfaces();
     if (this.disposed || !this.pages.length) return;
-    const anchor = this.location(), clip = this.host.getBoundingClientRect();
+    const anchor = savedAnchor || this.location(), clip = this.host.getBoundingClientRect();
     const visible = new Set(this.pages.filter(p => { const r = p.element.getBoundingClientRect(); return !p.element.hidden && r.bottom >= clip.top && r.top <= clip.bottom; }));
     this.layingOut = true;
     try {
@@ -943,13 +969,14 @@ export class PdfReader implements ReaderAdapter {
       for (const p of this.pages) {
         p.generation++;
         p.task?.cancel();
+        p.textTask?.cancel(); p.renderAbort?.abort();
         while (p.rendering && !this.disposed)
           await new Promise((r) => setTimeout(r, 5));
         p.loaded = false;
         // Only visible old bitmaps are needed during the handoff.
-        if (!visible.has(p)) p.element.replaceChildren();
+        if (!visible.has(p)) { this.inkLayers.get(p.n)?.binding.destroy(); this.inkLayers.delete(p.n); p.element.replaceChildren(); }
       }
-      if (this.disposed) return;
+      if (this.disposed || signal?.aborted) return;
       this.arrange();
       let restore = anchor;
       let scrollTop = this.host.scrollTop, scrollLeft = this.host.scrollLeft;
@@ -959,6 +986,7 @@ export class PdfReader implements ReaderAdapter {
         const page = restore.type === "pdf" ? restore.page : this.current;
         const first = Math.floor((page - 1) / this.columns) * this.columns;
         await Promise.all(this.pages.slice(first, first + this.columns).map(p => this.render(p)));
+        if (signal?.aborted) return;
         if (Math.abs(this.host.scrollTop - scrollTop) > 1 || Math.abs(this.host.scrollLeft - scrollLeft) > 1) {
           restore = this.location(); scrollTop = this.host.scrollTop; scrollLeft = this.host.scrollLeft;
           continue;
@@ -969,7 +997,7 @@ export class PdfReader implements ReaderAdapter {
     } finally {
       this.layingOut = false;
     }
-    if (this.disposed) return;
+    if (this.disposed || signal?.aborted) return;
     this.turn.invalidate();
     this.onScroll();
     for (const p of this.pages.filter(p => Math.abs(p.n - this.current) < 2)) this.queueRender(p);
@@ -1106,6 +1134,12 @@ export class PdfReader implements ReaderAdapter {
         if (existing && existing.spread.width === width && existing.spread.height === height && existing.spread.columns === this.columns) { disposeSurfaces(cache); return existing.spread; }
         if (existing) disposeSurfaces(existing.cache);
         this.surfaces.set(start, { spread, cache });
+        const limit = matchMedia("(pointer:coarse)").matches ? 2 : 3;
+        while (this.surfaces.size > limit) {
+          const oldest = [...this.surfaces.keys()].find(key => key !== current && key !== start);
+          if (oldest === undefined) break;
+          disposeSurfaces(this.surfaces.get(oldest)!.cache); this.surfaces.delete(oldest);
+        }
         // Three spreads are sufficient for forward/backward reading. Keep the
         // active outgoing neighbour until its fold has finished.
         for (const [key, item] of this.surfaces) if (Math.abs(key - current) > this.columns) { disposeSurfaces(item.cache); this.surfaces.delete(key); }
@@ -1174,23 +1208,13 @@ export class PdfReader implements ReaderAdapter {
     this.turn.invalidate();
     this.host.dataset.theme = p.theme;
     const next = p.pdfLayout || defaultPdfLayout;
-    if (JSON.stringify(next) !== JSON.stringify(this.layout)) {
-      const resize =
-        next.fit !== this.layout.fit || next.columns !== this.layout.columns || next.trimMargins !== this.layout.trimMargins;
-      const anchor = this.pages.length ? this.location() : undefined;
-      this.layout = { ...next };
-      if (anchor) {
-        if (resize)
-          void this.setView(this.zoomController?.target() ?? this.zoom, this.rotation).catch((e) =>
-            this.events.onError(e.message),
-          );
-        else {
-          this.host.dataset.navigation = next.navigation;
-          void this.queueView(() => this.goTo(anchor)).catch((e) => this.events.onError(e.message));
-        }
-      }
+    if (JSON.stringify(next) !== JSON.stringify(this.requestedLayout)) {
+      this.requestedLayout = { ...next };
+      if (!this.pages.length) { this.layout = { ...next }; if (this.view) this.view.target.layout = this.layout; }
+      else void this.setView(this.zoomController?.target() ?? this.zoom, this.view?.target.rotation ?? this.rotation).catch(e => this.events.onError(e.message));
     }
   }
+
   annotate(marks: Annotation[]) {
     if (JSON.stringify(marks) === JSON.stringify(this.marks)) return;
     this.turn.invalidate();
@@ -1203,6 +1227,7 @@ export class PdfReader implements ReaderAdapter {
     });
   }
   configureInk(strokes: InkStroke[], drawing: boolean, style: InkStyle) {
+    if (this.drawing && !drawing) this.inkLayers.forEach(layer => layer.binding.flush());
     const changed = JSON.stringify(strokes) !== JSON.stringify(this.ink);
     if (drawing !== this.drawing) { this.clearSelection(); this.turn.invalidate(); }
     this.drawing = drawing; this.inkStyle = style; this.ink = strokes;
@@ -1224,7 +1249,7 @@ export class PdfReader implements ReaderAdapter {
       state.element.append(svg);
       const binding = bindInkSurface(svg, {
         target: { type: "pdf", bookId: this.book.id, hash: this.book.hash, page: state.n },
-        strokes: () => this.allInk(), style: () => this.inkStyle, enabled: () => this.drawing && !this.layingOut && !this.host.classList.contains("pdf-zooming"),
+        strokes: () => this.allInk(), style: () => this.inkStyle, enabled: () => this.drawing && !this.layingOut && this.host.getAttribute("aria-busy") !== "true" && !this.host.classList.contains("pdf-zooming"),
         project: (x, y) => state.viewport.convertToViewportPoint(x, y), unproject: (x, y) => state.viewport.convertToPdfPoint(x, y),
         commit: (stroke, deleted) => this.inkHistory.perform(stroke, deleted), error: message => this.events.onError(message),
       });
@@ -1291,9 +1316,11 @@ export class PdfReader implements ReaderAdapter {
   }
   destroy() {
     clearTimeout(this.cropTimer);
+    this.inkLayers.forEach(layer => layer.binding.flush());
     this.inkLayers.forEach(layer => layer.binding.destroy()); this.inkLayers.clear();
     this.turn.destroy(); this.clearSurfaces();
     this.disposed = true;
+    this.view?.destroy();
     clearTimeout(this.renderTimer); this.renderQueue.clear();
     this.host.removeAttribute("aria-busy");
     this.zoomController?.destroy();

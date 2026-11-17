@@ -172,3 +172,36 @@ test("trimmed spreads keep PDF highlights and ink aligned through rotation and z
   });
   expect(delta.path).toBeLessThan(.01); expect(delta.left).toBeLessThan(.01); expect(delta.top).toBeLessThan(.01); expect(delta.overlaps).toBe(true); expect(delta.points).toEqual(originalPoints);
 });
+
+
+test("outside taps close Explain and all passage icons without removing the highlight", async ({ page, browserName }) => {
+  await page.goto("/");
+  await page.locator("input[type=file]").setInputFiles({ name: "Explain dismissal.pdf", mimeType: "application/pdf", buffer: textPdf(["A thoughtful reading practice", "Keep your ideas close."]) });
+  await expect(page.locator(".book-card")).toHaveCount(1); await page.locator(".book-cover-link").click();
+  const span = page.locator(".textLayer span").filter({ hasText: "thoughtful" }); await expect(span).toBeVisible();
+  await clickTool(page, "Reading mode");
+  const popup = page.locator(".passage-popup");
+  for (const touch of browserName === "chromium" ? [false, true] : [false]) {
+    if (touch) {
+      await clickTool(page, "Reading mode"); await expect(page.locator(".reader-header")).toBeHidden();
+      await span.evaluate(el => el.scrollIntoView({ block: "center", behavior: "instant" }));
+      const r = (await span.boundingBox())!, session = await page.context().newCDPSession(page);
+      await session.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: r.x + r.width * .3, y: r.y + r.height / 2 }] });
+      await page.waitForTimeout(650);
+      await session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] }); await session.detach();
+    } else await span.evaluate(el => {
+      const range = document.createRange(); range.selectNodeContents(el); const selection = document.getSelection()!;
+      selection.removeAllRanges(); selection.addRange(range); document.dispatchEvent(new Event("selectionchange"));
+    });
+    await expect(popup).toBeVisible();
+    if (!touch) { await showPassageAction(page, "yellow highlight"); await page.getByRole("button", { name: "yellow highlight", exact: true }).tap(); }
+    await showPassageAction(page, "Explain"); await page.getByRole("button", { name: "Explain", exact: true }).tap();
+    await expect(popup).toHaveAttribute("data-mode", "meaning");
+    const host = (await page.locator(".reader-host").boundingBox())!;
+    await page.touchscreen.tap(host.x + host.width / 2, host.y + host.height - 80);
+    await expect(popup).toHaveCount(0);
+    await page.waitForTimeout(300); await expect(popup).toHaveCount(0);
+    await expect(page.locator(".pdf-selection-handle")).toHaveCount(0);
+    await expect(page.locator(".pdf-highlight")).toHaveCount(1);
+  }
+});

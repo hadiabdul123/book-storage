@@ -1,4 +1,4 @@
-import { getStroke } from "perfect-freehand";
+import { getStrokePoints, getStrokeOutlinePoints } from "perfect-freehand";
 import "./ink.css";
 import { db, save } from "./db";
 import { now, uid } from "./model";
@@ -7,7 +7,13 @@ export type InkProjection = (x: number, y: number) => number[];
 const outlines = new WeakMap<InkStroke, number[][]>();
 export function inkPath(stroke: InkStroke, project: InkProjection = (x, y) => [x, y]) {
   let raw = outlines.get(stroke);
-  if (!raw) { raw = getStroke(stroke.points, { size: stroke.width, thinning: stroke.tool === "highlighter" ? 0 : .45, smoothing: .6, streamline: .45, simulatePressure: false, last: true }); outlines.set(stroke, raw); }
+  if (!raw) {
+    // Follow recorded handwriting without pulling samples toward a smoothed
+    // centreline or discarding the small curves at the beginning of a stroke.
+    const points = getStrokePoints(stroke.points, { size: .01, streamline: 0, last: true });
+    raw = getStrokeOutlinePoints(points, { size: stroke.width, thinning: stroke.tool === "highlighter" ? 0 : .45, smoothing: 0, simulatePressure: false, last: true });
+    outlines.set(stroke, raw);
+  }
   const outline = raw.map(p => project(p[0], p[1]));
   if (!outline.length) return "";
   return `M ${outline[0].join(" ")} Q ${outline.map((p, i) => `${p.join(" ")} ${[(p[0] + outline[(i + 1) % outline.length][0]) / 2, (p[1] + outline[(i + 1) % outline.length][1]) / 2].join(" ")}`).join(" ")} Z`;
@@ -99,14 +105,24 @@ export function bindInkSurface(svg: SVGSVGElement, options: {
       return Math.hypot(screen[0] - a[0] - dx * t, screen[1] - a[1] - dy * t) < 16;
     })) commit(stroke, true);
   };
-  const cancel = () => { pointer = undefined; pointerType = ""; delete svg.dataset.inkPenActive; points = []; gestureStyle = undefined; schedule(); };
+  const cancel = () => {
+    if (pointer !== undefined && svg.hasPointerCapture(pointer)) svg.releasePointerCapture(pointer);
+    pointer = undefined; pointerType = ""; delete svg.dataset.inkPenActive; points = []; gestureStyle = undefined; schedule();
+  };
+  const flush = () => {
+    if (points.length && gestureStyle?.tool !== "eraser") commit({ ...snapshot(), id: uid() });
+    cancel();
+  };
   const down = (event: PointerEvent) => {
     if (pointerType === "pen" && event.pointerType === "touch") return;
     if (!options.enabled()) return;
+    const style = options.style();
+    if ((style.penOnly && event.pointerType !== "pen") || event.button > 0) return;
+    // A palm may already be resting on the page when the nib arrives.
+    // The pen owns its stroke regardless of the order those contacts arrived.
+    if (event.pointerType === "pen") { cancel(); contacts.clear(); }
     contacts.add(event.pointerId);
     if (contacts.size > 1) { cancel(); return; }
-    const style = options.style();
-    if (!options.enabled() || (style.penOnly && event.pointerType !== "pen") || event.button > 0) return;
     pointer = event.pointerId; pointerType = event.pointerType; if (pointerType === "pen") svg.dataset.inkPenActive = "true";
     gestureStyle = { ...style }; points = [coordinate(event)];
     svg.setPointerCapture(event.pointerId); event.preventDefault(); event.stopPropagation();
@@ -130,7 +146,12 @@ export function bindInkSurface(svg: SVGSVGElement, options: {
     if (pointer !== event.pointerId) return;
     move(event); if (points.length && gestureStyle?.tool !== "eraser") commit({ ...snapshot(), id: uid() }); cancel();
   };
-  const abort = (event: PointerEvent) => { contacts.delete(event.pointerId); cancel(); };
+  const abort = (event: PointerEvent) => {
+    contacts.delete(event.pointerId);
+    // Cancelling an unrelated palm contact must not discard the pen stroke.
+    if (pointer !== event.pointerId) return;
+    pointerType === "pen" ? flush() : cancel();
+  };
   svg.addEventListener("pointerdown", down); svg.addEventListener("pointermove", move); svg.addEventListener("pointerup", up); svg.addEventListener("pointercancel", abort);
   // A second touch can start outside this page's overlay.
   const second = (e: PointerEvent) => { if (pointer !== undefined && pointerType !== "pen" && e.pointerId !== pointer && e.pointerType === "touch") cancel(); };
@@ -138,5 +159,5 @@ export function bindInkSurface(svg: SVGSVGElement, options: {
   const released = (e: PointerEvent) => contacts.delete(e.pointerId);
   svg.ownerDocument.addEventListener("pointerup", released, true); svg.ownerDocument.addEventListener("pointercancel", released, true);
   paint();
-  return { paint: () => { forcePaint = true; schedule(); }, cancel, destroy() { destroyed = true; cancelAnimationFrame(frame); svg.removeEventListener("pointerdown", down); svg.removeEventListener("pointermove", move); svg.removeEventListener("pointerup", up); svg.removeEventListener("pointercancel", abort); svg.ownerDocument.removeEventListener("pointerdown", second, true); svg.ownerDocument.removeEventListener("pointerup", released, true); svg.ownerDocument.removeEventListener("pointercancel", released, true); } };
+  return { paint: () => { forcePaint = true; schedule(); }, cancel, flush, destroy() { destroyed = true; cancel(); cancelAnimationFrame(frame); svg.removeEventListener("pointerdown", down); svg.removeEventListener("pointermove", move); svg.removeEventListener("pointerup", up); svg.removeEventListener("pointercancel", abort); svg.ownerDocument.removeEventListener("pointerdown", second, true); svg.ownerDocument.removeEventListener("pointerup", released, true); svg.ownerDocument.removeEventListener("pointercancel", released, true); } };
 }

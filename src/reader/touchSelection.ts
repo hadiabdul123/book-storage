@@ -117,7 +117,7 @@ export function bindTouchSelection(root: HTMLElement, options: {
         else next.setEnd(word.endContainer, word.endOffset);
         apply(next);
       };
-      handle.addEventListener("pointerdown", e => { e.preventDefault(); e.stopPropagation(); dragging = handleDragging = true; options.adjusting?.(true); handle.setPointerCapture(e.pointerId); });
+      handle.addEventListener("pointerdown", e => { e.preventDefault(); e.stopPropagation(); root.dispatchEvent(new Event("reader-selection-start", { bubbles: true })); dragging = handleDragging = true; options.adjusting?.(true); handle.setPointerCapture(e.pointerId); });
       handle.addEventListener("pointermove", e => { if (!dragging) return; e.preventDefault(); pending = e; if (!dragFrame) dragFrame = win.requestAnimationFrame(move); });
       const stop = () => { if (pending) move(); dragging = handleDragging = false; win.cancelAnimationFrame(dragFrame); options.adjusting?.(false); };
       handle.addEventListener("pointerup", stop); handle.addEventListener("pointercancel", stop);
@@ -137,6 +137,9 @@ export function bindTouchSelection(root: HTMLElement, options: {
   const hold = async () => {
     const began = press, token = generation;
     if (!began || options.allowed?.() === false) return;
+    // Claim the gesture before asynchronous OCR/text preparation. A held
+    // selection must never become a page swipe while that work finishes.
+    root.dispatchEvent(new Event("reader-selection-start", { bubbles: true }));
     try {
       await options.prepare?.(began.element);
       if (destroyed || token !== generation || !began.element.isConnected || scrollHost.scrollTop !== began.scroll || options.allowed?.() === false) return;

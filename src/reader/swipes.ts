@@ -30,7 +30,7 @@ export function bindPageSwipes(
   };
   const move = (event: Event) => {
     const e = event as TouchEvent;
-    if (e.touches.length !== 1 || selected()) start = undefined;
+    if (e.touches.length !== 1 || selected() || !enabled()) start = undefined;
     if (!start) return;
     const dx = Math.abs(e.touches[0].clientX - start.x),
       dy = Math.abs(e.touches[0].clientY - start.y);
@@ -76,6 +76,12 @@ export function bindPageSwipes(
   bindings.forEach(([name, fn]) =>
     root.addEventListener(name, fn, { passive: name !== "touchmove" }),
   );
-  return () =>
+  const nativeSelection = () => { if (selected()) cancel(); };
+  root.addEventListener("reader-selection-start", cancel);
+  doc.addEventListener("selectionchange", nativeSelection);
+  return () => {
     bindings.forEach(([name, fn]) => root.removeEventListener(name, fn));
+    root.removeEventListener("reader-selection-start", cancel);
+    doc.removeEventListener("selectionchange", nativeSelection);
+  };
 }

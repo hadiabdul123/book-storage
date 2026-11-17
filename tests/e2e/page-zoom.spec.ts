@@ -10,6 +10,7 @@ async function openPdf(page: Page) {
   await expect(page.locator(".pdf-page .textLayer span").first()).toBeVisible();
   await clickTool(page, "Reading settings");
   await page.getByLabel("Keep controls visible on this device").check();
+  await expect(page.locator(".reader-host")).not.toHaveAttribute("aria-busy", "true");
 }
 
 test("bottom page controls can be hidden independently and stay hidden after reload", async ({ page }) => {
@@ -41,7 +42,7 @@ test("desktop wheel and keyboard zoom resize only the PDF and retain saved zoom"
   await page.mouse.wheel(0, -200);
   await page.keyboard.up("Control");
   await expect.poll(async () => Number(await page.getByRole("combobox", { name: "Zoom", exact: true }).inputValue()), { timeout: 15_000 }).toBeGreaterThan(1.4);
-  expect((await paper.boundingBox())!.width).toBeGreaterThan(original.width * 1.4);
+  await expect.poll(async () => (await paper.boundingBox())!.width).toBeGreaterThan(original.width * 1.4);
   expect((await page.locator(".reader-header").boundingBox())!.height).toBe(header.height);
   expect((await page.locator(".reader-panel").boundingBox())!.width).toBe(panel.width);
   expect(await page.evaluate(() => ({ width: innerWidth, ratio: devicePixelRatio }))).toEqual(viewport);

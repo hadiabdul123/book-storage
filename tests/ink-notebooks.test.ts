@@ -15,6 +15,16 @@ it("validates bounded vector input and generates smooth closed outlines", () => 
   for (const patch of [{ points: [[NaN, 2, .5]] }, { points: [[2, 3, 2]] }, { width: 0 }, { color: "url(unsafe)" }, { target: { type: "pdf", hash: "wrong", page: 1 } }]) expect(validInkStroke({ ...stroke(), ...patch })).toBe(false);
   expect(inkPath(stroke())).toMatch(/^M .+ Q .+ Z$/);
 });
+it("keeps small reversing handwriting curves and scales ink with document coordinates", () => {
+  const writing = { ...stroke(), points: [[0, 0, .5], [2, 8, .5], [4, 0, .5], [6, -8, .5], [8, 0, .5], [40, 0, .5]] } as InkStroke;
+  const numbers = (path: string) => path.match(/-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/g)!.map(Number);
+  const original = numbers(inkPath(writing)), enlarged = numbers(inkPath(writing, (x, y) => [x * 2, y * 2]));
+  const ys = original.filter((_, i) => i % 2);
+  expect(Math.max(...ys)).toBeGreaterThan(7); expect(Math.min(...ys)).toBeLessThan(-7);
+  expect(enlarged).toHaveLength(original.length);
+  enlarged.forEach((n, i) => expect(n).toBeCloseTo(original[i] * 2));
+  expect(writing.points).toHaveLength(6); expect(writing.width).toBe(2);
+});
 it("undoes only the local stroke while keeping concurrent additions", async () => {
   const history = new InkHistory(); await history.perform(stroke());
   const other = stroke("other-device");

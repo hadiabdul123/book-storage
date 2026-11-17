@@ -43,6 +43,8 @@ export class PageTurn {
   private disposed = false;
   private committing = false;
   private revision = 0;
+  private selectionRevision = 0;
+  private dragPoint?: TurnPoint;
   private stage?: Stage;
   private realm?: Realm;
   private cache = new Map<TurnDirection, Promise<TurnPreview | null>>();
@@ -99,6 +101,7 @@ export class PageTurn {
     try { await preview.commit(); } finally { this.committing = false; }
   }
   private finish() {
+    this.dragPoint = undefined;
     this.stage?.cancel(); this.stage = undefined;
     this.busy = false;
     delete this.host.dataset.pageTurning;
@@ -109,8 +112,9 @@ export class PageTurn {
     if (this.busy || this.disposed) return;
     this.busy = true;
     const revision = this.revision;
+    const selectionRevision = this.selectionRevision;
     const startLocation = this.source.location();
-    const sameLocation = () => !this.disposed && this.source.location() === startLocation;
+    const sameLocation = () => !this.disposed && this.selectionRevision === selectionRevision && this.source.location() === startLocation;
     let navigating = false;
     const fallback = () => { navigating = true; return navigate(); };
     this.host.dataset.pageTurning = direction;
@@ -162,7 +166,10 @@ export class PageTurn {
       await loaded;
       if (this.disposed || revision !== this.revision) { frame.remove(); return; }
       const doc = frame.contentDocument!;
-      const clock = animationClock(window.requestAnimationFrame.bind(window), window.cancelAnimationFrame.bind(window));
+      const clock = animationClock(window.requestAnimationFrame.bind(window), window.cancelAnimationFrame.bind(window), () => performance.now(), () => {
+        const point = this.dragPoint; this.dragPoint = undefined;
+        if (point && this.stage) this.stage.engine.userMove(this.stage.point(point), true);
+      });
       frame.contentWindow!.requestAnimationFrame = clock.request;
       frame.contentWindow!.cancelAnimationFrame = clock.cancel;
       const style = doc.createElement("style");
@@ -254,9 +261,18 @@ export class PageTurn {
   private disposeRealm() { this.realm?.clock.destroy(); this.realm?.frame.remove(); this.realm = undefined; }
   bind(root: HTMLElement | Document, toViewport: (point: TurnPoint) => TurnPoint = p => p) {
     const doc = root.nodeType === 9 ? root as Document : root.ownerDocument!;
-    type Press = { id: number; pointerType: string; start: TurnPoint; latest: TurnPoint; direction: TurnDirection; claimed: boolean; released: boolean; cancelled: boolean; at: number; sample: TurnPoint; sampleAt: number; velocity: number };
-    let press: Press | undefined, moveFrame = 0, suppressUntil = 0;
-    const cancel = () => { cancelAnimationFrame(moveFrame); moveFrame = 0; if (press) { press.cancelled = true; if (press.claimed) this.invalidate(); } press = undefined; };
+    type Press = { id: number; pointerType: string; onText: boolean; start: TurnPoint; latest: TurnPoint; direction: TurnDirection; claimed: boolean; released: boolean; cancelled: boolean; at: number; sample: TurnPoint; sampleAt: number; velocity: number };
+    let press: Press | undefined, suppressUntil = 0;
+    const cancel = () => { this.dragPoint = undefined; if (press) { press.cancelled = true; if (press.claimed) this.invalidate(); } press = undefined; };
+    const onText = (x: number, y: number) => {
+      const caret = doc.caretPositionFromPoint?.(x, y), range = doc.caretRangeFromPoint?.(x, y);
+      const node = caret?.offsetNode || range?.startContainer, offset = caret?.offset ?? range?.startOffset ?? 0;
+      if (node?.nodeType !== 3 || !node.textContent?.trim()) return false;
+      const glyph = doc.createRange(), at = Math.min(offset, node.textContent.length - 1);
+      glyph.setStart(node, at); glyph.setEnd(node, at + 1);
+      const r = glyph.getBoundingClientRect();
+      return x >= r.left - 1 && x <= r.right + 1 && y >= r.top && y <= r.bottom;
+    };
     const allowed = () => this.source.enabled() && this.source.canDrag() && !doc.getSelection()?.toString().trim();
     const down = (event: Event) => {
       const e = event as PointerEvent;
@@ -267,10 +283,10 @@ export class PageTurn {
       if (point.y < box.top || point.y > box.bottom || point.x < box.left || point.x > box.right) return;
       const direction = point.x >= box.right - 44 ? "next" : point.x <= box.left + 44 ? "previous" : undefined;
       if (direction) {
-        press = { id: e.pointerId, pointerType: e.pointerType, start: point, latest: point, direction, claimed: false, released: false, cancelled: false, at: performance.now(), sample: point, sampleAt: performance.now(), velocity: 0 };
+        press = { id: e.pointerId, pointerType: e.pointerType, onText: e.pointerType === "mouse" && onText(e.clientX, e.clientY), start: point, latest: point, direction, claimed: false, released: false, cancelled: false, at: performance.now(), sample: point, sampleAt: performance.now(), velocity: 0 };
         // The outer mouse grab must not create a native text range underneath
         // the fold. Touch long presses remain available until a drag is claimed.
-        if (e.pointerType === "mouse") e.preventDefault();
+        if (e.pointerType === "mouse" && !press.onText) e.preventDefault();
       }
     };
     const start = async (p: Press) => {
@@ -298,6 +314,7 @@ export class PageTurn {
       if (elapsed > 0) { p.velocity = (p.direction === "next" ? p.sample.x - p.latest.x : p.latest.x - p.sample.x) / elapsed * 1000; p.sample = p.latest; p.sampleAt = at; }
       const dx = p.latest.x - p.start.x, dy = p.latest.y - p.start.y;
       if (!p.claimed) {
+        if (p.onText || p.pointerType !== "mouse" && at - p.at >= 400) { cancel(); return; }
         if (Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx)) { cancel(); return; }
         if (Math.abs(dx) < 12 || Math.abs(dx) < Math.abs(dy) * 1.2 || (p.direction === "next" ? dx > 0 : dx < 0)) return;
         if (!allowed()) { cancel(); return; }
@@ -305,20 +322,19 @@ export class PageTurn {
         if (this.motion()) void start(p);
       }
       e.preventDefault();
-      if (!moveFrame) moveFrame = requestAnimationFrame(() => {
-        moveFrame = 0;
-        if (this.stage && press === p && !p.cancelled && !p.released) this.stage.engine.userMove(this.stage.point(p.latest), true);
-      });
+      // Consume only the newest point immediately before the renderer draws,
+      // rather than drawing a frame behind a second independent RAF loop.
+      this.dragPoint = p.latest;
     };
     const up = (event: Event) => {
       const e = event as PointerEvent, p = press;
       if (!p || p.id !== e.pointerId) return;
-      cancelAnimationFrame(moveFrame); moveFrame = 0;
+      this.dragPoint = undefined;
       press = undefined; p.latest = toViewport({ x: e.clientX, y: e.clientY }); p.released = true;
       if (!p.claimed) {
         // Mouse clicks can span slow frames or a deliberate held press. The
         // cutoff protects touch/stylus long-press selection, not mouse clicks.
-        if ((p.pointerType === "mouse" || performance.now() - p.at < 300) && Math.hypot(p.latest.x - p.start.x, p.latest.y - p.start.y) < 8 && this.source.canTap?.() && this.source.navigate) {
+        if (!doc.getSelection()?.toString().trim() && (p.pointerType === "mouse" || performance.now() - p.at < 300) && Math.hypot(p.latest.x - p.start.x, p.latest.y - p.start.y) < 8 && this.source.canTap?.() && this.source.navigate) {
           suppressUntil = performance.now() + 500;
           e.preventDefault(); e.stopPropagation();
           void this.source.navigate(p.direction).catch(error => console.warn("Edge turn unavailable", error));
@@ -336,8 +352,12 @@ export class PageTurn {
     const bindings: [string, EventListener][] = [["pointerdown", down], ["pointermove", move], ["pointerup", up], ["pointercancel", cancel]];
     const click = (e: Event) => { if (performance.now() < suppressUntil) { e.preventDefault(); e.stopImmediatePropagation(); } };
     root.addEventListener("click", click, true);
+    const selectionStarted = () => { this.selectionRevision++; cancel(); this.invalidate(); };
+    const nativeSelection = () => { if (doc.getSelection()?.toString().trim()) selectionStarted(); };
+    root.addEventListener("reader-selection-start", selectionStarted);
+    doc.addEventListener("selectionchange", nativeSelection);
     bindings.forEach(([name, fn]) => root.addEventListener(name, fn, { passive: false }));
-    this.cleanups.push(() => { cancel(); root.removeEventListener("click", click, true); bindings.forEach(([name, fn]) => root.removeEventListener(name, fn)); });
+    this.cleanups.push(() => { cancel(); root.removeEventListener("click", click, true); root.removeEventListener("reader-selection-start", selectionStarted); doc.removeEventListener("selectionchange", nativeSelection); bindings.forEach(([name, fn]) => root.removeEventListener(name, fn)); });
   }
   destroy() {
     this.disposed = true; this.invalidate(); this.disposeRealm(); this.cleanups.forEach(fn => fn());

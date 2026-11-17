@@ -208,12 +208,12 @@ export class EpubReader implements ReaderAdapter {
     doc.addEventListener("reader-layout", layout); doc.addEventListener("scroll", layout, { capture: true, passive: true });
     doc.fonts.addEventListener("loadingdone", layout);
     const resize = new ResizeObserver(layout); resize.observe(doc.body);
-    const selection = () => {
+    const selection = (event: Event) => {
       const s = doc.getSelection();
       if (s && !s.isCollapsed && s.rangeCount) {
         const range = s.getRangeAt(0);
         this.selected(contents.cfiFromRange(range), contents);
-      }
+      } else if (event.type === "pointerup" && !touch.hasSelection()) this.events.onSelection(null);
     };
     doc.addEventListener("selectionchange", selection);
     doc.addEventListener("pointerup", selection);
