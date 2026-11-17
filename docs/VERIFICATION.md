@@ -22,6 +22,8 @@
 
 - The next run passed 131 desktop/phone cases, but the hidden-preview clock case requested its first turn before cold PDF snapshots were ready. The trace showed no stage and successful Page 2 navigation through the 2.5-second preparation fallback. This clock-specific test now waits for settled layout and decoded neighbouring snapshots before requesting and requiring an actual curl; the bounded fallback remains separately covered.
 
+- The following run passed every new tablet case plus the full desktop/phone suite. Its existing iPad notebook/rotation case hit the five-second progress wait while a queued fit and first curl completed; the final trace snapshot already showed Page 2 and an idle retained renderer at roughly 5.45 seconds after the assertion began. Tablet assertions now share the existing 15-second PDF-render budget. Explicit motion/idle timing checks remain unchanged; no retries, skips or app recovery deadlines were added.
+
 ## Release checks on 2026-11-17
 
 - Release `b4ae912` deployed successfully in [GitHub Actions run 43958227270](https://github.com/hadiabdul123/book-storage/actions/runs/43958227270). All 108 unit tests, 121 desktop/phone reader cases (17 platform skips), 30 tablet cases (2 platform skips), 16 cloud cases, 2 production PWA cases, and the authenticated production offline case passed. The configured production build and Pages publication succeeded; no automatic test retries or check bypasses were used.
