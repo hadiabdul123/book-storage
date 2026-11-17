@@ -20,7 +20,7 @@ When an update is ready, return from the reader to the library and choose **Upda
 
 Open a book and tap the page to reveal the header. **Reading settings** contains **Warm paper**, **Dark**, two-page PDF layout, fit, zoom, and **Trim blank margins**. These choices apply automatically to every book on that browser/device; changing your tablet does not change your phone. Rotation and Original PDF colors remain specific to the document. In paginated PDFs, tap either visible edge to turn at any zoom; drag to pan while zoomed in, or curl from an edge at normal zoom.
 
-Hold a passage to select it. The compact action row stays hidden while you adjust the handles, then appears above the passage. Its highlighter opens a color row; Bookmark, Research, Add note, and More retain the existing passage actions.
+Hold a passage to select it. The compact action row stays hidden while you adjust the handles, then appears above the passage. Its highlighter opens a color row; Bookmark, Explain, Add note, and More provide the passage actions.
 
 Select a word or short phrase and tap **Explain** for a Groq explanation: an easy definition, meaning in context, three example sentences, and a usage note. **Dictionary** remains available in that popup and appears automatically if AI is offline, unavailable, over its allowance, or takes more than eight seconds. The header's Dictionary lookup also tries AI first. Explanations are cached on this device for 30 days; **Add to page note** saves one to a synced notebook. Only the term and a short nearby excerpt go to the existing private backend/Groq, after you ask. Full **Research** remains under **More**. Wikipedia reference lookup is an explicit secondary action.
 

@@ -17,9 +17,11 @@ async function selectPdf(page: Page, partial = false) {
   await expect(page.locator(".reader-shell")).toHaveAttribute("data-loading", "false");
   await expect(page.locator(".reader-host")).not.toHaveClass(/pdf-zooming/);
   const target = page.locator('.pdf-page[data-page="1"] .textLayer span').filter({ hasText: "Dynamic" }).first();
-  // Scrolling waits for stable glyph geometry without targeting a span beneath
-  // an existing popup; this helper constructs a programmatic native range.
-  await target.scrollIntoViewIfNeeded();
+  await expect(page.locator(".reader-host")).not.toHaveAttribute("aria-busy", "true");
+  // This helper constructs a DOM range, so scroll synchronously, then wait for
+  // the resulting layout. A glyph can be replaced while Playwright waits for
+  // scrollIntoViewIfNeeded's animation-frame stability checks.
+  await target.evaluate(el => el.scrollIntoView({ block: "nearest" }));
   await expect(page.locator(".reader-host")).not.toHaveAttribute("aria-busy", "true");
   await expect(page.locator(".reader-host")).not.toHaveClass(/pdf-zooming/);
   await page
