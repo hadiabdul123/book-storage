@@ -1,5 +1,10 @@
 # Verification and release gates
 
+## Reader stability release on 2026-11-17 UTC
+
+- Release `6dfadcc` deployed successfully in [GitHub Actions run 44164014136](https://github.com/hadiabdul123/book-storage/actions/runs/44164014136). All 153 unit tests, 164 desktop/phone cases (20 platform skips), 72 tablet cases (6 platform skips), 19 cloud cases, 2 production offline/update cases and 1 authenticated production offline case passed: 411 passing tests total. Every release gate passed before packaging and Pages deployment; automatic retries remain disabled.
+- Live HTTPS verification at 20:09 UTC confirmed entry `index-DUvZTISo.js`, the organization, selection-ownership, settings-recovery and ink modules, dependency licenses and runtime offline precache. Signed-out layouts at 360, 412, 810, 1024 and 1440 pixels had no page errors, failed site assets or horizontal overflow. Installation remains standalone. Existing installations can return to **Library** and select **Update**. The live site is https://hadiabdul123.github.io/book-storage/ . Hardware-specific stylus feel and Android system behavior still require owner-device testing.
+
 ## Release gesture follow-up on 2026-11-17
 
 - The first deployment run (`44148312019`) passed unit/build checks and 163 desktop/phone cases, but caught an ordinary phone swipe being lost immediately after changing reading settings. Its trace showed the pending PDF redraw completing during the swipe. Touch targets could be replaced before Chrome delivered the remaining touch events.
@@ -16,7 +21,7 @@
 
 ## Local highlight, page-turn and stylus follow-up on 2026-11-17
 
-Verified locally and not yet deployed. The owner requested committing the complete update after testing.
+Included in the deployed reader stability release recorded above.
 
 - Selection claims cancel the current edge gesture and swipe before asynchronous text/OCR preparation. Holding an unclaimed touch/stylus edge past 400 ms cannot become a fold. Native mouse selection on actual edge text takes priority over curling; selection also supersedes an automatic turn waiting for a preview.
 - A reproduced saved-highlight bug had an open app toolbar but no native/logical text range. Edge taps checked only the range, started a turn, and stopped the outside-dismissal event. Edge-turn eligibility now also checks the app toolbar and handles. The first outside edge tap dismisses tools; a fresh second tap turns normally.
@@ -26,7 +31,7 @@ Verified locally and not yet deployed. The owner requested committing the comple
 
 ## Local Android stability and browsing update on 2026-11-17
 
-This update is verified locally and not yet deployed. It was held during testing; the owner has now requested committing all changes.
+Included in the deployed reader stability release recorded above.
 
 - PDF zoom, rotation, fit, columns, navigation, margin trimming and resize changes share one coordinator: one active render and one replaceable latest intent after 150 ms of quiet. Superseded canvas/text layers cancel, old text extraction waits release promptly, and gesture previews remain until the final view is ready. Anchors survive layout changes; later scrolling takes precedence over an older restore.
 - Coarse-pointer PDF canvases share a six-million-pixel spread budget. Zoom preview snapshots share a 1.5-million-pixel budget, with two cached page-turn spreads. Background rendering and recognition yield during interaction; removed pages release their ink bindings.
