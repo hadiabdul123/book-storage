@@ -13,6 +13,16 @@ async function openPdf(page: Page) {
   await expect(page.locator(".pdf-page .textLayer span").first()).toBeVisible();
 }
 async function selectPdf(page: Page, partial = false) {
+  await expect(page.locator(".reader-shell")).toHaveAttribute("data-loading", "false");
+  await expect(page.locator(".reader-host")).not.toHaveClass(/pdf-zooming/);
+  const menu = page.getByRole("button", { name: "Reading tools", exact: true });
+  if (await menu.isVisible() && await menu.getAttribute("aria-expanded") === "true") await menu.click();
+  const target = page.locator('.pdf-page[data-page="1"] .textLayer span').filter({ hasText: "Dynamic" }).first();
+  // Scrolling waits for stable glyph geometry without targeting a span beneath
+  // an existing popup; this helper constructs a programmatic native range.
+  await target.scrollIntoViewIfNeeded();
+  await expect(page.locator(".reader-host")).not.toHaveAttribute("aria-busy", "true");
+  await expect(page.locator(".reader-host")).not.toHaveClass(/pdf-zooming/);
   await page
     .locator(".pdf-page .textLayer")
     .first()
