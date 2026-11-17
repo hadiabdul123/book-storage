@@ -214,12 +214,15 @@ test("releasing the mouse outside the EPUB frame lets the next native selection 
   await page.mouse.move(end.x, end.y, { steps: 8 });
   await expect.poll(() => paragraph.evaluate(el => el.ownerDocument.getSelection()?.toString() || "")).not.toBe("");
   await expect(page.locator(".passage-popup")).toBeHidden();
-  const box = (await frame.boundingBox())!;
-  await page.mouse.move(end.x, box.y + box.height + 12, { steps: 8 });
+  // The scrolled chapter's iframe can be thousands of pixels tall. Release
+  // on the top-level toolbar, a visible target outside the iframe's hit area.
+  const header = (await page.locator(".reader-header").boundingBox())!;
+  await page.mouse.move(header.x + header.width / 2, header.y + header.height / 2);
   await page.mouse.up();
 
   // A keyboard-style range can open tools without starting a new mouse
   // gesture, so it detects a press left active in the old iframe.
+  await paragraph.scrollIntoViewIfNeeded();
   await paragraph.evaluate(el => {
     const doc = el.ownerDocument;
     const range = doc.createRange();
