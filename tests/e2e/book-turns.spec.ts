@@ -231,6 +231,11 @@ test("automatic turns finish when hidden preview animation clocks are paused", a
     };
   });
   await open(page);
+  // Exercise the hidden-clock path after cold PDF snapshots are ready;
+  // preview preparation has its own bounded navigation fallback.
+  await page.locator('.pdf-page[data-page="1"]').hover({ position: { x: 30, y: 100 } });
+  await expect(page.locator(".reader-host")).toHaveAttribute("aria-busy", "false");
+  await expect.poll(() => page.locator(".turn-surface-cache img").evaluateAll(images => images.length >= 2 && images.every(image => (image as HTMLImageElement).complete && (image as HTMLImageElement).naturalWidth > 0)), { timeout: 15_000 }).toBe(true);
   const turns = await observePaperTurns(page);
   await clickTool(page, "Next page");
   await expect.poll(turns).toBe(1);

@@ -20,6 +20,8 @@
 
 - The retained-cache correction passed in CI. A remaining iPad rapid-zoom assertion used the default five-second wait while a six-million-pixel render was still busy. The new interaction fixture now waits for fully loaded content before input, and zoom completion uses the existing 15-second PDF-render budget. It still requires the final zoom, one canvas/text layer, released preview and saved preference; no render or failure state is bypassed.
 
+- The next run passed 131 desktop/phone cases, but the hidden-preview clock case requested its first turn before cold PDF snapshots were ready. The trace showed no stage and successful Page 2 navigation through the 2.5-second preparation fallback. This clock-specific test now waits for settled layout and decoded neighbouring snapshots before requesting and requiring an actual curl; the bounded fallback remains separately covered.
+
 ## Release checks on 2026-11-17
 
 - Release `b4ae912` deployed successfully in [GitHub Actions run 43958227270](https://github.com/hadiabdul123/book-storage/actions/runs/43958227270). All 108 unit tests, 121 desktop/phone reader cases (17 platform skips), 30 tablet cases (2 platform skips), 16 cloud cases, 2 production PWA cases, and the authenticated production offline case passed. The configured production build and Pages publication succeeded; no automatic test retries or check bypasses were used.
