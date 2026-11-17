@@ -1,15 +1,76 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { lookupAiMeaning } from "./meaningAi";
+import type { SourceRef } from "./researchTypes";
 import { normalizeWord, dictionaryQueryError, dictionarySource, definitionNote, type DictionaryEntry } from "./dictionary";
 import {
   lookupLocalMeaning, lookupReferences, onlinePreferenceKey, referenceNote,
   type ReferenceResult,
 } from "./meaningLookup";
 
-export function Meaning({ term, onAdd, compact = false, onExplain }: {
+export function Meaning({ term, onAdd, compact = false, onExplain, context }: {
   term: string;
   onAdd?: (text: string) => Promise<void>;
   compact?: boolean;
   onExplain?: () => void;
+  context?: () => Promise<SourceRef | undefined>;
+}) {
+  const [input, setInput] = useState(term), [query, setQuery] = useState(term);
+  const [editing, setEditing] = useState(false), [dictionary, setDictionary] = useState(false);
+  const [attempt, setAttempt] = useState(0), [answer, setAnswer] = useState<{ answer: string; model: string; cached: boolean }>();
+  const [status, setStatus] = useState(""), [busy, setBusy] = useState(false), [adding, setAdding] = useState(false);
+  const currentContext = useRef(context); currentContext.current = context;
+  const request = useRef<AbortController | undefined>(undefined);
+  useEffect(() => { setInput(term); setQuery(term); setEditing(false); setDictionary(false); setAttempt(0); }, [term]);
+  useEffect(() => {
+    const controller = new AbortController(); request.current = controller;
+    if (dictionary) { setAnswer(undefined); setBusy(false); return () => controller.abort(); }
+    setAnswer(undefined); setBusy(false); setStatus("");
+    if (!query.trim()) return () => controller.abort();
+    setBusy(true);
+    void lookupAiMeaning(query, { signal: controller.signal, context: () => currentContext.current?.() || Promise.resolve(undefined), refresh: attempt > 0 })
+      .then(result => { if (!controller.signal.aborted) setAnswer(result); })
+      .catch(error => {
+        if (controller.signal.aborted) return;
+        const code = (error as { code?: string }).code;
+        setStatus(code === "quota" ? "AI allowance reached. Showing the dictionary." :
+          error instanceof Error && /^(Offline\.|AI timed out\.|Select a word)/.test(error.message) ? error.message : "AI unavailable. Showing the dictionary.");
+        setDictionary(true);
+      }).finally(() => { if (!controller.signal.aborted) setBusy(false); });
+    return () => controller.abort();
+  }, [query, attempt, dictionary]);
+  return <section className="meaning-panel">
+    {compact && !editing && <button className="text-button compact-dictionary-edit" onClick={() => setEditing(true)}>Change word</button>}
+    {(!compact || editing) && <form className="meaning-search" onSubmit={event => {
+      event.preventDefault(); setDictionary(false); setAttempt(0); setQuery(input); if (input === query) setAttempt(n => n + 1);
+    }}><label>Look up a word or phrase<input aria-label="Dictionary word" maxLength={100} value={input} onChange={event => setInput(event.target.value)} /></label><button className="secondary">Look up</button></form>}
+    {busy && <p role="status">Explaining with Groq…</p>}
+    {status && <p role="status">{status}</p>}
+    {answer && <article className="ai-meaning">
+      <h3>{query}</h3><p className="muted">AI explanation · Groq{answer.cached ? " · Saved on this device" : ""}</p>
+      {answer.answer.split(/\n\s*\n/).map((block, i) => {
+        const at = block.indexOf("\n");
+        return <div key={i}>{at > 0 ? <><strong>{block.slice(0, at)}</strong><p style={{ whiteSpace: "pre-line" }}>{block.slice(at + 1)}</p></> : <p>{block}</p>}</div>;
+      })}
+      {onAdd && <button className="text-button" disabled={adding} onClick={async () => {
+        setAdding(true); try { await onAdd(`${query}\n\n${answer.answer}\n\nAI explanation · Groq (${answer.model})`); }
+        catch { setStatus("Could not save the explanation. Please try again."); } finally { setAdding(false); }
+      }}>Add to page note</button>}
+    </article>}
+    {query.trim() && <div className="meaning-alternatives">
+      <button className="text-button" aria-pressed={dictionary} onClick={() => { request.current?.abort(); setBusy(false); setDictionary(true); }}>Dictionary</button>
+      {dictionary && <button className="text-button" onClick={() => { setDictionary(false); setAttempt(n => n + 1); }}>Retry AI</button>}
+      {onExplain && <button className="text-button" onClick={onExplain}>Full research</button>}
+    </div>}
+    {dictionary && <DictionaryMeaning term={query} onAdd={onAdd} compact hideSearch />}
+    <p className="dictionary-credit">Explain sends this word or phrase and a short nearby excerpt to Groq. AI explanations can be mistaken.</p>
+  </section>;
+}
+
+function DictionaryMeaning({ term, onAdd, compact = false, hideSearch = false }: {
+  term: string;
+  onAdd?: (text: string) => Promise<void>;
+  compact?: boolean;
+  hideSearch?: boolean;
 }) {
   const [input, setInput] = useState(term), [query, setQuery] = useState(term);
   const [editingWord, setEditingWord] = useState(false);
@@ -58,11 +119,11 @@ export function Meaning({ term, onAdd, compact = false, onExplain }: {
       setResolvedTerm(result.term);
       setEntries(result.entries);
       setStatus(result.error || (result.entries.length ? "" : "No offline definition found."));
-      if (result.valid && (result.needsOnline || onlineAttempt > 0)) {
-        setOnlineBusy(online);
-        const found = await lookupReferences(result.term, { signal: controller.signal, allowNetwork: online, refresh: onlineAttempt > 0 });
+      if (result.valid) {
+        setOnlineBusy(online && onlineAttempt > 0);
+        const found = await lookupReferences(result.term, { signal: controller.signal, allowNetwork: online && onlineAttempt > 0, refresh: onlineAttempt > 0 });
         if (active) {
-          setReferences(found);
+          setReferences(found.cached || onlineAttempt > 0 || !online ? found : null);
           setOnlineBusy(false);
         }
       }
@@ -87,12 +148,11 @@ export function Meaning({ term, onAdd, compact = false, onExplain }: {
   };
 
   return (
-    <section className="meaning-panel">
-      {onExplain && <button className="text-button" onClick={onExplain}>Explain in this passage</button>}
-      {compact && !editingWord && (
+    <section className="dictionary-fallback">
+      {!hideSearch && compact && !editingWord && (
         <button className="text-button compact-dictionary-edit" onClick={() => setEditingWord(true)}>Change word</button>
       )}
-      {(!compact || editingWord) && (
+      {!hideSearch && (!compact || editingWord) && (
         <form className="meaning-search" onSubmit={(event) => {
           event.preventDefault();
           setExpanded(false);

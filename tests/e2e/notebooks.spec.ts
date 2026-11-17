@@ -101,8 +101,8 @@ test("meaning lookup preserves selection and adds definitions to the page notebo
   await page
     .getByLabel("Note for selected passage")
     .fill("Keep this unsaved thought");
-  await showPassageAction(page, "Meaning");
-  await page.getByRole("button", { name: "Meaning", exact: true }).click();
+  await showPassageAction(page, "Explain");
+  await page.getByRole("button", { name: "Explain", exact: true }).click();
   await expect(page.locator(".dictionary-entry").first()).toBeVisible();
   await page.screenshot({
     path: `.local/review-meaning-${testInfo.project.name}.png`,
@@ -111,8 +111,8 @@ test("meaning lookup preserves selection and adds definitions to the page notebo
   await expect(page.getByLabel("Note for selected passage")).toHaveValue(
     "Keep this unsaved thought",
   );
-  await showPassageAction(page, "Meaning");
-  await page.getByRole("button", { name: "Meaning", exact: true }).click();
+  await showPassageAction(page, "Explain");
+  await page.getByRole("button", { name: "Explain", exact: true }).click();
   await page
     .getByRole("button", { name: "Add to page note", exact: true })
     .first()

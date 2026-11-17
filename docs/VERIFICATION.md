@@ -1,5 +1,12 @@
 # Verification and release gates
 
+## Quick Groq word explanations on 2026-11-17
+
+- Explain in the compact passage row now opens an AI-first meaning popup. Header Dictionary lookups share the same behavior. The response has an easy definition, contextual meaning, three original examples, and usage; generated answers are labeled Groq AI and do not pretend to be cited book facts. Full Research remains under More.
+- The existing authenticated research endpoint accepts optional `meaning: { term }` only in Explain mode. Its dictionary branch allows general language knowledge; ordinary research keeps source-only claims and citation validation. Backend version 5 is deployed. No schema, key, model, usage-limit, or dependency changes were needed. Anonymous function and research RPC calls still return HTTP 401.
+- Client calls are explicit, limited to a 100-character term and at most 1,800 nearby characters, and cancelled on query change/close. An eight-second overall deadline includes context retrieval. Errors fall back to the bundled dictionary without queued jobs or automatic retries. Local caches last 30 days and keep at most 100 context-specific answers; saved answers can be added to synced page notes. Wikipedia requests now require an explicit action; already saved references remain available offline.
+- All 136 unit tests and type checking pass, including timeout/cancellation/cache isolation and backend meaning validation. Three configured-backend browser cases passed for phone/tablet AI popup, page-note saving, cache reuse, quota fallback, and obsolete-response protection. Existing desktop/phone dictionary, full Research, split-line lookup, and definition-saving checks passed after adapting to the Explain shortcut and explicit Wikipedia action. Full release gates and live frontend verification follow publication.
+
 ## Tablet interaction, ink, and notebook upgrade on 2026-11-17
 
 - Release `eaccd59` passed [GitHub Actions run 44096915960](https://github.com/hadiabdul123/book-storage/actions/runs/44096915960) and deployed successfully to Pages. All 130 unit tests, 148 desktop/phone cases (20 platform skips), 59 tablet cases (3 platform skips), 16 cloud cases, 2 production PWA cases, and 1 authenticated production offline case passed: 356 passing tests total. No automatic retries or release-check bypasses were used.

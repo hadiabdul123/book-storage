@@ -48,8 +48,8 @@ test("split-line lookup and phrase glossary preserve the original saved highligh
   await expect(page.locator(".pdf-highlight").first()).toBeVisible();
   const saved = await annotation(page);
   expect(saved.text).toBe(original);
-  await showPassageAction(page, "Meaning");
-  await page.getByRole("button", { name: "Meaning", exact: true }).click();
+  await showPassageAction(page, "Explain");
+  await page.getByRole("button", { name: "Explain", exact: true }).click();
   await expect(page.locator(".dictionary-entry h3").first()).toHaveText("difference");
   await expect(page.locator(".lookup-resolution")).toContainText("difference");
   await page.getByRole("button", { name: "Change word", exact: true }).click();
@@ -67,7 +67,7 @@ test("split-line lookup and phrase glossary preserve the original saved highligh
   expect(await annotation(page)).toEqual(saved);
 });
 
-test("automatic online references retain attribution, persist offline, and respect the device toggle", async ({ page, context }) => {
+test("explicit online references retain attribution, persist offline, and respect the device toggle", async ({ page, context }) => {
   const requests: string[] = [];
   await page.route("https://*.wikipedia.org/**", async (route) => {
     requests.push(route.request().url());
@@ -76,6 +76,7 @@ test("automatic online references retain attribution, persist offline, and respe
   await open(page);
   await clickTool(page, "Dictionary");
   await lookUp(page, "cognitive dissonance");
+  await page.getByRole("button", { name: "Find another explanation", exact: true }).click();
   await expect(page.locator(".dictionary-reference")).toContainText("Discomfort when beliefs");
   expect(requests).toHaveLength(1);
   const request = new URL(requests[0]);
@@ -91,9 +92,9 @@ test("automatic online references retain attribution, persist offline, and respe
   await page.reload();
   await openTools(page);
   await clickTool(page, "Dictionary");
-  await expect(page.getByLabel("Use online references")).not.toBeChecked();
   await context.setOffline(true);
   await lookUp(page, "cognitive dissonance");
+  await expect(page.getByLabel("Use online references")).not.toBeChecked();
   await expect(page.locator(".dictionary-reference")).toContainText("Discomfort when beliefs");
   await lookUp(page, "unknown specialist phrase");
   await expect(page.locator(".meaning-panel")).toContainText("Online references are turned off");

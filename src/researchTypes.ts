@@ -28,6 +28,7 @@ export type ResearchMessage = {
   answer: string; sources: SourceRef[]; createdAt: string; model: string;
 };
 export type ResearchRequest = {
+  meaning?: { term: string };
   requestId: string; mode: ResearchMode; question: string; searchQuery?: string;
   sources: SourceRef[]; history: { question: string; answer: string }[];
 };

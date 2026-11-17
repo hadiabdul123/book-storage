@@ -164,6 +164,13 @@
   margin-bottom: 4px;
   overflow-wrap: anywhere;
 }
+.ai-meaning { clear:both; overflow-wrap:anywhere; }
+.ai-meaning h3 { font: 600 24px/1.3 Literata,serif; margin:8px 0 4px; }
+.ai-meaning > div { margin-top:14px; }
+.ai-meaning > div > strong { color:var(--muted); font-size:12px; letter-spacing:.03em; }
+.ai-meaning p { line-height:1.6; margin:4px 0 10px; }
+.ai-meaning > .muted { font-size:12px; }
+.meaning-alternatives { display:flex; align-items:center; flex-wrap:wrap; gap:12px; margin:10px 0; }
 .dictionary-entry ol {
   padding-left: 22px;
 }

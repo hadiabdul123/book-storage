@@ -6,6 +6,24 @@ const deps = () => ({ authenticate: vi.fn(async () => "owner" as string | null),
 function request(data: unknown = input(), headers: Record<string, string> = {}) { return new Request("https://backend.example/research", { method: "POST", headers: { Authorization: "Bearer owner-token", Origin: "https://reader.example", ...headers }, body: JSON.stringify(data) }); }
 let d: ReturnType<typeof deps>;
 beforeEach(() => { d = deps(); });
+it("defines short phrases using general language knowledge without pretending examples are book citations", async () => {
+  const meaning = { definition: "A feeling of ease.", context: "Here it describes a peaceful room.", examples: ["The chair offers comfort.", "Her words brought comfort.", "I value comfort at home."], usage: "Comfort can be a noun or a verb." };
+  d.fetcher.mockResolvedValueOnce(Response.json({ choices: [{ message: { content: JSON.stringify(meaning) } }] }));
+  const r = await createResearchHandler(d)(request({ ...input(), mode: "explain", meaning: { term: "comfort" }, sources: [] }));
+  expect(r.status).toBe(200); const body = await r.json();
+  expect(body.sources).toEqual([]); expect(body.answer).toContain("3. I value comfort"); expect(body.answer).not.toContain("[S1]");
+  const sent = JSON.parse(d.fetcher.mock.calls[0][1]!.body as string);
+  expect(sent.messages[0].content).toContain("general language knowledge");
+  expect(sent.response_format.json_schema.strict).toBe(true); expect(d.fetcher).toHaveBeenCalledOnce();
+});
+it("rejects invalid meaning requests and incomplete AI examples without changing ordinary research validation", async () => {
+  expect(validResearchInput({ ...input(), meaning: { term: "word" } })).toBe(false);
+  expect(validResearchInput({ ...input(), mode: "explain", meaning: { term: "x".repeat(101) } })).toBe(false);
+  expect(validResearchInput({ ...input(), mode: "explain", meaning: null })).toBe(false);
+  d.fetcher.mockResolvedValueOnce(Response.json({ choices: [{ message: { content: JSON.stringify({ definition: "Meaning", context: "Here", examples: ["One"], usage: "Usage" }) } }] }));
+  const r = await createResearchHandler(d)(request({ ...input(), mode: "explain", meaning: { term: "word" } }));
+  expect(r.status).toBe(502); expect((await r.json()).code).toBe("format");
+});
 it("keeps a geometry-heavy PDF citation intact while sending the model only the evidence text", async () => {
   const rects = Array.from({ length: 260 }, (_, i) => [40.1234567890123 + i / 3, 120.9876543210123 + i / 7, 52.1234567890123 + i / 3, 135.9876543210123 + i / 7]);
   const selected = { ...source, locator: { ...source.locator, regions: [{ page: 1, rects }], quote: { exact: "A selected passage", prefix: "", suffix: "" } } };

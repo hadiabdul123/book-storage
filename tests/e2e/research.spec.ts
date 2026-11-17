@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { textPdf } from "../helpers/text-pdf";
-import { clickTool } from "./controls";
+import { clickTool, showPassageAction } from "./controls";
 import JSZip from "jszip";
 import path from "node:path";
 async function open(page: Page) {
@@ -15,6 +15,7 @@ async function select(page: Page) {
   await page.locator(".textLayer span").filter({ hasText: /^Big Bang theory$/ }).evaluate(el => {
     const r = document.createRange(); r.selectNodeContents(el); const s = document.getSelection()!; s.removeAllRanges(); s.addRange(r); document.dispatchEvent(new Event("selectionchange"));
   });
+  await showPassageAction(page, "Research");
   await page.getByRole("button", { name: "Research", exact: true }).click();
   await expect(page.getByRole("region", { name: "Research workspace" })).toBeVisible();
 }
@@ -138,6 +139,7 @@ for (const format of ["epub", "docx"] as const) test(`${format} contextual resea
     const walker = document.createTreeWalker(p, NodeFilter.SHOW_TEXT); let node = walker.nextNode(); while (node && !node.textContent?.trim()) node = walker.nextNode();
     const r = document.createRange(); r.setStart(node!, 0); r.setEnd(node!, Math.min(50, node!.textContent!.length)); const s = document.getSelection()!; s.removeAllRanges(); s.addRange(r); document.dispatchEvent(new Event("selectionchange"));
   });
+  await showPassageAction(page, "Research");
   await page.getByRole("button", { name: "Research", exact: true }).click(); await expect(page.locator(".research-passage")).toBeVisible();
   await page.getByRole("button", { name: "Collect passage", exact: true }).click(); await page.getByLabel("Save destination").selectOption("new");
   await page.getByRole("button", { name: "Save excerpt", exact: true }).click(); await expect(page.getByRole("dialog")).toContainText("Excerpt and sources saved"); await page.getByRole("button", { name: "Done", exact: true }).click();

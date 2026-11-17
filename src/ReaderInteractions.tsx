@@ -802,7 +802,7 @@ export const ReaderInteractions = forwardRef<
           <div className="passage-compact-row" role="toolbar" aria-label="Passage actions">
             <button aria-label="Choose highlight color" disabled={busy} aria-expanded={mode === "colors"} onPointerDown={e => e.preventDefault()} onClick={() => setMode(mode === "colors" ? "tools" : "colors")}><Highlighter size={19} /><i style={{ background: colors[target?.color || "yellow"] }} /></button>
             <button aria-label={selectedBookmark ? "Remove passage bookmark" : "Bookmark passage"} aria-pressed={!!selectedBookmark} onPointerDown={e => e.preventDefault()} onClick={() => void attempt(togglePassage)}><BookmarkIcon size={19} fill={selectedBookmark ? "currentColor" : "none"} /></button>
-            <button aria-label="Research" disabled={busy} onPointerDown={e => e.preventDefault()} onClick={() => void attempt(() => onResearch(selected))}><Sparkles size={19} /></button>
+            <button aria-label="Explain" title="Explain with Groq" disabled={busy || selected.text.length > 100 || selected.text.startsWith("Region on page")} onPointerDown={e => e.preventDefault()} onClick={() => setMode("meaning")}><Sparkles size={19} /></button>
             <button aria-label={target?.note ? "Edit note" : "Add note"} disabled={ambiguous} onPointerDown={e => e.preventDefault()} onClick={() => setMode(mode === "note" ? "tools" : "note")}><StickyNote size={19} /></button>
             <button aria-label="More passage actions" aria-expanded={mode === "more"} onPointerDown={e => e.preventDefault()} onClick={() => setMode(mode === "more" ? "tools" : "more")}><MoreHorizontal size={19} /></button>
           </div>
@@ -873,7 +873,7 @@ export const ReaderInteractions = forwardRef<
                     setMode(mode === "meaning" ? "tools" : "meaning")
                   }
                 >
-                  Meaning
+                  Explain
                 </button>
               )}
             {!selected.text.startsWith("Region on page") && <button type="button" disabled={busy} onPointerDown={e => e.preventDefault()} onClick={() => { if (selected) void attempt(() => onResearch(selected)); }}>Research</button>}
@@ -955,6 +955,7 @@ export const ReaderInteractions = forwardRef<
             <Meaning
               compact
               term={selected.text}
+              context={async () => ({ id: "selection", kind: "book", bookId: book.id, title: book.title, locator: selected.locator, excerpt: await adapter.current?.context(selected) || selected.text })}
               onExplain={() => { if (selected) void attempt(() => onResearch(selected)); }}
               onAdd={
                 selected.locator.type === "pdf"

@@ -70,6 +70,7 @@ test("saved PDF notes and rendering assets survive a full offline browser restar
     await clickTool(page, "Dictionary");
     await page.getByLabel("Dictionary word").fill("cognitive dissonance");
     await page.getByRole("button", { name: "Look up", exact: true }).click();
+    await page.getByRole("button", { name: "Find another explanation", exact: true }).click();
     await expect(page.locator(".dictionary-reference")).toContainText("Discomfort when beliefs");
     const panelTextLayer = await page.locator(".pdf-page .textLayer").first().elementHandle();
     await page.getByRole("button", { name: "Close panel" }).click();

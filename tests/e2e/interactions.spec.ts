@@ -50,8 +50,8 @@ test("floating meanings, one-click highlights and partial reselection support un
 }, info) => {
   await openPdf(page);
   await selectPdf(page);
-  await showPassageAction(page, "Meaning");
-  await page.getByRole("button", { name: "Meaning", exact: true }).click();
+  await showPassageAction(page, "Explain");
+  await page.getByRole("button", { name: "Explain", exact: true }).click();
   await expect(
     page.locator(".passage-popup .dictionary-entry").first(),
   ).toBeVisible();
@@ -79,8 +79,8 @@ test("floating meanings, one-click highlights and partial reselection support un
   await expect(
     page.getByRole("button", { name: "yellow highlight", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
-  await showPassageAction(page, "Meaning");
-  await page.getByRole("button", { name: "Meaning", exact: true }).click();
+  await showPassageAction(page, "Explain");
+  await page.getByRole("button", { name: "Explain", exact: true }).click();
   await showPassageAction(page, "blue highlight");
   await page
     .getByRole("button", { name: "blue highlight", exact: true })
@@ -339,8 +339,8 @@ for (const format of ["epub", "docx"] as const)
     )
       await toolsMenu.click();
     await page.locator(".passage-bookmark").click();
-    await showPassageAction(page, "Meaning");
-    await page.getByRole("button", { name: "Meaning", exact: true }).click();
+    await showPassageAction(page, "Explain");
+    await page.getByRole("button", { name: "Explain", exact: true }).click();
     await expect(
       page.locator(".passage-popup .dictionary-entry").first(),
     ).toBeVisible();
