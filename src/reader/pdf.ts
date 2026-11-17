@@ -10,6 +10,7 @@ import { pageText, savedOcr, preparePageText, hasPageText, type OcrWord } from "
 import { PageOcr } from "./ocr";
 import { surroundingText } from "../sourceIndex";
 import { bindPdfTouch } from "./pdfTouch";
+import { bindNativeSelection } from "./nativeSelection";
 import { pdfLibrary, pdfOptions, pdfOpenError } from "../pdf";
 import type {
   PDFDocumentLoadingTask,
@@ -74,6 +75,7 @@ export class PdfReader implements ReaderAdapter {
   private clearSurfaces() { this.surfaceRevision++; for (const item of this.surfaces.values()) disposeSurfaces(item.cache); this.surfaces.clear(); }
   private ocr = new PageOcr();
   private touch?: ReturnType<typeof bindPdfTouch>;
+  private unbindNativeSelection?: () => void;
   private loadingTask?: PDFDocumentLoadingTask;
   private lib!: Awaited<ReturnType<typeof pdfLibrary>>;
   private pages: PageState[] = [];
@@ -245,13 +247,17 @@ export class PdfReader implements ReaderAdapter {
     this.touch = bindPdfTouch(this.host, async (element) => {
       const state = this.pages[Number(element.dataset.page) - 1];
       if (state?.hasText === false) await this.recognizePage(state);
-    }, range => this.readSelection(range), () => this.events.onSelection(null), this.events.onSelectionInteraction);
+    }, range => this.readSelection(range, true), () => this.events.onSelection(null), this.events.onSelectionInteraction);
+    this.unbindNativeSelection = bindNativeSelection(this.host, {
+      selected: range => range ? this.readSelection(range) : this.events.onSelection(null),
+      dragging: this.events.onMouseSelection,
+      allowed: element => !this.drawing && !this.region && !!element.closest(".textLayer"),
+    });
     // Retain the gesture's original text/canvas nodes until touch release.
     // Replacing its target mid-swipe loses Chrome's remaining touch events.
     for (const name of ["touchstart", "touchend", "touchcancel"] as const) this.host.addEventListener(name, this.touchPause, { capture: true, passive: true });
     this.host.addEventListener("scroll", this.onScroll, { passive: true });
     document.addEventListener("visibilitychange", this.scheduleRecognition);
-    document.addEventListener("selectionchange", this.selection);
     this.host.addEventListener("pointerdown", this.pointerDown);
     this.host.addEventListener("pointermove", this.pointerMove);
     this.host.addEventListener("pointerup", this.pointerUp);
@@ -616,27 +622,16 @@ export class PdfReader implements ReaderAdapter {
     })();
     return state.recognizing;
   }
-  private selectionFrame?: number;
-  private selection = () => {
-    if (this.selectionFrame !== undefined) return;
-    this.selectionFrame = requestAnimationFrame(() => {
-      this.selectionFrame = undefined;
-      this.readSelection();
-    });
-  };
-  private readSelection = (logical?: Range) => {
-    if (this.region) return;
-    const selection = document.getSelection();
-    if (!logical && (!selection?.rangeCount || selection.isCollapsed)) return;
-    const range = logical || selection!.getRangeAt(0);
+  private readSelection(range: Range, touch = false) {
+    if (this.region || this.drawing) return;
     if (
       !this.host.contains(range.startContainer) ||
       !this.host.contains(range.endContainer)
     )
       return;
-    const fragment = logical?.cloneContents();
+    const fragment = touch ? range.cloneContents() : undefined;
     fragment?.querySelectorAll("br").forEach(br => br.replaceWith(document.createTextNode("\n")));
-    const text = logical ? fragment!.textContent || logical.toString() : selection!.toString();
+    const text = touch ? fragment?.textContent || range.toString() : document.getSelection()?.toString() || range.toString();
     const rangeRects = Array.from(range.getClientRects());
     const regions: { page: number; rects: Rect[] }[] = [];
     for (const state of this.pages) {
@@ -684,8 +679,8 @@ export class PdfReader implements ReaderAdapter {
         regions,
         quote: { exact: text, prefix: "", suffix: "" },
       },
-    });
-  };
+    }, touch ? "touch" : "native");
+  }
   private visiblePage() {
     const bounds = this.host.getBoundingClientRect();
     const last = this.pages[this.pages.length - 1];
@@ -1344,9 +1339,7 @@ export class PdfReader implements ReaderAdapter {
     clearTimeout(this.timer);
     this.observer?.disconnect();
     this.resizeObserver?.disconnect();
-    document.removeEventListener("selectionchange", this.selection);
-    if (this.selectionFrame !== undefined)
-      cancelAnimationFrame(this.selectionFrame);
+    this.unbindNativeSelection?.();
     this.host.removeEventListener("scroll", this.onScroll);
     this.host.removeEventListener("pointerdown", this.pointerDown);
     this.host.removeEventListener("pointermove", this.pointerMove);

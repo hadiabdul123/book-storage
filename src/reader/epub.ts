@@ -1,6 +1,7 @@
 import { db } from "../db";
 import { savePageCache } from "../pdfText";
 import { bindTouchSelection, type TouchSelection } from "./touchSelection";
+import { bindNativeSelection } from "./nativeSelection";
 import { PageTurn } from "./pageTurn";
 import { blankLeaf, surfaceCache, waitForSurfaces, type TurnDirection, type TurnPreview, type TurnSpread } from "./turnSurfaces";
 import { bindPageSwipes } from "./swipes";
@@ -132,9 +133,6 @@ export class EpubReader implements ReaderAdapter {
     this.rendition.hooks.content.register((contents: Contents) =>
       this.bind(contents),
     );
-    this.rendition.on("selected", (cfi: string, contents: Contents) =>
-      this.selected(cfi, contents),
-    );
     this.rendition.on("relocated", (location: any) => {
       if (!location.start) return;
       const locator: Locator = {
@@ -197,7 +195,7 @@ export class EpubReader implements ReaderAdapter {
     const touch = bindTouchSelection(doc.body, {
       selected: range => {
         for (const [other, selection] of this.touchSelections) if (other !== doc) selection.clear();
-        this.selected(contents.cfiFromRange(range), contents, range);
+        this.readSelection(range, contents, true);
       },
       cleared: () => this.events.onSelection(null),
       adjusting: this.events.onSelectionInteraction,
@@ -208,15 +206,14 @@ export class EpubReader implements ReaderAdapter {
     doc.addEventListener("reader-layout", layout); doc.addEventListener("scroll", layout, { capture: true, passive: true });
     doc.fonts.addEventListener("loadingdone", layout);
     const resize = new ResizeObserver(layout); resize.observe(doc.body);
-    const selection = (event: Event) => {
-      const s = doc.getSelection();
-      if (s && !s.isCollapsed && s.rangeCount) {
-        const range = s.getRangeAt(0);
-        this.selected(contents.cfiFromRange(range), contents);
-      } else if (event.type === "pointerup" && !touch.hasSelection()) this.events.onSelection(null);
+    const unbindNativeSelection = bindNativeSelection(doc.body, {
+      selected: range => range ? this.readSelection(range, contents) : this.events.onSelection(null),
+      dragging: this.events.onMouseSelection,
+    });
+    const dismissBlank = () => {
+      if (doc.getSelection()?.isCollapsed && !touch.hasSelection()) this.events.onSelection(null);
     };
-    doc.addEventListener("selectionchange", selection);
-    doc.addEventListener("pointerup", selection);
+    doc.addEventListener("pointerup", dismissBlank);
     const unbindSwipes = bindPageSwipes(
       doc,
       () => !this.host.dataset.pageTurning && (this.events.canSwipe?.() || false),
@@ -237,8 +234,8 @@ export class EpubReader implements ReaderAdapter {
     };
     doc.addEventListener("keydown", key);
     this.cleanups.push(() => {
-      doc.removeEventListener("selectionchange", selection);
-      doc.removeEventListener("pointerup", selection);
+      unbindNativeSelection();
+      doc.removeEventListener("pointerup", dismissBlank);
       resize.disconnect(); doc.removeEventListener("reader-layout", layout); doc.removeEventListener("scroll", layout, true); doc.fonts.removeEventListener("loadingdone", layout);
       touch.destroy(); this.touchSelections.delete(doc);
       unbindTaps();
@@ -246,10 +243,11 @@ export class EpubReader implements ReaderAdapter {
       doc.removeEventListener("keydown", key);
     });
   }
-  private selected(cfi: string, contents: Contents, logical?: Range) {
+  private readSelection(range: Range, contents: Contents, touch = false) {
     try {
-      const range = logical || contents.range(cfi);
-      if (!range || !range.toString().trim()) return;
+      const text = range.toString();
+      if (!text.trim()) return;
+      const cfi = contents.cfiFromRange(range);
       const quote = offsetsForRange(contents.document.body, range).quote;
       const section = this.epub.spine.get(cfi);
       this.events.onSelection({
@@ -261,8 +259,8 @@ export class EpubReader implements ReaderAdapter {
           href: section.href,
           quote,
         },
-        text: range.toString(),
-      });
+        text,
+      }, touch ? "touch" : "native");
     } catch {
       /* Ignore transient native selections while the handles are being dragged. */
     }

@@ -390,11 +390,12 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
           clearTimeout(saveTimer);
           saveTimer = setTimeout(flush, 650);
         },
-        onSelection: (value) => {
-          interactions.current?.select(value);
+        onSelection: (value, source) => {
+          interactions.current?.select(value, source);
           activity();
         },
         onSelectionInteraction: (adjusting) => interactions.current?.adjusting(adjusting),
+        onMouseSelection: (dragging) => interactions.current?.mouseSelecting(dragging),
         onAnnotation: (markId) => {
           const mark = annotationsRef.current.find((a) => a.id === markId);
           if (mark?.type === "page-note" && mark.locator.type === "pdf")

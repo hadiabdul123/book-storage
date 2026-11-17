@@ -128,6 +128,110 @@ async function open(page: Page, format: string) {
   }
 }
 
+async function textPoint(locator: Locator, text: string, offset: number) {
+  const point = await locator.evaluate(async (el, { text, offset }) => {
+    const doc = el.ownerDocument;
+    await doc.fonts.ready;
+    const walker = doc.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    while (walker.nextNode()) {
+      const node = walker.currentNode as Text;
+      const index = node.data.indexOf(text);
+      if (index < 0) continue;
+      const range = doc.createRange();
+      range.setStart(node, index + offset);
+      range.collapse(true);
+      const caret = range.getBoundingClientRect();
+      const element = el.getBoundingClientRect();
+      return { x: caret.x - element.x, y: caret.y + caret.height / 2 - element.y };
+    }
+    throw new Error(`No text node contains ${text}`);
+  }, { text, offset });
+  const box = (await locator.boundingBox())!;
+  return { x: box.x + point.x, y: box.y + point.y };
+}
+
+for (const format of ["pdf", "epub", "docx"] as const) {
+  test(`desktop ${format} mouse drag keeps the page still and highlights the final range`, async ({ page }, info) => {
+    test.skip(info.project.name !== "desktop", "Desktop mouse regression.");
+    await open(page, format);
+    if (format === "docx") {
+      await clickTool(page, "Reading mode");
+      await expect(page.locator(".reader-header")).toBeHidden();
+    }
+    const host = page.locator(".reader-host");
+    const first = format === "pdf" ? host.locator(".textLayer span").first() :
+      format === "epub" ? host.frameLocator("iframe").first().locator("p").filter({ hasText: "Alice was beginning" }).first() :
+      host.locator(".docx-content p").first();
+    const second = format === "pdf" ? host.locator(".textLayer span").nth(1) : first;
+    await expect(first).toBeVisible();
+    if (format === "pdf") await expect(host).not.toHaveAttribute("aria-busy", "true");
+    const text = format === "epub" ? "Alice was beginning" : "Thoughtful reading";
+    const startOffset = 3;
+    const start = await textPoint(first, text, startOffset);
+    const end = format === "pdf" ? await textPoint(second, "Another line", "Another line".length) :
+      await textPoint(first, text, text.length);
+    const expected = (format === "pdf" ? "Thoughtful reading opens a world of ideas.\nAnother line" : text).slice(startOffset);
+    const top = (await first.boundingBox())!.y;
+    const popup = page.locator(".passage-popup");
+
+    // Hold a backward multiline range on the PDF. Move again after a paint
+    // so the old toolbar/layout race has a chance to redirect the drag.
+    const [from, to] = format === "pdf" ? [end, start] : [start, end];
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move((from.x + to.x) / 2, from.y, { steps: 8 });
+    await expect.poll(() => first.evaluate(el => el.ownerDocument.getSelection()?.toString() || "")).not.toBe("");
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    await expect(popup).toBeHidden();
+    expect((await first.boundingBox())!.y).toBeCloseTo(top, 0);
+    await page.mouse.move(to.x, to.y, { steps: 8 });
+    await page.mouse.up();
+    await expect(popup).toBeVisible();
+    expect((await first.boundingBox())!.y).toBeCloseTo(top, 0);
+    await expect(host).not.toHaveClass(/selection-top-rail/);
+    await showPassageAction(page, "yellow highlight");
+    await page.getByRole("button", { name: "yellow highlight", exact: true }).click();
+    await expect.poll(() => page.evaluate(async () => {
+      const { list } = await import("/src/db.ts");
+      return (await list("annotation")).map(mark => mark.text);
+    })).toEqual([expected]);
+    await page.reload();
+    await clickTool(page, "Highlights and notes");
+    await expect(page.locator(".annotation-card blockquote")).toHaveText(expected);
+  });
+}
+
+test("releasing the mouse outside the EPUB frame lets the next native selection open tools", async ({ page }, info) => {
+  test.skip(info.project.name !== "desktop", "Desktop mouse regression.");
+  await open(page, "epub");
+  const reader = page.locator(".reader-host");
+  const frame = reader.locator("iframe").first();
+  const paragraph = frame.contentFrame().locator("p").filter({ hasText: "Alice was beginning" }).first();
+  const start = await textPoint(paragraph, "Alice was beginning", 3);
+  const end = await textPoint(paragraph, "Alice was beginning", 15);
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(end.x, end.y, { steps: 8 });
+  await expect.poll(() => paragraph.evaluate(el => el.ownerDocument.getSelection()?.toString() || "")).not.toBe("");
+  await expect(page.locator(".passage-popup")).toBeHidden();
+  const box = (await frame.boundingBox())!;
+  await page.mouse.move(end.x, box.y + box.height + 12, { steps: 8 });
+  await page.mouse.up();
+
+  // A keyboard-style range can open tools without starting a new mouse
+  // gesture, so it detects a press left active in the old iframe.
+  await paragraph.evaluate(el => {
+    const doc = el.ownerDocument;
+    const range = doc.createRange();
+    range.selectNodeContents(el);
+    const selection = doc.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+  });
+  await expect(page.locator(".passage-popup")).toBeVisible();
+  await expect(page.locator(".selection-excerpt")).toContainText("Alice was beginning");
+});
+
 async function hold(page: Page, text: Locator, chromium: boolean) {
   const point = await text.evaluate(el => {
     const doc = el.ownerDocument, walker = doc.createTreeWalker(el, 4);

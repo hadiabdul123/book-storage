@@ -12,6 +12,7 @@ export interface Selection {
   locator: Locator;
   text: string;
 }
+export type SelectionSource = "native" | "touch";
 export type ScreenRect = {
   left: number;
   top: number;
@@ -20,6 +21,7 @@ export type ScreenRect = {
 };
 export interface ReaderEvents {
   onSelectionInteraction?: (adjusting: boolean) => void;
+  onMouseSelection?: (dragging: boolean) => void;
   canEdgeTurn?: () => boolean;
   onReaderTap?: () => void;
   onZoom?: (zoom: number) => void;
@@ -32,7 +34,7 @@ export interface ReaderEvents {
   onRegionMode?: (enabled: boolean) => void;
   onLayoutFallback?: (fallback: boolean) => void;
   onLocation: (locator: Locator, progress: number) => void;
-  onSelection: (selection: Selection | null) => void;
+  onSelection: (selection: Selection | null, source?: SelectionSource) => void;
   onAnnotation: (id: string) => void;
   onError: (message: string) => void;
 }

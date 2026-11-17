@@ -21,7 +21,7 @@ import {
   type Color,
   type Locator,
 } from "./model";
-import type { ReaderAdapter, Selection } from "./reader/types";
+import type { ReaderAdapter, Selection, SelectionSource } from "./reader/types";
 import { overlap, typingTarget } from "./reader/geometry";
 import { ReaderHistory, type ReaderChange } from "./readerHistory";
 import { Meaning } from "./Meaning";
@@ -30,7 +30,8 @@ import "./readerInteractions.css";
 
 export type InteractionHandle = {
   adjusting: (active: boolean) => void;
-  select: (value: Selection | null) => void;
+  mouseSelecting: (active: boolean) => void;
+  select: (value: Selection | null, source?: SelectionSource) => void;
   openAnnotation: (id: string) => void;
   shortcut: (event: KeyboardEvent) => void;
   dismiss: () => void;
@@ -82,6 +83,8 @@ export const ReaderInteractions = forwardRef<
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<"tools" | "meaning" | "note" | "more" | "colors">("tools");
   const [adjusting, setAdjusting] = useState(false);
+  const [mouseSelecting, setMouseSelecting] = useState(false);
+  const [selectionSource, setSelectionSource] = useState<SelectionSource>();
   const [rail, setRail] = useState(false);
   useEffect(() => { setRail(false); }, [open, book.id]);
   useEffect(() => {
@@ -193,7 +196,7 @@ export const ReaderInteractions = forwardRef<
       window.removeEventListener("leafmark-clipped", refreshDrafts);
     };
   }, [draftKey]);
-  const selectNow = (value: Selection | null, annotationId?: string) => {
+  const selectNow = (value: Selection | null, annotationId?: string, source?: SelectionSource) => {
     if (!value) {
       setOpen(false);
       return;
@@ -206,31 +209,34 @@ export const ReaderInteractions = forwardRef<
     latest.current = { ...prior, selected: value, chosen: nextChosen, open: true };
     setSelected(value);
     setChosen(nextChosen);
+    setSelectionSource(source);
+    if (source === "native") setRail(false);
     setOpen(true);
   };
   const selectionTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
-  const pendingSelection = useRef<{ value: Selection | null; annotationId?: string } | undefined>(undefined);
+  const pendingSelection = useRef<{ value: Selection | null; annotationId?: string; source?: SelectionSource } | undefined>(undefined);
   const adjustingRef = useRef(false);
   const selectionInteraction = (active: boolean) => {
     if (!active && adjustingRef.current) {
       clearTimeout(selectionTimer.current);
       const latest = pendingSelection.current;
-      if (latest) selectNow(latest.value, latest.annotationId);
+      if (latest) selectNow(latest.value, latest.annotationId, latest.source);
     }
     adjustingRef.current = active; setAdjusting(active);
   };
-  const select = (value: Selection | null, annotationId?: string) => {
-    pendingSelection.current = { value, annotationId };
+  const select = (value: Selection | null, annotationId?: string, source?: SelectionSource) => {
+    pendingSelection.current = { value, annotationId, source };
     clearTimeout(selectionTimer.current);
     if (
       !annotationId &&
       value &&
+      source !== "native" &&
       window.matchMedia("(pointer: coarse)").matches
     ) {
-      selectionTimer.current = setTimeout(() => selectNow(value), 180);
-    } else selectNow(value, annotationId);
+      selectionTimer.current = setTimeout(() => selectNow(value, annotationId, source), 180);
+    } else selectNow(value, annotationId, source);
   };
   const closeSelection = () => {
     clearTimeout(selectionTimer.current);
@@ -353,7 +359,8 @@ export const ReaderInteractions = forwardRef<
   }, []);
   useImperativeHandle(ref, () => ({
     adjusting: selectionInteraction,
-    select,
+    mouseSelecting: setMouseSelecting,
+    select: (value, source) => select(value, undefined, source),
     shortcut,
     dismiss: closeSelection,
     openAnnotation: (id) => {
@@ -419,7 +426,7 @@ export const ReaderInteractions = forwardRef<
       const visible = (locator: Locator) =>
         reader.bounds(locator).filter((r) => overlap(r, clip));
       const state = latest.current;
-      const rects = state.selected ? visible(state.selected.locator) : [];
+      const rects = state.selected && !mouseSelecting ? visible(state.selected.locator) : [];
       const rect = rects.length ? { left: Math.min(...rects.map(r => r.left)), right: Math.max(...rects.map(r => r.right)), top: Math.min(...rects.map(r => r.top)), bottom: Math.max(...rects.map(r => r.bottom)) } : undefined;
       const compact = mode === "tools" || mode === "colors";
       const popupLimit = innerWidth <= 700 ? Math.min(420, innerHeight * 0.5) : 520;
@@ -453,8 +460,10 @@ export const ReaderInteractions = forwardRef<
         belowSpace = rect
           ? Math.max(0, popupBottom - rect.bottom - handleGap)
           : 0;
-      if (compact && rect && aboveSpace < desiredHeight && !rail) setRail(true);
-      const above = compact || aboveSpace >= desiredHeight ||
+      const useRail = selectionSource === "touch" ||
+        (selectionSource !== "native" && window.matchMedia("(pointer: coarse)").matches);
+      if (useRail && compact && rect && aboveSpace < desiredHeight && !rail) setRail(true);
+      const above = (compact && useRail) || aboveSpace >= desiredHeight ||
         (belowSpace < desiredHeight && aboveSpace > belowSpace);
       const maxHeight = Math.max(
         compact ? 56 : 80,
@@ -468,7 +477,7 @@ export const ReaderInteractions = forwardRef<
             popupTop + 4,
             Math.min(
               popupBottom - height - 4,
-              compact && rail ? popupTop + 4 : above ? rect.top - height - handleGap : rect.bottom + handleGap,
+              compact && useRail && rail ? popupTop + 4 : above ? rect.top - height - handleGap : rect.bottom + handleGap,
             ),
           )
         : 0;
@@ -556,7 +565,7 @@ export const ReaderInteractions = forwardRef<
       window.removeEventListener("resize", schedule); window.visualViewport?.removeEventListener("resize", schedule);
       window.visualViewport?.removeEventListener("scroll", schedule); document.fonts.removeEventListener("loadingdone", schedule);
     };
-  }, [adapter, host, selected, bookmarks, current, open, mode, note, busy, feedback, suspended, ready, rail, adjusting]);
+  }, [adapter, host, selected, bookmarks, current, open, mode, note, busy, feedback, suspended, ready, rail, adjusting, mouseSelecting, selectionSource]);
   async function colorAction(color: Color) {
     if (!selected || ambiguous) return;
     if (target) {
@@ -805,7 +814,7 @@ export const ReaderInteractions = forwardRef<
             left: layout.left,
             top: layout.top,
             maxHeight: layout.maxHeight,
-            visibility: layout.visible && !adjusting ? "visible" : "hidden",
+            visibility: layout.visible && !adjusting && !mouseSelecting ? "visible" : "hidden",
           }}
         >
           <div className="passage-compact-row" role="toolbar" aria-label="Passage actions">

@@ -1,4 +1,5 @@
 import { bindTouchSelection, type TouchSelection } from "./touchSelection";
+import { bindNativeSelection } from "./nativeSelection";
 import {
   findQuote,
   offsetsForRange,
@@ -23,6 +24,7 @@ export class DocxReader implements ReaderAdapter {
     return surroundingText(textNodes(this.article).map(n => n.data).join(""), selection.text);
   }
   private touch?: TouchSelection;
+  private unbindNativeSelection?: () => void;
   private article = document.createElement("article");
   private marks: Annotation[] = [];
   private timer?: ReturnType<typeof setTimeout>;
@@ -49,20 +51,18 @@ export class DocxReader implements ReaderAdapter {
       a.rel = "noopener noreferrer";
     });
     this.host.append(this.article);
-    this.touch = bindTouchSelection(this.article, { selected: range => this.readSelection(range), cleared: () => this.events.onSelection(null), adjusting: this.events.onSelectionInteraction, scrollHost: this.host });
-    document.addEventListener("selectionchange", this.selection);
+    this.touch = bindTouchSelection(this.article, { selected: range => this.readSelection(range, true), cleared: () => this.events.onSelection(null), adjusting: this.events.onSelectionInteraction, scrollHost: this.host });
+    this.unbindNativeSelection = bindNativeSelection(this.article, {
+      selected: range => range ? this.readSelection(range) : this.events.onSelection(null),
+      dragging: this.events.onMouseSelection,
+    });
     this.host.addEventListener("scroll", this.scroll, { passive: true });
     this.host.addEventListener("click", this.click);
     this.observer = new ResizeObserver(() => this.draw());
     this.observer.observe(this.article);
     this.scroll();
   }
-  private selection = () => {
-    const selection = document.getSelection();
-    if (!selection?.rangeCount || selection.isCollapsed) return;
-    this.readSelection(selection.getRangeAt(0));
-  };
-  private readSelection(range: Range) {
+  private readSelection(range: Range, touch = false) {
     if (
       !this.article.contains(range.startContainer) ||
       !this.article.contains(range.endContainer)
@@ -80,7 +80,7 @@ export class DocxReader implements ReaderAdapter {
           end,
           quote,
         },
-      });
+      }, touch ? "touch" : "native");
     } catch {}
   }
   private scroll = () => {
@@ -262,7 +262,7 @@ export class DocxReader implements ReaderAdapter {
     this.touch?.destroy();
     clearTimeout(this.timer);
     this.observer?.disconnect();
-    document.removeEventListener("selectionchange", this.selection);
+    this.unbindNativeSelection?.();
     this.host.removeEventListener("scroll", this.scroll);
     this.host.removeEventListener("click", this.click);
     this.host.replaceChildren();

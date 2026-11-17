@@ -268,10 +268,14 @@ export class PageTurn {
       const caret = doc.caretPositionFromPoint?.(x, y), range = doc.caretRangeFromPoint?.(x, y);
       const node = caret?.offsetNode || range?.startContainer, offset = caret?.offset ?? range?.startOffset ?? 0;
       if (node?.nodeType !== 3 || !node.textContent?.trim()) return false;
-      const glyph = doc.createRange(), at = Math.min(offset, node.textContent.length - 1);
-      glyph.setStart(node, at); glyph.setEnd(node, at + 1);
-      const r = glyph.getBoundingClientRect();
-      return x >= r.left - 1 && x <= r.right + 1 && y >= r.top && y <= r.bottom;
+      const glyph = doc.createRange();
+      // A caret sits between characters. Either adjacent glyph can be under it.
+      for (let at = Math.max(0, offset - 1); at <= offset && at < node.textContent.length; at++) {
+        glyph.setStart(node, at); glyph.setEnd(node, at + 1);
+        const r = glyph.getBoundingClientRect();
+        if (x >= r.left - 1 && x <= r.right + 1 && y >= r.top && y <= r.bottom) return true;
+      }
+      return false;
     };
     const allowed = () => this.source.enabled() && this.source.canDrag() && !doc.getSelection()?.toString().trim();
     const down = (event: Event) => {
@@ -335,7 +339,7 @@ export class PageTurn {
       if (!p.claimed) {
         // Mouse clicks can span slow frames or a deliberate held press. The
         // cutoff protects touch/stylus long-press selection, not mouse clicks.
-        if (!doc.getSelection()?.toString().trim() && (p.pointerType === "mouse" || performance.now() - p.at < 300) && Math.hypot(p.latest.x - p.start.x, p.latest.y - p.start.y) < 8 && this.source.canTap?.() && this.source.navigate) {
+        if (!p.onText && !doc.getSelection()?.toString().trim() && (p.pointerType === "mouse" || performance.now() - p.at < 300) && Math.hypot(p.latest.x - p.start.x, p.latest.y - p.start.y) < 8 && this.source.canTap?.() && this.source.navigate) {
           suppressUntil = performance.now() + 500;
           e.preventDefault(); e.stopPropagation();
           void this.source.navigate(p.direction).catch(error => console.warn("Edge turn unavailable", error));
@@ -354,7 +358,14 @@ export class PageTurn {
     const click = (e: Event) => { if (performance.now() < suppressUntil) { e.preventDefault(); e.stopImmediatePropagation(); } };
     root.addEventListener("click", click, true);
     const selectionStarted = () => { this.selectionRevision++; cancel(); this.invalidate(); };
-    const nativeSelection = () => { if (doc.getSelection()?.toString().trim()) selectionStarted(); };
+    let hadNativeSelection = false;
+    const nativeSelection = () => {
+      const selection = doc.getSelection();
+      const active = !!selection && !selection.isCollapsed &&
+        root.contains(selection.anchorNode) && root.contains(selection.focusNode);
+      if (active && !hadNativeSelection) selectionStarted();
+      hadNativeSelection = active;
+    };
     root.addEventListener("reader-selection-start", selectionStarted);
     doc.addEventListener("selectionchange", nativeSelection);
     bindings.forEach(([name, fn]) => root.addEventListener(name, fn, { passive: false }));
