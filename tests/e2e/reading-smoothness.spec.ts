@@ -2,7 +2,7 @@ import { test, expect, type Page, type Locator } from "@playwright/test";
 import path from "node:path";
 import JSZip from "jszip";
 import { textPdf } from "../helpers/text-pdf";
-import { clickTool } from "./controls";
+import { clickTool, observePaperTurns } from "./controls";
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("leafmark-controls-pinned", "true"));
@@ -118,11 +118,17 @@ test("repeated curls reuse one isolated renderer and idle without animation call
   await page.goto("/");
   await page.locator("input[type=file]").setInputFiles(path.resolve("tests/fixtures/tracemonkey.pdf"));
   await page.locator(".book-cover-link").click();
-  await expect(page.locator(".reader-loading")).toHaveCount(0);
+  await expect(page.locator('.pdf-page[data-page="1"] .textLayer span').first()).toBeVisible();
+  await expect(page.locator(".reader-shell")).toHaveAttribute("data-loading", "false");
   await clickTool(page, "Reading settings");
   await page.getByRole("combobox", { name: "Navigation", exact: true }).selectOption("paginated");
   await page.getByRole("button", { name: "Close panel", exact: true }).click();
+  await page.locator('.pdf-page[data-page="1"]').hover({ position: { x: 30, y: 100 } });
+  await expect(page.locator(".reader-host")).toHaveAttribute("aria-busy", "false");
+  await expect.poll(() => page.locator(".turn-surface-cache img").evaluateAll(images => images.length >= 2 && images.every(image => (image as HTMLImageElement).complete && (image as HTMLImageElement).naturalWidth > 0))).toBe(true);
+  const turns = await observePaperTurns(page);
   await clickTool(page, "Next page");
+  await expect.poll(turns).toBe(1);
   await expect(page.locator(".reader-progress")).toContainText("Page 2");
   const realm = await page.locator(".paper-turn-realm").elementHandle();
   expect(realm).toBeTruthy();

@@ -12,6 +12,8 @@
 
 - The next CI run passed 131 reader cases, including the corrected notebook race, and exposed a pointer-test timing assumption: it measured an old text layer while asynchronous zoom/fit replacement was still in progress. PDF layouts now expose their queued work through `aria-busy`; the pointer case waits for completed sharpening and scrolls the target page into view before making a real mouse selection. No retry or timing delay was added.
 
+- The following CI run passed the complete desktop/phone suite and 43 tablet cases. The iPad reuse check reached its destination through the safe fallback during initial setup and had no retained renderer to inspect. Pagination setup now shares the view queue and readiness signal with fitting. The reuse check waits for settled layout/prepared surfaces and verifies an actual visible curl before checking the retained frame; cold-start recovery remains supported.
+
 ## Release checks on 2026-11-17
 
 - Release `b4ae912` deployed successfully in [GitHub Actions run 43958227270](https://github.com/hadiabdul123/book-storage/actions/runs/43958227270). All 108 unit tests, 121 desktop/phone reader cases (17 platform skips), 30 tablet cases (2 platform skips), 16 cloud cases, 2 production PWA cases, and the authenticated production offline case passed. The configured production build and Pages publication succeeded; no automatic test retries or check bypasses were used.

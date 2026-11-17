@@ -877,14 +877,16 @@ export class PdfReader implements ReaderAdapter {
     this.events.onRegionMode?.(false);
   };
   requestZoom(zoom: number) { this.zoomController?.request(zoom); }
+  private queueView(action: () => Promise<void> | void) {
+    this.host.setAttribute("aria-busy", "true");
+    const pending: Promise<void> = this.viewQueue.catch(() => {}).then(action)
+      .finally(() => { if (!this.disposed && this.viewQueue === pending) this.host.setAttribute("aria-busy", "false"); });
+    this.viewQueue = pending;
+    return pending;
+  }
   setView(zoom: number, rotation: number) {
     const revision = ++this.viewRevision;
-    this.host.setAttribute("aria-busy", "true");
-    this.viewQueue = this.viewQueue
-      .catch(() => {})
-      .then(() => revision === this.viewRevision ? this.relayout(zoom, rotation) : undefined)
-      .finally(() => { if (!this.disposed && revision === this.viewRevision) this.host.setAttribute("aria-busy", "false"); });
-    return this.viewQueue;
+    return this.queueView(() => revision === this.viewRevision ? this.relayout(zoom, rotation) : undefined);
   }
   private async relayout(zoom: number, rotation: number) {
     this.turn.invalidate(); this.clearSurfaces();
@@ -1141,7 +1143,7 @@ export class PdfReader implements ReaderAdapter {
           );
         else {
           this.host.dataset.navigation = next.navigation;
-          void this.goTo(anchor).catch((e) => this.events.onError(e.message));
+          void this.queueView(() => this.goTo(anchor)).catch((e) => this.events.onError(e.message));
         }
       }
     }
