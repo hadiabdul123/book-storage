@@ -133,6 +133,8 @@ test("trimmed spreads keep PDF highlights and ink aligned through rotation and z
   const paper = page.locator('.pdf-page[data-page="1"]');
   await expect(paper).toHaveAttribute("data-pdf-crop", /,/);
   await expect(page.locator(".reader-host")).not.toHaveAttribute("aria-busy", "true");
+  await expect(paper).toBeVisible();
+  await expect(page.locator('.pdf-page[data-page="3"]')).toBeHidden();
   await paper.locator(".textLayer span").first().evaluate(el => { const r = document.createRange(); r.selectNodeContents(el); const s = document.getSelection()!; s.removeAllRanges(); s.addRange(r); document.dispatchEvent(new Event("selectionchange")); });
   await showPassageAction(page, "yellow highlight"); await page.getByRole("button", { name: "yellow highlight", exact: true }).click();
   await expect(paper.locator(".pdf-highlight")).toHaveCount(1);

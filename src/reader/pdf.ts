@@ -1013,7 +1013,11 @@ export class PdfReader implements ReaderAdapter {
       p.element.hidden = hidden;
       p.frame.parentElement!.hidden = hidden;
     }
-    if (this.layout.navigation === "paginated" && this.zoom <= 1 && state.viewport.height <= this.host.clientHeight - 8) this.host.scrollTop = 0;
+    // Restoring the top of the first spread must retain its initial padding.
+    // Scrolling that padding away can reach the bottom of a short, two-spread
+    // document on a tall tablet and make visiblePage report the final page.
+    const firstSpread = row === this.pages[0]?.frame.parentElement;
+    if (firstSpread && y <= 0 || this.layout.navigation === "paginated" && this.zoom <= 1 && state.viewport.height <= this.host.clientHeight - 8) this.host.scrollTop = 0;
     else this.host.scrollTop +=
       state.element.getBoundingClientRect().top -
       this.host.getBoundingClientRect().top +
