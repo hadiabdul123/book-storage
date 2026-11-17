@@ -46,3 +46,21 @@ it("a logical selection permanently cancels the current swipe even if tools clos
   event("touchend", { changedTouches: [{ identifier: 1, clientX: 100, clientY: 200 }] });
   expect(navigate).not.toHaveBeenCalled(); cleanup();
 });
+it("keeps an ordinary swipe through temporary layout ineligibility and checks again on release", () => {
+  const { root, event } = surface(), navigate = vi.fn(); let enabled = true;
+  const cleanup = bindPageSwipes(root, () => enabled, navigate);
+  event("touchstart", { touches: [{ identifier: 1, clientX: 300, clientY: 200 }] });
+  enabled = false;
+  event("touchmove", { touches: [{ identifier: 1, clientX: 240, clientY: 200 }] });
+  enabled = true;
+  event("touchend", { changedTouches: [{ identifier: 1, clientX: 100, clientY: 200 }] });
+  expect(navigate).toHaveBeenCalledExactlyOnceWith("next"); cleanup();
+});
+it("never adds a swipe turn after an edge fold already claimed that gesture", () => {
+  const { root, event } = surface(), navigate = vi.fn(); const cleanup = bindPageSwipes(root, () => true, navigate);
+  event("touchstart", { touches: [{ identifier: 1, clientX: 390, clientY: 200 }] });
+  event("touchmove", { touches: [{ identifier: 1, clientX: 340, clientY: 200 }] });
+  root.dispatchEvent(new Event("reader-page-turn-start"));
+  event("touchend", { changedTouches: [{ identifier: 1, clientX: 100, clientY: 200 }] });
+  expect(navigate).not.toHaveBeenCalled(); cleanup();
+});

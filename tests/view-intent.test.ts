@@ -31,3 +31,15 @@ it("pauses during a gesture, clears a failed revision, and allows recovery", asy
   fail = false; const reset = view.request({ zoom: 1 }); await vi.advanceTimersByTimeAsync(151); await reset;
   view.destroy();
 });
+it("interrupts an active redraw and retains its latest intent until a touch gesture ends", async () => {
+  vi.useFakeTimers(); const seen: number[] = [];
+  const view = new ViewIntent({ zoom: 1 }, async (value, signal) => {
+    seen.push(value.zoom);
+    if (seen.length === 1) await new Promise<void>(resolve => signal.addEventListener("abort", () => resolve(), { once: true }));
+  }, () => {});
+  const pending = view.request({ zoom: 2 }); await vi.advanceTimersByTimeAsync(151);
+  view.pause(true); await vi.advanceTimersByTimeAsync(500);
+  expect(seen).toEqual([2]);
+  view.pause(false); await vi.advanceTimersByTimeAsync(151); await pending;
+  expect(seen).toEqual([2, 2]); view.destroy();
+});

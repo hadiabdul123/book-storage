@@ -24,7 +24,13 @@ export class ViewIntent<T extends object> {
     const result = new Promise<void>((resolve, reject) => this.waiters.push({ resolve, reject }));
     this.schedule(); return result;
   }
-  pause(active: boolean) { this.paused = active; clearTimeout(this.timer); if (!active) this.schedule(); }
+  pause(active: boolean) {
+    const wasPaused = this.paused; this.paused = active; clearTimeout(this.timer);
+    if (active && !wasPaused && this.running) {
+      this.pending = true; this.controller?.abort(); this.invalidate();
+    }
+    if (!active) this.schedule();
+  }
   private schedule() { clearTimeout(this.timer); if (!this.disposed && !this.paused && this.pending) this.timer = setTimeout(() => { this.timer = undefined; void this.drain(); }, this.delay); }
   private async drain() {
     if (this.running || this.paused || this.disposed || !this.pending) return;

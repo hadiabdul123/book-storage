@@ -319,6 +319,7 @@ export class PageTurn {
         if (Math.abs(dx) < 12 || Math.abs(dx) < Math.abs(dy) * 1.2 || (p.direction === "next" ? dx > 0 : dx < 0)) return;
         if (!allowed()) { cancel(); return; }
         p.claimed = true; (e.target as Element).setPointerCapture?.(e.pointerId);
+        root.dispatchEvent(new Event("reader-page-turn-start", { bubbles: true }));
         if (this.motion()) void start(p);
       }
       e.preventDefault();

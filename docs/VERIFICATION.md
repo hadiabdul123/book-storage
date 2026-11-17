@@ -1,5 +1,11 @@
 # Verification and release gates
 
+## Release gesture follow-up on 2026-11-17
+
+- The first deployment run (`44148312019`) passed unit/build checks and 163 desktop/phone cases, but caught an ordinary phone swipe being lost immediately after changing reading settings. Its trace showed the pending PDF redraw completing during the swipe. Touch targets could be replaced before Chrome delivered the remaining touch events.
+- PDF view updates now pause for active reading touches, including cancelling and rescheduling a redraw already in progress, then resume after release. Pinch interaction and normal reading touches share that pause state; drawing-mode palm contacts do not hold the view indefinitely. Swipes retain their intent through transient layout eligibility changes, while explicit selection/fold ownership permanently cancels the same swipe to prevent accidental or double turns.
+- Added coverage for deferred active redraws, transient swipe eligibility and edge-fold ownership. All 153 unit tests and type checking passed. The exact failed phone case passed along with real edge selection, saved-highlight dismissal, native fold cancellation and drawing-mode pinch/pen input. The exact phone swipe scenario then passed three consecutive runs without automatic retries. Deployment checks are rerun for the corrected commit.
+
 ## Local highlight, page-turn and stylus follow-up on 2026-11-17
 
 Verified locally and not yet deployed. The owner requested committing the complete update after testing.

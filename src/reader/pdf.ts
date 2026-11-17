@@ -108,6 +108,12 @@ export class PdfReader implements ReaderAdapter {
   private layout: PdfLayout = { ...defaultPdfLayout };
   private columns = 1;
   private layingOut = false;
+  private fingers = 0;
+  private zoomInteracting = false;
+  private touchPause = (event: TouchEvent) => {
+    this.fingers = this.drawing || event.type === "touchcancel" ? 0 : event.touches.length;
+    this.view?.pause(this.fingers > 0 || this.zoomInteracting);
+  };
   private drag?: { page: PageState; x: number; y: number; box: HTMLDivElement };
   private timer: ReturnType<typeof setTimeout> | undefined;
   private viewQueue: Promise<void> = Promise.resolve();
@@ -240,6 +246,9 @@ export class PdfReader implements ReaderAdapter {
       const state = this.pages[Number(element.dataset.page) - 1];
       if (state?.hasText === false) await this.recognizePage(state);
     }, range => this.readSelection(range), () => this.events.onSelection(null), this.events.onSelectionInteraction);
+    // Retain the gesture's original text/canvas nodes until touch release.
+    // Replacing its target mid-swipe loses Chrome's remaining touch events.
+    for (const name of ["touchstart", "touchend", "touchcancel"] as const) this.host.addEventListener(name, this.touchPause, { capture: true, passive: true });
     this.host.addEventListener("scroll", this.onScroll, { passive: true });
     document.addEventListener("visibilitychange", this.scheduleRecognition);
     document.addEventListener("selectionchange", this.selection);
@@ -269,7 +278,7 @@ export class PdfReader implements ReaderAdapter {
     });
     this.resizeObserver.observe(this.host);
     this.zoomController = bindPdfZoom(this.host, {
-      interaction: active => this.view?.pause(active),
+      interaction: active => { this.zoomInteracting = active; this.view?.pause(active || this.fingers > 0); },
       target: zoom => { void this.setView(zoom, this.view?.target.rotation ?? this.rotation).catch(e => this.events.onError(e.message)); },
       value: () => this.zoom,
       preview: (ratio, point, origin) => {
@@ -1321,6 +1330,7 @@ export class PdfReader implements ReaderAdapter {
     this.turn.destroy(); this.clearSurfaces();
     this.disposed = true;
     this.view?.destroy();
+    for (const name of ["touchstart", "touchend", "touchcancel"] as const) this.host.removeEventListener(name, this.touchPause, true);
     clearTimeout(this.renderTimer); this.renderQueue.clear();
     this.host.removeAttribute("aria-busy");
     this.zoomController?.destroy();
