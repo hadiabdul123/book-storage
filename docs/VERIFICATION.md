@@ -10,6 +10,8 @@
 
 - Run `44155068324` passed the corrected selection case but caught a fractional iPad gutter measurement (2.5625 pixels instead of 2). PDF flex frames now retain the exact page viewport width; the regression measures both pages atomically after layout settles and checks additional fractional viewport heights. Six repeated Android/iPad cases passed. Independent desktop/phone, tablet, cloud, offline and authenticated-offline suites now run on separate runners after unit/build checks. The aggregate `check` job requires all five suites to succeed before the configured Pages artifact can be built and deployed; no checks or retries were removed.
 
+- The parallel offline check in run `44159854734` found background preparation appending an outbox item during the worker update (11 operations after, versus 10 before). The persistence assertion now compares the complete original operation IDs and payloads against the updated outbox, preserving the no-data-loss requirement while permitting new preparation work. Both production offline/update cases passed locally afterward. Application code is unchanged by this assertion correction.
+
 ## Local highlight, page-turn and stylus follow-up on 2026-11-17
 
 Verified locally and not yet deployed. The owner requested committing the complete update after testing.

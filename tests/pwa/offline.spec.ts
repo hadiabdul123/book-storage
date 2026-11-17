@@ -132,18 +132,18 @@ test("saved PDF notes and rendering assets survive a full offline browser restar
     await expect(page.locator(".book-card")).toHaveCount(2);
     // A waiting release must activate without waiting for the (offline/local)
     // outbox to empty. The persisted notes and operations must survive reload.
-    const pendingCount = () => page.evaluate(() => new Promise<number>((resolve, reject) => {
+    const pendingOperations = () => page.evaluate(() => new Promise<unknown[]>((resolve, reject) => {
       const request = indexedDB.open("leafmark-v1");
       request.onsuccess = () => {
         const database = request.result;
-        const count = database.transaction("outbox").objectStore("outbox").count();
-        count.onsuccess = () => { resolve(count.result); database.close(); };
-        count.onerror = () => { reject(count.error); database.close(); };
+        const operations = database.transaction("outbox").objectStore("outbox").getAll();
+        operations.onsuccess = () => { resolve(operations.result); database.close(); };
+        operations.onerror = () => { reject(operations.error); database.close(); };
       };
       request.onerror = () => reject(request.error);
     }));
-    const pendingBefore = await pendingCount();
-    expect(pendingBefore).toBeGreaterThan(0);
+    const pendingBefore = await pendingOperations();
+    expect(pendingBefore.length).toBeGreaterThan(0);
     const workerPath = path.resolve(".local/pwa-test-dist/sw.js");
     const workerSource = readFileSync(workerPath, "utf8");
     try {
@@ -155,7 +155,9 @@ test("saved PDF notes and rendering assets survive a full offline browser restar
         page.getByRole("button", { name: "Update", exact: true }).click(),
       ]);
       await expect(page.locator(".book-card")).toHaveCount(2);
-      expect(await pendingCount()).toBe(pendingBefore);
+      // Preparation can append book operations during the worker update.
+      // Verify the original IDs and payloads survive, rather than freezing its count.
+      expect(await pendingOperations()).toEqual(expect.arrayContaining(pendingBefore));
     } finally { writeFileSync(workerPath, workerSource); }
     // Topic writing and offline research jobs use the same durable database.
     await page.goto(new URL("#/notebooks", baseURL!).href);
