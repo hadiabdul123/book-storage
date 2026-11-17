@@ -187,6 +187,11 @@ async function runSync() {
               );
             await db.files.update(book.id, { uploaded: true });
           }
+          if (book.preparedTextPath && file?.preparedText && file.preparedTextPath === book.preparedTextPath && !file.preparedTextUploaded) {
+            await upload(`${session.user.id}/${book.preparedTextPath}`, file.preparedText,
+              sent => transferStatus(book.id, { state: "uploading", percent: Math.round(100 * sent / Math.max(1, file.preparedText!.size)) }));
+            await db.files.update(book.id, { preparedTextUploaded: true });
+          }
           if (!file && operation.baseRevision === 0)
             throw new Error(
               "The original file is missing on this device. Import it again before syncing.",
@@ -338,43 +343,43 @@ export async function removeDownload(book: Book) {
 }
 export async function downloadBook(book: Book) {
   const existing = await db.files.get(book.id);
-  if (existing) return existing;
-  if (!cloud) throw new Error("This book is not downloaded on this device.");
-  const {
-    data: { user },
-  } = await cloud.auth.getUser();
-  if (!user) throw new Error("Sign in to download this book.");
-  const download = (path: string, type: string) => downloadFreshBlob((nonce) =>
-    cloud!.storage.from("library").download(
-      `${user.id}/${path}`,
-      { cacheNonce: nonce },
-      // IndexedDB is the verified offline copy. Do not reuse Chrome's partial
-      // HTTP-cache entries after an interrupted authenticated download.
-      { cache: "no-store" },
-    ).asStream(),
-    type,
-  );
-  const sourceType = {
-    pdf: "application/pdf",
-    epub: "application/epub+zip",
-    docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  }[book.format];
-  const source = await download(book.sourcePath, sourceType);
-  let derived: Blob | undefined;
-  if (book.derivedPath) {
-    derived = await download(book.derivedPath, "text/html");
+  const applied = book.preparedTextPath ? (await db.meta.get(`prepared-text-applied:${book.id}:${book.hash}`))?.value : undefined;
+  if (existing && (!book.preparedTextPath || applied === book.preparedTextPath)) return existing;
+  if (!cloud || !navigator.onLine) {
+    if (existing) return existing;
+    throw new Error("This book is not downloaded on this device.");
   }
-  const bytes = await source.arrayBuffer();
-  const hash = Array.from(
-    new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)),
-  )
-    .map((n) => n.toString(16).padStart(2, "0"))
-    .join("");
-  if (hash !== book.hash)
-    throw new Error(
-      "The downloaded file did not match this book. Retry the download.",
-    );
-  const file = { id: book.id, source, derived, uploaded: true };
+  let user;
+  try {
+    const result = await cloud.auth.getUser(); user = result.data.user;
+    if (result.error) throw result.error;
+  } catch (error) { if (existing) return existing; throw error; }
+  if (!user) { if (existing) return existing; throw new Error("Sign in to download this book."); }
+  const download = (path: string, type: string) => downloadFreshBlob((nonce) =>
+    cloud!.storage.from("library").download(`${user.id}/${path}`, { cacheNonce: nonce }, { cache: "no-store" }).asStream(), type);
+  const sourceType = { pdf: "application/pdf", epub: "application/epub+zip",
+    docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }[book.format];
+  const source = existing?.source || await download(book.sourcePath, sourceType);
+  const derived = existing?.derived || (book.derivedPath ? await download(book.derivedPath, "text/html") : undefined);
+  if (!existing) {
+    const bytes = await source.arrayBuffer();
+    const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))).map(n => n.toString(16).padStart(2, "0")).join("");
+    if (hash !== book.hash) throw new Error("The downloaded file did not match this book. Retry the download.");
+  }
+  let file = existing || { id: book.id, source, derived, uploaded: true };
+  if (book.format === "pdf" && book.preparedTextPath) {
+    try {
+      const { validPreparedPath, restorePreparedText } = await import("./preparedText");
+      if (!validPreparedPath(book)) throw new Error("Invalid prepared-text path");
+      const prepared = file.preparedTextPath === book.preparedTextPath && file.preparedText || await download(book.preparedTextPath, "application/gzip");
+      await restorePreparedText(book, prepared);
+      file = { ...(await db.files.get(book.id) || file), preparedText: prepared,
+        preparedTextPath: book.preparedTextPath, preparedTextUploaded: true };
+    } catch (error) {
+      // The original remains readable offline or if this optional download fails.
+      console.warn("Prepared text could not download; using local book text", error);
+    }
+  }
   await saveBookFile(file);
   return file;
 }

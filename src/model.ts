@@ -52,6 +52,7 @@ export type Book = {
   addedAt: string;
   sourcePath: string;
   derivedPath?: string;
+  preparedTextPath?: string;
   purgedAt?: string;
 };
 export type Collection = { id: string; name: string };
@@ -182,6 +183,9 @@ export interface BookFile {
   id: string;
   source: Blob;
   derived?: Blob;
+  preparedText?: Blob;
+  preparedTextPath?: string;
+  preparedTextUploaded?: boolean;
   uploaded: boolean;
 }
 export const keyOf = (kind: Kind, id: string) => `${kind}:${id}`;

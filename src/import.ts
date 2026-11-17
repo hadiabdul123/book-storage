@@ -157,6 +157,7 @@ export async function importBook(file: File): Promise<ImportResult> {
     await db.files.delete(id);
     throw error;
   }
+  if (format === "pdf") await db.meta.put({ key: `pdf-preparation:${id}:${hash}`, value: JSON.stringify({ status: "queued", done: 0, total: 0 }) }).catch(() => warnings.push("Book saved. Text preparation will resume when device storage is available."));
   await navigator.storage?.persist?.().catch(() => false);
   if (duplicate)
     warnings.push(

@@ -2,6 +2,7 @@ import { bindPdfZoom } from "./pdfZoom";
 import { PageTurn } from "./pageTurn";
 import { blankLeaf, canvasImage, disposeSurfaces, surfaceCache, type TurnDirection, type TurnPreview, type TurnSpread } from "./turnSurfaces";
 import { db } from "../db";
+import { pageText, savedOcr, preparePageText, hasPageText, type OcrWord } from "../pdfText";
 import { PageOcr } from "./ocr";
 import { surroundingText } from "../sourceIndex";
 import { bindPdfTouch } from "./pdfTouch";
@@ -27,7 +28,6 @@ import {
 } from "../model";
 import type { ReaderAdapter, ReaderEvents, SearchHit, Section } from "./types";
 
-type OcrWord = { text: string; rect: Rect };
 type PageState = {
   ocrButton: HTMLButtonElement;
   ocrWords?: OcrWord[];
@@ -55,7 +55,7 @@ export class PdfReader implements ReaderAdapter {
     if (selection.locator.type !== "pdf") return selection.text;
     const state = this.pages.find(p => p.n === (selection.locator.type === "pdf" ? selection.locator.page : 0));
     if (!state) return selection.text;
-    const content = await state.page.getTextContent();
+    const content = await pageText(this.book, state.page);
     const text = state.ocrWords?.map(w => w.text).join(" ") || content.items.map(i => "str" in i ? i.str : "").join(" ");
     return surroundingText(text, selection.text, `${selection.text}\nNearby page text: ${text.slice(0, 1600)}`);
   }
@@ -103,11 +103,16 @@ export class PdfReader implements ReaderAdapter {
     this.turn = new PageTurn(host, {
       enabled: () => this.layout.navigation === "paginated" && this.effect !== "none" && this.zoom <= 1 && !this.region && !this.layingOut && !this.host.classList.contains("pdf-zooming"),
       canDrag: () => !!this.events.canDragTurn?.() && !host.classList.contains("pdf-zooming"),
+      canWarm: () => this.events.canPrepare?.() !== false,
       bounds: () => this.paperBounds(),
       location: () => String(this.current),
       prepare: (direction, outgoing) => this.prepareTurn(direction, outgoing),
     });
     this.turn.bind(host);
+  }
+  restoreInitialView(zoom: number, rotation: number, locator?: Locator) {
+    this.zoom = Math.max(1, Math.min(3, zoom)); this.rotation = rotation;
+    if (locator?.type === "pdf" && locator.hash === this.book.hash) this.current = locator.page;
   }
   async open(source: Blob) {
     this.lib = await pdfLibrary();
@@ -175,8 +180,8 @@ export class PdfReader implements ReaderAdapter {
         generation: 0,
       };
       this.pages.push(state);
-      this.size(state);
     }
+    this.current = Math.max(1, Math.min(this.pages.length, this.current));
     this.arrange();
     this.observer = new IntersectionObserver(
       (entries) => {
@@ -186,13 +191,11 @@ export class PdfReader implements ReaderAdapter {
               this.pages[
                 Number((entry.target as HTMLElement).dataset.page) - 1
               ];
-            void this.render(state).catch((e) =>
-              this.events.onError(String(e.message)),
-            );
+            this.queueRender(state);
           }
         }
       },
-      { root: this.host, rootMargin: "1200px" },
+      { root: this.host, rootMargin: "300px" },
     );
     this.pages.forEach((p) => this.observer!.observe(p.element));
     this.touch = bindPdfTouch(this.host, async (element) => {
@@ -209,7 +212,7 @@ export class PdfReader implements ReaderAdapter {
     this.host.addEventListener("click", this.click);
     this.host.addEventListener("keydown", this.keyDown);
     document.addEventListener("keydown", this.escapeRegion);
-    await this.render(this.pages[0]);
+    await this.render(this.pages[this.current - 1]);
     this.onScroll();
     this.hostWidth = this.host.clientWidth;
     this.hostHeight = this.host.clientHeight;
@@ -283,19 +286,19 @@ export class PdfReader implements ReaderAdapter {
       error: error => this.events.onError(error instanceof Error ? error.message : String(error)),
     });
   }
-  private size(state: PageState) {
-    const phone = window.matchMedia("(max-width: 700px)").matches;
+  private size(state: PageState, dimensions: { width: number; height: number; phone: boolean }) {
+    const { phone } = dimensions;
     const base = state.page.getViewport({ scale: 1, rotation: this.rotation });
     const available = Math.max(
       160,
-      (this.host.clientWidth - (phone ? 8 : 32) - (this.columns - 1) * 2) / this.columns,
+      (dimensions.width - (phone ? 8 : 32) - (this.columns - 1) * 2) / this.columns,
     );
     const widthScale = Math.min(available / base.width, 1.6);
     const scale =
       (this.layout.fit === "page"
         ? Math.min(
             widthScale,
-            Math.max(160, this.host.clientHeight - (phone ? 8 : 80)) / base.height,
+            Math.max(160, dimensions.height - (phone ? 8 : 80)) / base.height,
           )
         : widthScale) * this.zoom;
     state.viewport = state.page.getViewport({ scale, rotation: this.rotation });
@@ -312,6 +315,31 @@ export class PdfReader implements ReaderAdapter {
     );
     state.element.style.setProperty("--scale-round-x", "1px");
     state.element.style.setProperty("--scale-round-y", "1px");
+  }
+  private renderQueue = new Set<PageState>();
+  private renderTimer?: ReturnType<typeof setTimeout>;
+  private preloading = false;
+  private queueRender(state: PageState, delay = 120) {
+    if (!state || this.disposed) return;
+    if (state.loaded) this.renderQueue.delete(state); else this.renderQueue.add(state);
+    if (!this.renderQueue.size) return;
+    if (this.preloading || this.renderTimer) return;
+    this.renderTimer = setTimeout(() => { this.renderTimer = undefined; void this.preload(); }, delay);
+  }
+  private async preload() {
+    if (this.disposed || this.preloading) return;
+    if (this.layingOut || this.host.classList.contains("pdf-zooming") || this.events.canPrepare?.() === false) {
+      const first = this.renderQueue.values().next().value;
+      if (first) this.queueRender(first, 500);
+      return;
+    }
+    const state = [...this.renderQueue].sort((a, b) => Math.abs(a.n - this.current) - Math.abs(b.n - this.current))[0];
+    if (!state) return;
+    this.renderQueue.delete(state);
+    this.preloading = true;
+    try { if (!state.element.hidden) await this.render(state); }
+    catch (error) { if (!this.disposed) this.events.onError((error as Error).message); }
+    finally { this.preloading = false; const next = this.renderQueue.values().next().value; if (next) this.queueRender(next); }
   }
   private async render(state: PageState) {
     while (state.rendering && !this.disposed)
@@ -340,7 +368,7 @@ export class PdfReader implements ReaderAdapter {
       layer.className = "textLayer";
       layer.style.visibility = "hidden";
       state.element.append(layer);
-      const text = await state.page.getTextContent();
+      const text = await pageText(this.book, state.page);
       if (this.disposed || generation !== state.generation) return;
       await new this.lib.TextLayer({
         textContentSource: text,
@@ -351,9 +379,7 @@ export class PdfReader implements ReaderAdapter {
       state.element.querySelectorAll("canvas,.textLayer").forEach(old => { if (old !== layer) old.remove(); });
       layer.style.visibility = "";
       state.element.prepend(canvas);
-      state.hasText = text.items.some(
-        (item) => "str" in item && item.str.trim(),
-      );
+      state.hasText = hasPageText(text);
       if (!state.hasText) {
         await this.loadOcrCache(state);
         if (this.disposed || generation !== state.generation) return;
@@ -369,21 +395,9 @@ export class PdfReader implements ReaderAdapter {
       state.rendering = false;
     }
   }
-  private ocrKey(state: PageState) {
-    return `ocr-v2:${this.book.id}:${this.book.hash}:${state.n}`;
-  }
   private async loadOcrCache(state: PageState) {
     if (state.ocrChecked || state.ocrWords !== undefined) return;
-    const cached = await db.meta.get(this.ocrKey(state)) ||
-      await db.meta.get(`ocr-v1:${this.book.id}:${state.n}`);
-    if (cached) {
-      try {
-        const words = JSON.parse(cached.value);
-        if (Array.isArray(words) && words.every(w => typeof w.text === "string" &&
-            Array.isArray(w.rect) && w.rect.length === 4 && w.rect.every(Number.isFinite)))
-          state.ocrWords = words;
-      } catch { /* Ignore incomplete old cache entries and recognize again. */ }
-    }
+    state.ocrWords = await savedOcr(this.book, state.n);
     state.ocrChecked = true;
     if (state.ocrWords !== undefined) this.cachedOcrPages.add(state.n);
     else this.cachedOcrPages.delete(state.n);
@@ -394,7 +408,7 @@ export class PdfReader implements ReaderAdapter {
     clearTimeout(this.autoOcrTimer);
     if (this.disposed || this.autoOcrBusy || this.autoOcrBlocked) return;
     this.autoOcrTimer = setTimeout(() => {
-      if (this.disposed || document.hidden || this.layingOut || this.host.classList.contains("pdf-zooming") || this.host.dataset.pageTurning) { this.scheduleRecognition(); return; }
+      if (this.disposed || document.hidden || this.events.canPrepare?.() === false || this.layingOut || this.host.classList.contains("pdf-zooming") || this.host.dataset.pageTurning) { this.scheduleRecognition(); return; }
       if (this.pages.some(p => p.recognizing)) return;
       const viewport = this.host.getBoundingClientRect();
       const pending = this.pages.filter(p => !p.hasText &&
@@ -469,11 +483,10 @@ export class PdfReader implements ReaderAdapter {
     if (state.hasText || state.ocrWords !== undefined) return Promise.resolve();
     if (state.recognizing) return state.recognizing;
     state.recognizing = (async () => {
-      const canvas = document.createElement("canvas");
       try {
         await this.loadOcrCache(state);
         if (state.hasText === undefined && state.ocrWords === undefined) {
-          const text = await state.page.getTextContent();
+          const text = await pageText(this.book, state.page);
           state.hasText = text.items.some(item => "str" in item && item.str.trim());
         }
         if (state.hasText || state.ocrWords !== undefined) {
@@ -487,30 +500,11 @@ export class PdfReader implements ReaderAdapter {
         state.ocrButton.classList.remove("ocr-failed");
         state.ocrButton.classList.add("recognizing");
         state.ocrButton.textContent = `Preparing page ${state.n} text...`;
-        const base = state.page.getViewport({ scale: 1, rotation: 0 });
-        const viewport = state.page.getViewport({
-          scale: Math.min(2.5, 1800 / base.width, 2400 / base.height),
-          rotation: 0,
+        const words = await preparePageText(this.book, state.page, this.ocr, percent => {
+          if (!this.disposed) state.ocrButton.textContent = `Page ${state.n} text: ${percent}%`;
         });
-        canvas.width = Math.ceil(viewport.width);
-        canvas.height = Math.ceil(viewport.height);
-        await state.page.render({ canvas, viewport }).promise;
-        if (this.disposed) return;
-        const recognized = await this.ocr.recognize(canvas, (percent) => {
-          state.ocrButton.textContent = `Page ${state.n} text: ${percent}%`;
-        });
-        if (this.disposed) return;
-        const words = recognized.map(({ text, box }) => {
-          const a = viewport.convertToPdfPoint(box.x0, box.y0),
-            b = viewport.convertToPdfPoint(box.x1, box.y1);
-          return { text, rect: normalizeRect([a[0], a[1], b[0], b[1]]) };
-        });
-        await db.meta.put({
-          key: this.ocrKey(state),
-          value: JSON.stringify(words),
-        });
-        state.ocrWords = words;
-        this.cachedOcrPages.add(state.n);
+        if (words !== undefined) { state.ocrWords = words; this.cachedOcrPages.add(state.n); }
+        else state.hasText = true;
         this.autoOcrBlocked = false;
         if (!this.disposed) this.renderOcr(state);
       } catch (error) {
@@ -525,7 +519,6 @@ export class PdfReader implements ReaderAdapter {
         }
         throw error;
       } finally {
-        canvas.width = canvas.height = 0;
         state.ocrButton.disabled = false;
         state.ocrButton.classList.remove("recognizing");
         state.recognizing = undefined;
@@ -604,6 +597,16 @@ export class PdfReader implements ReaderAdapter {
       },
     });
   };
+  private visiblePage() {
+    const bounds = this.host.getBoundingClientRect();
+    const last = this.pages[this.pages.length - 1];
+    // A short final page cannot reach the top of a tall viewport. At the end
+    // of continuous scrolling it is still the reading page, not its predecessor.
+    if (last && !last.element.hidden && this.layout.navigation === "continuous" && this.host.scrollTop > 0 &&
+        this.host.scrollTop + this.host.clientHeight >= this.host.scrollHeight - 2 &&
+        last.element.getBoundingClientRect().top < bounds.bottom) return last;
+    return this.pages.find(p => !p.element.hidden && p.element.getBoundingClientRect().bottom > bounds.top + 30) || last;
+  }
   private onScroll = () => {
     if (this.layingOut || this.host.classList.contains("pdf-zooming")) return;
     this.scheduleRecognition();
@@ -611,12 +614,7 @@ export class PdfReader implements ReaderAdapter {
     this.timer = setTimeout(() => {
       if (this.disposed || this.host.classList.contains("pdf-zooming")) return;
       const top = this.host.getBoundingClientRect().top;
-      let state =
-        this.pages.find(
-          (p) =>
-            !p.element.hidden &&
-            p.element.getBoundingClientRect().bottom > top + 30,
-        ) || this.pages[this.pages.length - 1];
+      let state = this.visiblePage();
       if (!state) return;
       const selected = this.pages[this.current - 1];
       if (
@@ -739,6 +737,7 @@ export class PdfReader implements ReaderAdapter {
     this.events.onLayoutFallback?.(
       this.layout.columns === 2 && this.columns === 1,
     );
+    const dimensions = { width: this.host.clientWidth, height: this.host.clientHeight, phone: window.matchMedia("(max-width: 700px)").matches };
     const fragment = document.createDocumentFragment();
     for (let i = 0; i < this.pages.length; i += this.columns) {
       const row = document.createElement("div");
@@ -747,7 +746,7 @@ export class PdfReader implements ReaderAdapter {
         Math.floor((this.current - 1) / this.columns) * this.columns !== i;
       row.hidden = hidden;
       for (const p of this.pages.slice(i, i + this.columns)) {
-        this.size(p);
+        this.size(p, dimensions);
         p.element.hidden = hidden;
         row.append(p.frame);
       }
@@ -769,12 +768,7 @@ export class PdfReader implements ReaderAdapter {
   }
   private location(): Locator {
     const top = this.host.getBoundingClientRect().top;
-    let state =
-      this.pages.find(
-        (p) =>
-          !p.element.hidden &&
-          p.element.getBoundingClientRect().bottom > top + 30,
-      ) || this.pages[0];
+    let state = this.visiblePage() || this.pages[0];
     const selected = this.pages[this.current - 1];
     if (selected?.frame.parentElement === state.frame.parentElement)
       state = selected;
@@ -929,12 +923,7 @@ export class PdfReader implements ReaderAdapter {
     if (this.disposed) return;
     this.turn.invalidate();
     this.onScroll();
-    for (const p of this.pages.filter(
-      (p) => Math.abs(p.n - this.current) < 2,
-    )) {
-      while (p.rendering) await new Promise((r) => setTimeout(r, 10));
-      if (!this.host.classList.contains("pdf-zooming")) await this.render(p);
-    }
+    for (const p of this.pages.filter(p => Math.abs(p.n - this.current) < 2)) this.queueRender(p);
   }
   async goTo(locator: Locator | string) {
     let page: number,
@@ -1078,7 +1067,7 @@ export class PdfReader implements ReaderAdapter {
     if (!query.trim()) return hits;
     for (const state of this.pages) {
       if (this.disposed) break;
-      const content = await state.page.getTextContent();
+      const content = await pageText(this.book, state.page);
       const text = content.items.map((i: any) => i.str || "").join(" "),
         lower = text.toLowerCase();
       let at = lower.indexOf(query.toLowerCase());
@@ -1138,7 +1127,7 @@ export class PdfReader implements ReaderAdapter {
       this.layout = { ...next };
       if (anchor) {
         if (resize)
-          void this.setView(this.zoom, this.rotation).catch((e) =>
+          void this.setView(this.zoomController?.target() ?? this.zoom, this.rotation).catch((e) =>
             this.events.onError(e.message),
           );
         else {
@@ -1215,6 +1204,7 @@ export class PdfReader implements ReaderAdapter {
   destroy() {
     this.turn.destroy(); this.clearSurfaces();
     this.disposed = true;
+    clearTimeout(this.renderTimer); this.renderQueue.clear();
     this.host.removeAttribute("aria-busy");
     this.zoomController?.destroy();
     clearTimeout(this.autoOcrTimer); clearTimeout(this.deferredOcrTimer); this.deferredOcr.clear();

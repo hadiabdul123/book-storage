@@ -22,6 +22,7 @@ export interface ReaderEvents {
   onReaderTap?: () => void;
   onZoom?: (zoom: number) => void;
   canSwipe?: () => boolean;
+  canPrepare?: () => boolean;
   canDragTurn?: () => boolean;
   onReaderSwipe?: (direction: "next" | "previous") => void;
   onShortcut?: (event: KeyboardEvent) => void;

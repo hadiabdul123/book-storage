@@ -1,3 +1,4 @@
+import { BookPreparationStatus } from "./BookPreparation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { X, BookOpen, ArrowUpRight, MoreHorizontal } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -146,6 +147,7 @@ export function BookCard({
         </span>
       </div>
       <BookSyncStatus id={book.id} />
+      <BookPreparationStatus book={book} />
       {progress > 0 && (
         <div className="progress-line">
           <span style={{ width: `${Math.min(100, progress * 100)}%` }} />

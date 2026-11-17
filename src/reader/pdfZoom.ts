@@ -32,7 +32,7 @@ export function bindPdfZoom(host: HTMLElement, actions: ZoomActions) {
         const requested = Math.round(target * 100) / 100;
         if (requested !== actions.value()) await actions.commit(requested, point);
         if (active || disposed) break;
-        if (requested === Math.round(target * 100) / 100) {
+        if (requested === Math.round(target * 100) / 100 && requested === Math.round(actions.value() * 100) / 100) {
           cancelAnimationFrame(frame); frame = 0; actions.clear(); previewing = false; break;
         }
       }

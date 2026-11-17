@@ -70,6 +70,20 @@ it("keeps active folds moving when native RAF is throttled, then stops every wak
   clock.destroy();
 });
 
+it("reapplies the latest zoom if a queued fit superseded its first render", async () => {
+  vi.stubGlobal("requestAnimationFrame", () => 1); vi.stubGlobal("cancelAnimationFrame", () => {});
+  const host = { ownerDocument: { addEventListener() {}, removeEventListener() {} }, addEventListener() {}, removeEventListener() {},
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 500, height: 700 }) } as unknown as HTMLElement;
+  let value = 1;
+  const commit = vi.fn(async (requested: number) => { if (commit.mock.calls.length > 1) value = requested; });
+  const clear = vi.fn();
+  const zoom = bindPdfZoom(host, { value: () => value, commit, preview() {}, clear, error: error => { throw error; } });
+  zoom.request(1.5);
+  await vi.waitFor(() => expect(clear).toHaveBeenCalledOnce());
+  expect(value).toBe(1.5); expect(commit.mock.calls.map(call => call[0])).toEqual([1.5, 1.5]);
+  zoom.destroy();
+});
+
 it("counts sparse active frames fully without counting a long idle gap", () => {
   let frame!: FrameRequestCallback, wall = 0;
   const request = (callback: FrameRequestCallback) => { frame = callback; return 1; };

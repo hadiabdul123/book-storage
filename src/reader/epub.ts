@@ -1,3 +1,5 @@
+import { db } from "../db";
+import { savePageCache } from "../pdfText";
 import { bindTouchSelection, type TouchSelection } from "./touchSelection";
 import { PageTurn } from "./pageTurn";
 import { blankLeaf, surfaceCache, waitForSurfaces, type TurnDirection, type TurnPreview, type TurnSpread } from "./turnSurfaces";
@@ -64,6 +66,7 @@ export class EpubReader implements ReaderAdapter {
     this.turn = new PageTurn(host, {
       enabled: () => !this.previewOnly && !!this.rendition && this.prefs?.flow === "paginated" && this.prefs?.pageTurnEffect !== "none",
       canDrag: () => !!this.events.canDragTurn?.() && !this.hasSelection(),
+      canWarm: () => this.events.canPrepare?.() !== false,
       bounds: () => this.host.getBoundingClientRect(),
       location: () => this.lastCfi,
       prepare: (direction, outgoing) => this.prepareTurn(direction, outgoing),
@@ -165,13 +168,19 @@ export class EpubReader implements ReaderAdapter {
     });
     this.resizeObserver.observe(this.host);
     // Pagination-independent text locations; do not block opening a large book.
-    if (!this.previewOnly) void this.epub.locations
-      .generate(1200)
-      .then(() => {
-        this.positionsReady = true;
-        if (!this.disposed) void this.rendition.reportLocation();
-      })
-      .catch(() => {});
+    if (!this.previewOnly) void (async () => {
+      const key = `epub-locations-v1:${this.book.id}:${this.book.hash}`;
+      const saved = await db.meta.get(key);
+      if (this.disposed) return;
+      let loaded = false;
+      if (saved) try { this.epub.locations.load(saved.value); loaded = true; } catch { /* Rebuild corrupt pagination data. */ }
+      if (!loaded) {
+        await this.epub.locations.generate(1200);
+        if (!this.disposed) await savePageCache(this.book, [{ key, value: this.epub.locations.save() }]);
+      }
+      this.positionsReady = true;
+      if (!this.disposed) void this.rendition.reportLocation();
+    })().catch(() => {});
   }
   private bind(contents: Contents) {
     const doc = contents.document;

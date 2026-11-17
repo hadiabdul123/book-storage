@@ -187,9 +187,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   const host = useRef<HTMLDivElement>(null),
     adapter = useRef<ReaderAdapter | null>(null),
     position = useRef<Position | null>(null),
-    prefsRef = useRef(prefs),
     annotationsRef = useRef(annotations);
-  prefsRef.current = prefs;
   annotationsRef.current = annotations;
   const [loading, setLoading] = useState(true),
     [error, setError] = useState(""),
@@ -209,6 +207,8 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
     [region, setRegion] = useState(false),
     [ready, setReady] = useState(0),
     [jumped, setJumped] = useState(false);
+  const backgroundAllowed = useRef(false);
+  backgroundAllowed.current = !loading && !panel && !editing && !region;
   const chrome = useReaderChrome(
     shell,
     host,
@@ -307,8 +307,16 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
       position.current = null;
       setError("");
       setCurrent(undefined);
-      const files = await downloadBook(book);
+      const [files, view, shared, legacy, stored] = await Promise.all([
+        downloadBook(book), readDeviceReading(id), get("preferences", "reader"), get("preferences", `pdf:${id}`), get("position", id),
+      ]);
       if (cancelled) return;
+      const initialPrefs = { ...comfortablePreferences(shared),
+        width: view.width ?? shared?.width ?? defaults.width,
+        flow: view.flow ?? (phone ? "scrolled" : shared?.flow) ?? defaults.flow,
+        spread: view.spread ?? (phone ? false : shared?.spread) ?? defaults.spread,
+        pdfLayout: devicePdfLayout(view, legacy?.pdfLayout, phone), pageTurnEffect: view.pageTurnEffect ?? "curl" as const,
+      };
       const ctor =
         book.format === "epub"
           ? (await import("./reader/epub")).EpubReader
@@ -325,6 +333,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
           void writeDeviceReading(id, { zoom: value }).catch(e => notifyRef.current(messageOf(e)));
         },
         canSwipe,
+        canPrepare: () => backgroundAllowed.current && Date.now() - lastActive > 1000,
         canDragTurn,
         onReaderSwipe: turnSwipe,
         onPageNote: (page) => openNotebookRef.current(page),
@@ -359,23 +368,16 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
         onError: (message) => setError(message),
       });
       adapter.current = reader;
-      reader.configure(prefsRef.current);
+      reader.configure(initialPrefs);
+      if (book.format === "pdf") {
+        setZoom(view.zoom || 1); setRotation(view.rotation || 0);
+        (reader as import("./reader/pdf").PdfReader).restoreInitialView(view.zoom || 1, view.rotation || 0, stored?.locator);
+      }
       await reader.open(files.source, files.derived);
       if (cancelled) return;
-      if (book.format === "pdf") {
-        const view = await readDeviceReading(id);
-        setZoom(view.zoom || 1);
-        setRotation(view.rotation || 0);
-        if (view.zoom || view.rotation)
-          await (reader as import("./reader/pdf").PdfReader).setView(
-            view.zoom || 1,
-            view.rotation || 0,
-          );
-      }
       reader.annotate(annotationsRef.current);
       setSections(await reader.sections());
-      const stored = await get("position", id),
-        target = params.get("annotation");
+      const target = params.get("annotation");
       const mark = target ? await get("annotation", target) : undefined;
       try {
         if (mark && mark.bookId === id) {
@@ -426,6 +428,9 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   useEffect(() => {
     adapter.current?.annotate(annotations);
   }, [annotations, ready]);
+  useEffect(() => {
+    if (opened && book?.preparedTextPath) void downloadBook(book).catch(() => {});
+  }, [opened, book?.preparedTextPath]);
   const sourceParam = params.get("source");
   useEffect(() => {
     if (!opened || !sourceParam || !book) return;
@@ -436,8 +441,8 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
     } catch (e) { notify(messageOf(e)); }
   }, [sourceParam, opened, book?.hash]);
   useEffect(() => {
-    adapter.current?.configure(prefs);
-  }, [savedPrefs, pdfPrefs, localView, ready, phone]);
+    if (opened && savedPrefs !== null && localView !== undefined) adapter.current?.configure(prefs);
+  }, [savedPrefs, pdfPrefs, localView, ready, phone, opened]);
   useEffect(() => {
     if (
       opened &&

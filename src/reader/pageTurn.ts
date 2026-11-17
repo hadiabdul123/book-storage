@@ -24,6 +24,7 @@ type Stage = { engine: FlipEngine; point: (p: TurnPoint) => TurnPoint; release: 
 export type TurnSource = {
   enabled: () => boolean;
   canDrag: () => boolean;
+  canWarm?: () => boolean;
   bounds: () => DOMRect;
   location: () => string;
   prepare: (direction: TurnDirection, outgoing?: TurnSpread) => Promise<TurnPreview | null>;
@@ -62,6 +63,7 @@ export class PageTurn {
   }
   private async warm() {
     if (this.busy || this.disposed || !this.source.enabled() || !this.motion()) return;
+    if (this.source.canWarm?.() === false) { this.timer = setTimeout(() => void this.warm(), 800); return; }
     await this.preview("next");
     if (!this.busy && !this.disposed) await this.preview("previous");
   }

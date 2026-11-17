@@ -1,9 +1,8 @@
 import { compareEdits } from "../../src/syncOrder";
 import { openTools, clickTool } from "../e2e/controls";
 import { expect, test, type BrowserContext } from "@playwright/test";
-import { readFileSync } from "node:fs";
+import { scanPdf } from "../helpers/scanned-pdf";
 import { createHash } from "node:crypto";
-import path from "node:path";
 
 // This is a transport-contract test, not a substitute for live Supabase/RLS tests.
 // Both browser contexts use separate IndexedDB stores; no real service is contacted.
@@ -164,20 +163,22 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
     await install(phone);
     const first = await pc.newPage();
     await first.goto(baseURL!);
-    await first
-      .locator("input[type=file]")
-      .setInputFiles(path.resolve("tests/fixtures/tracemonkey.pdf"));
+    const original = await scanPdf(first, false, 2);
+    await first.locator("input[type=file]").setInputFiles({ name: "Shared scan.pdf", mimeType: "application/pdf", buffer: original });
     await expect(first.locator(".book-sync-status")).toContainText("Synced", {
       timeout: 30000,
     });
     const expected = createHash("sha256")
-      .update(readFileSync("tests/fixtures/tracemonkey.pdf"))
+      .update(original)
       .digest("hex");
     expect(
       createHash("sha256")
         .update([...objects.values()][0])
         .digest("hex"),
     ).toBe(expected);
+    await expect(first.locator(".book-preparation")).toContainText("Text ready", { timeout: 60_000 });
+    await expect.poll(() => [...rows.values()].some(row => row.kind === "book" && row.value.preparedTextPath && objects.has(`${user.id}/${row.value.preparedTextPath}`)), { timeout: 30_000 }).toBe(true);
+    expect([...uploads.values()].filter(upload => upload.path.endsWith("/source.pdf"))).toHaveLength(1);
     await first.locator(".book-cover-link").click();
     await openTools(first);
     await expect(first.locator(".reader-loading")).toHaveCount(0);
@@ -199,6 +200,15 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
         ),
       )
       .toBe(true);
+    await phone.addInitScript(() => {
+      (window as any).__ocrJobs = 0;
+      const post = Worker.prototype.postMessage;
+      Worker.prototype.postMessage = function(message: any, ...args: any[]) {
+        if (message?.action === "recognize") (window as any).__ocrJobs++;
+        return (post as any).call(this, message, ...args);
+      };
+    });
+    await phone.route("**/ocr/**", route => route.abort());
     const second = await phone.newPage();
     await second.goto(baseURL!);
     await expect(second.locator(".book-card")).toHaveCount(1);
@@ -210,6 +220,8 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
     await expect(second.locator(".reader-progress")).toContainText("Page 2", {
       timeout: 30000,
     });
+    await expect(second.locator('.pdf-page[data-page="2"] .ocr-text-layer')).toContainText("Reading opens");
+    expect(await second.evaluate(() => (window as any).__ocrJobs)).toBe(0);
     await second
       .getByRole("button", { name: "Previous page", exact: true })
       .click();

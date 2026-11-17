@@ -2,10 +2,75 @@ import { test, expect, type Page, type Locator } from "@playwright/test";
 import path from "node:path";
 import JSZip from "jszip";
 import { textPdf } from "../helpers/text-pdf";
+import { numberedPdf } from "../helpers/numbered-pdf";
+import { scanPdf } from "../helpers/scanned-pdf";
 import { clickTool, observePaperTurns } from "./controls";
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("leafmark-controls-pinned", "true"));
+});
+
+test("an imported scan is prepared in the library and reopens with saved text and settings", async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.addInitScript(() => {
+    (window as any).__textJobs = 0; (window as any).__ocrJobs = 0;
+    const post = Worker.prototype.postMessage;
+    Worker.prototype.postMessage = function(message: any, ...args: any[]) {
+      if (message?.action === "recognize") (window as any).__ocrJobs++;
+      if (message?.action === "GetTextContent") (window as any).__textJobs++;
+      return (post as any).call(this, message, ...args);
+    };
+  });
+  await page.goto("/");
+  await page.locator("input[type=file]").setInputFiles({ name: "Prepared scan.pdf", mimeType: "application/pdf", buffer: await scanPdf(page, false, 2) });
+  await expect(page.locator(".book-preparation")).toContainText("Text ready", { timeout: 60_000 });
+  expect(await page.evaluate(() => (window as any).__ocrJobs)).toBe(2);
+  await page.evaluate(() => { (window as any).__ocrJobs = 0; (window as any).__textJobs = 0; });
+  await page.route("**/ocr/**", route => route.abort());
+  await page.locator(".book-cover-link").click();
+  await expect(page.locator(".reader-shell")).toHaveAttribute("data-loading", "false");
+  await expect(page.locator('.pdf-page[data-page="1"] .ocr-text-layer')).toContainText("Reading opens");
+  await clickTool(page, "Reading settings");
+  await page.getByRole("combobox", { name: "Fit", exact: true }).selectOption("page");
+  await page.getByRole("combobox", { name: "Zoom", exact: true }).selectOption("1.5");
+  await expect(page.locator(".reader-host")).not.toHaveClass(/pdf-zooming/, { timeout: 15_000 });
+  await expect.poll(() => page.evaluate(async () => {
+    const { list } = await import("/src/db.ts"); const { readDeviceReading } = await import("/src/deviceReading.ts");
+    const view = await readDeviceReading((await list("book"))[0].id); return { fit: view.pdfLayout?.fit, zoom: view.zoom };
+  })).toEqual({ fit: "page", zoom: 1.5 });
+  await page.reload();
+  await expect(page.locator(".reader-shell")).toHaveAttribute("data-loading", "false");
+  await clickTool(page, "Reading settings");
+  await expect(page.getByRole("combobox", { name: "Fit", exact: true })).toHaveValue("page");
+  await expect(page.getByRole("combobox", { name: "Zoom", exact: true })).toHaveValue("1.5");
+  await expect(page.locator('.pdf-page[data-page="1"] .ocr-text-layer')).toContainText("Reading opens");
+  expect(await page.evaluate(() => ({ ocr: (window as any).__ocrJobs, extraction: (window as any).__textJobs }))).toEqual({ ocr: 0, extraction: 0 });
+});
+
+test("Reading settings opens while a neighbouring PDF page is still loading", async ({ page }) => {
+  await page.setViewportSize({ width: 800, height: 1280 });
+  await page.goto("/");
+  await page.locator("input[type=file]").setInputFiles({ name: "Immediate tools.pdf", mimeType: "application/pdf", buffer: numberedPdf(3) });
+  await page.evaluate(async () => {
+    const { PdfReader } = await import(/* @vite-ignore */ "/src/reader/pdf.ts");
+    const proto = PdfReader.prototype as any, render = proto.render;
+    proto.render = async function(state: any) {
+      if (state.n === 2 && this.preloading && !(window as any).__neighbourPaused) {
+        (window as any).__neighbourPaused = true;
+        await new Promise<void>(resolve => { (window as any).__finishNeighbour = resolve; });
+      }
+      return render.call(this, state);
+    };
+  });
+  await page.locator(".book-cover-link").click();
+  await expect(page.locator(".reader-shell")).toHaveAttribute("data-loading", "false");
+  await expect.poll(() => page.evaluate(() => !!(window as any).__finishNeighbour)).toBe(true);
+  await clickTool(page, "Reading settings");
+  await expect(page.locator(".reader-panel")).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Fit", exact: true })).toBeEnabled();
+  await page.getByRole("combobox", { name: "Fit", exact: true }).selectOption("page");
+  await expect(page.locator(".reader-host")).toHaveAttribute("aria-busy", "false");
+  await page.evaluate(() => (window as any).__finishNeighbour());
 });
 
 async function open(page: Page, format: string) {

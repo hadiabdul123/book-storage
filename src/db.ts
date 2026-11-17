@@ -79,6 +79,12 @@ export async function save<K extends Kind>(
     [db.rows, db.outbox, db.conflicts, db.meta],
     async () => {
       const prior = await db.rows.get(key);
+      // Preparation is an immutable companion to this edition. A metadata edit
+      // begun before it finished must not accidentally remove its reference.
+      if (kind === "book" && prior &&
+          (prior.value as EntityMap["book"]).hash === (value as EntityMap["book"]).hash &&
+          !(value as EntityMap["book"]).preparedTextPath && (prior.value as EntityMap["book"]).preparedTextPath)
+        value = { ...value, preparedTextPath: (prior.value as EntityMap["book"]).preparedTextPath };
       const conflict = await db.conflicts.get(key);
       if (!conflict && prior?.deleted === deleted &&
           JSON.stringify(prior.value) === JSON.stringify(value)) return;

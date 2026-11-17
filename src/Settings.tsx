@@ -65,11 +65,19 @@ export function Settings({ notify }: { notify: (m: string) => void }) {
         const paths = [
           book.sourcePath,
           ...(book.derivedPath ? [book.derivedPath] : []),
+          ...((confirmed.value as Book).preparedTextPath ? [(confirmed.value as Book).preparedTextPath!] : []),
         ].map((p) => `${session.user.id}/${p}`);
         const { error } = await cloud.storage.from("library").remove(paths);
         if (error) throw error;
       }
-      await db.files.delete(book.id);
+      await db.transaction("rw", [db.files, db.meta, db.chunks], async () => {
+        await db.files.delete(book.id);
+        for (const prefix of [`pdf-text-v1:${book.id}:${book.hash}:`, `ocr-v2:${book.id}:${book.hash}:`, `ocr-v1:${book.id}:`])
+          await db.meta.where("key").startsWith(prefix).delete();
+        await db.meta.bulkDelete([`pdf-preparation:${book.id}:${book.hash}`, `prepared-text-applied:${book.id}:${book.hash}`,
+          `epub-locations-v1:${book.id}:${book.hash}`, `pdf-page-count:${book.hash}`]);
+        await db.chunks.where("bookId").equals(book.id).delete();
+      });
       notify(
         "Book files permanently deleted. Annotation exports remain available.",
       );

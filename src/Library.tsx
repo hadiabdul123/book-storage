@@ -17,6 +17,7 @@ import {
 import { db, get, list, save } from "./db";
 import { importBook } from "./import";
 import { downloadBook, removeDownload } from "./sync";
+import { useBookPreparation, BookPreparationStatus } from "./BookPreparation";
 import { BookSyncStatus } from "./BookSyncStatus";
 import { type Book, type Collection, uid } from "./model";
 import { BookCard, Cover, Dialog, Empty, messageOf } from "./components";
@@ -27,6 +28,7 @@ export function Library({ notify }: { notify: (message: string) => void }) {
     collections = useLiveQuery(() => list("collection"), []) || [],
     members = useLiveQuery(() => list("membership"), []) || [],
     files = useLiveQuery(() => db.files.toCollection().primaryKeys(), []) || [];
+  useBookPreparation(books);
   const [query, setQuery] = useState(""),
     [filter, setFilter] = useState("all"),
     [sort, setSort] = useState("recent"),
@@ -527,6 +529,7 @@ function BookDetails({
           </fieldset>
         )}
         <BookSyncStatus id={book.id} />
+        <BookPreparationStatus book={book} />
         <div className="download-row">
           <span>
             {file ? (

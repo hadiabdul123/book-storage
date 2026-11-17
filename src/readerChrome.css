@@ -308,3 +308,5 @@
 /* PDF pages have fixed boxes and the adapter preserves their reading anchors.
    Browser scroll anchoring must not compete with a fit or a deliberate scroll. */
 .pdf-reader { overflow-anchor: none; }
+
+.book-preparation { font-size: .75rem; display: flex; gap: .4rem; flex-wrap: wrap; align-items: center; }
