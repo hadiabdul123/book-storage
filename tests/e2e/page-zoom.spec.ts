@@ -52,6 +52,8 @@ test("desktop wheel and keyboard zoom resize only the PDF and retain saved zoom"
   await expect(page.getByRole("combobox", { name: "Zoom", exact: true })).toHaveValue("1.25");
   await page.reload();
   await clickTool(page, "Reading settings");
+  // Saved preferences populate the panel before the live PDF binds keyboard input.
+  await expect(page.locator(".reader-shell")).toHaveAttribute("data-loading", "false");
   await expect(page.getByRole("combobox", { name: "Zoom", exact: true })).toHaveValue("1.25");
   expect((await page.locator(".reader-header").boundingBox())!.height).toBe(header.height);
   await page.locator(".reader-host").focus();

@@ -1222,6 +1222,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
                       <label>
                         Zoom
                         <select
+                          disabled={loading}
                           value={zoom}
                           onChange={(e) =>
                             void setPdfView(Number(e.target.value), rotation)
@@ -1243,6 +1244,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
                       <p className="muted">Pinch the page, use Ctrl + mouse wheel, or press Ctrl/Cmd + plus, minus or 0. Only the PDF page zooms.</p>
                       <button
                         className="secondary"
+                        disabled={loading}
                         onClick={() =>
                           void setPdfView(zoom, (rotation + 90) % 360)
                         }
@@ -1256,6 +1258,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
                       </p>
                       <button
                         className={region ? "primary" : "secondary"}
+                        disabled={loading}
                         onClick={() => {
                           setRegion(!region);
                           (
@@ -1303,7 +1306,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
             <button
               className="icon-button"
               aria-label="Zoom out"
-              disabled={zoom <= 1}
+              disabled={loading || zoom <= 1}
               onClick={() =>
                 void setPdfView(Math.max(1, zoom - 0.25), rotation)
               }
@@ -1313,6 +1316,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
             <button
               className="text-button"
               aria-label="Reset page zoom"
+              disabled={loading}
               onClick={() => void setPdfView(1, rotation)}
             >
               {Math.round(zoom * 100)}%
@@ -1320,7 +1324,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
             <button
               className="icon-button"
               aria-label="Zoom in"
-              disabled={zoom >= 3}
+              disabled={loading || zoom >= 3}
               onClick={() =>
                 void setPdfView(Math.min(3, zoom + 0.25), rotation)
               }

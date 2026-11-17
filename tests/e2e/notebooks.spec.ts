@@ -297,7 +297,11 @@ test("page following pins active writing and failed saves retain the notebook", 
     const row = (await db.rows.toArray()).find(
       (r: any) => r.value.type === "page-note" && r.value.locator.page === 2,
     );
-    const fail = () => { throw new Error("Storage temporarily unavailable"); };
+    (window as any).__pageNoteSaveFailures = 0;
+    const fail = (_key: unknown, operation: any) => {
+      if (operation.kind === "annotation" && operation.value?.locator?.page === 2) (window as any).__pageNoteSaveFailures++;
+      throw new Error("Storage temporarily unavailable");
+    };
     (window as any).__storageFailure = fail;
     db.outbox.hook("creating", fail);
   });
@@ -307,7 +311,12 @@ test("page following pins active writing and failed saves retain the notebook", 
   await expect(page.locator(".notebook-status")).toContainText(
     "Could not save",
   );
+  const failures = await page.evaluate(() => (window as any).__pageNoteSaveFailures as number);
   await page.getByRole("button", { name: "Close panel" }).click();
+  // Wait for the close-triggered retry to fail before restoring storage. Merely
+  // seeing the draft doesn't mean that asynchronous close has finished.
+  await expect.poll(() => page.evaluate(() => (window as any).__pageNoteSaveFailures as number)).toBeGreaterThan(failures);
+  await expect(page.locator(".notebook-status")).toContainText("Could not save");
   await expect(
     page.getByRole("textbox", { name: "Notebook for page 2", exact: true }),
   ).toContainText("Keep this unsaved writing");
