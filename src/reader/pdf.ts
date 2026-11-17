@@ -358,6 +358,9 @@ export class PdfReader implements ReaderAdapter {
     state.element.dataset.pdfCrop = crop ? crop.join(",") : "original";
     state.element.dataset.pdfRotation = String(this.rotation);
     state.element.style.width = `${state.viewport.width}px`;
+    // Keep fractional page widths on their flex frames as well. Intrinsic
+    // rounding in WebKit otherwise adds a sliver to the book's centre gutter.
+    state.frame.style.width = `${state.viewport.width}px`;
     state.element.style.height = `${state.viewport.height}px`;
     state.element.style.setProperty("--scale-factor", String(scale));
     state.element.style.setProperty(

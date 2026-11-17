@@ -15,7 +15,7 @@ concurrency:
   group: pages-${{ github.ref }}
   cancel-in-progress: true
 jobs:
-  check:
+  unit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,19 +26,64 @@ jobs:
         run: npm ci
       - run: npm test
       - run: npm run build
-      - run: npx playwright install --with-deps chromium webkit
-      - run: npm run test:e2e
-      - run: npm run test:tablet
-      - run: npm run test:cloud
-      - run: npm run test:pwa
-      - run: npm run test:pwa:cloud
+  browser:
+    name: Browser / ${{ matrix.suite }}
+    needs: unit
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: desktop-phone
+            script: test:e2e
+            browsers: chromium
+          - suite: tablet
+            script: test:tablet
+            browsers: chromium webkit
+          - suite: cloud
+            script: test:cloud
+            browsers: chromium
+          - suite: offline
+            script: test:pwa
+            browsers: chromium
+          - suite: authenticated-offline
+            script: test:pwa:cloud
+            browsers: chromium
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm ci
+      - name: Install browsers
+        run: npx playwright install --with-deps ${{ matrix.browsers }}
+      - name: Run browser suite
+        run: npm run ${{ matrix.script }}
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: test-results
+          name: test-results-${{ matrix.suite }}
           path: test-results/
+  check:
+    if: always()
+    needs: [unit, browser]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every release check
+        run: test "${{ needs.unit.result }}" = success && test "${{ needs.browser.result }}" = success
+  package:
+    if: github.event_name == 'workflow_dispatch' && inputs.deploy
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm ci
       - name: Build configured Pages application
-        if: github.event_name == 'workflow_dispatch' && inputs.deploy
         env:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
@@ -48,12 +93,11 @@ jobs:
           test -n "$VITE_SUPABASE_PUBLISHABLE_KEY" || { echo 'Configure the Supabase publishable key repository variable.'; exit 1; }
           npm run build
       - uses: actions/upload-pages-artifact@v3
-        if: github.event_name == 'workflow_dispatch' && inputs.deploy
         with:
           path: dist
   deploy:
     if: github.event_name == 'workflow_dispatch' && inputs.deploy
-    needs: check
+    needs: package
     runs-on: ubuntu-latest
     permissions:
       pages: write

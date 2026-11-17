@@ -8,6 +8,8 @@
 
 - The next release run (`44151707117`) passed all 164 desktop/phone cases and 71 tablet cases, with one iPad setup race in the new saved-highlight test. Reading mode flushes notebook writing asynchronously before clearing selection; the test now waits for its header/layout completion before creating a native range. All three repeated iPad cases passed with the edge-dismissal and next-tap navigation assertions unchanged. Application code is unchanged by this follow-up.
 
+- Run `44155068324` passed the corrected selection case but caught a fractional iPad gutter measurement (2.5625 pixels instead of 2). PDF flex frames now retain the exact page viewport width; the regression measures both pages atomically after layout settles and checks additional fractional viewport heights. Six repeated Android/iPad cases passed. Independent desktop/phone, tablet, cloud, offline and authenticated-offline suites now run on separate runners after unit/build checks. The aggregate `check` job requires all five suites to succeed before the configured Pages artifact can be built and deployed; no checks or retries were removed.
+
 ## Local highlight, page-turn and stylus follow-up on 2026-11-17
 
 Verified locally and not yet deployed. The owner requested committing the complete update after testing.

@@ -72,9 +72,19 @@ test("two-page spreads keep pairs and an odd final blank without counting a new 
   await page.getByRole("button", { name: "Close panel", exact: true }).click();
   await expect(page.locator(".reader-host")).toHaveAttribute("data-columns", "2");
   await expect(page.locator(".pdf-spread:visible .pdf-page")).toHaveCount(2);
-  const first = (await page.locator('.pdf-page[data-page="1"]').boundingBox())!;
-  const mate = (await page.locator('.pdf-page[data-page="2"]').boundingBox())!;
-  expect(mate.x - first.x - first.width).toBeCloseTo(2, 0);
+  const gutter = () => page.evaluate(() => {
+    const first = document.querySelector('.pdf-page[data-page="1"]')!.getBoundingClientRect();
+    const mate = document.querySelector('.pdf-page[data-page="2"]')!.getBoundingClientRect();
+    return mate.x - first.right;
+  });
+  await expect(page.locator(".reader-host")).toHaveAttribute("aria-busy", "false");
+  await expect.poll(gutter).toBeCloseTo(2, 0);
+  for (const height of [799, 801, 800]) {
+    await page.setViewportSize({ width: 1280, height });
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    await expect(page.locator(".reader-host")).toHaveAttribute("aria-busy", "false");
+    await expect.poll(gutter).toBeCloseTo(2, 0);
+  }
   await page.screenshot({ path: `.local/book-spread-${test.info().project.name}.png` });
   await clickTool(page, "Next page");
   await expect(page.locator(".reader-progress")).toContainText("Page 3");
