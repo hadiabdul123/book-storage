@@ -58,6 +58,8 @@ test("PDF ink survives reopening, supports undo and exports a separate marked PD
   await expect(page.locator('.pdf-page[data-page="1"] .pdf-ink-layer path')).toHaveCount(1);
   await expect.poll(() => page.evaluate(async () => { const { list } = await import("/src/db.ts"); return (await list("ink-stroke")).length; })).toBe(1);
   await page.reload(); await expect(page.locator('.pdf-page[data-page="1"] .pdf-ink-layer path')).toHaveCount(1);
+  await expect(page.locator('.pdf-page[data-page="1"] .pdf-ink-layer')).toHaveCSS("position", "absolute");
+  await expect(page.locator('.pdf-page[data-page="1"] .pdf-ink-layer')).toHaveCSS("pointer-events", "none");
   await clickTool(page, "Draw on PDF"); await expect(page.locator(".reader-host")).not.toHaveAttribute("aria-busy", "true");
   await draw(page, '.pdf-page[data-page="1"] .pdf-ink-layer');
   await expect(page.locator('.pdf-page[data-page="1"] .pdf-ink-layer path')).toHaveCount(2);

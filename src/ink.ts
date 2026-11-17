@@ -1,4 +1,5 @@
 import { getStroke } from "perfect-freehand";
+import "./ink.css";
 import { db, save } from "./db";
 import { now, uid } from "./model";
 import { sameInkTarget, validInkStroke, type InkPoint, type InkStroke, type InkStyle, type InkTarget } from "./inkTypes";
