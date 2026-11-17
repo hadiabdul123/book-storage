@@ -147,7 +147,7 @@ test("repeated curls reuse one isolated renderer and idle without animation call
   const frames = await realm!.evaluate((el: HTMLIFrameElement) => (el.contentWindow as any).__frames);
   await page.waitForTimeout(120);
   expect(await realm!.evaluate((el: HTMLIFrameElement) => (el.contentWindow as any).__frames)).toBe(frames);
-  expect(await page.locator(".turn-surface-cache").count()).toBeLessThanOrEqual(3);
+  await expect.poll(() => page.locator(".turn-surface-cache").count()).toBeLessThanOrEqual(3);
 });
 
 
