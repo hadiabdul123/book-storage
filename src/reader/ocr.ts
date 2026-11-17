@@ -6,7 +6,12 @@ export class PageOcr {
   private queue: Promise<unknown> = Promise.resolve();
   private disposed = false;
   private progress?: (percent: number) => void;
+  private cancellations = new Set<(error: DOMException) => void>();
   recognize(canvas: HTMLCanvasElement, progress: (percent: number) => void) {
+    if (this.disposed) return Promise.reject(new DOMException("Reader closed", "AbortError"));
+    let cancel!: (error: DOMException) => void;
+    const closed = new Promise<never>((_resolve, reject) => { cancel = reject; });
+    this.cancellations.add(cancel);
     const job = this.queue
       .catch(() => {})
       .then(async () => {
@@ -47,11 +52,16 @@ export class PageOcr {
           .filter((w) => w.text.trim() && w.confidence >= 20)
           .map((w) => ({ text: w.text, box: w.bbox }));
       });
-    this.queue = job;
-    return job;
+    // Tesseract termination need not settle its outstanding recognize promise.
+    // Always release callers (and shared page jobs) when this owner closes.
+    const result = Promise.race([job, closed]).finally(() => this.cancellations.delete(cancel));
+    this.queue = result;
+    return result;
   }
   destroy() {
     this.disposed = true;
+    for (const cancel of this.cancellations) cancel(new DOMException("Reader closed", "AbortError"));
+    this.cancellations.clear();
     void this.worker?.then((w) => w.terminate()).catch(() => {});
   }
 }

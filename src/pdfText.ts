@@ -32,11 +32,17 @@ export async function savedOcr(book: Edition, page: number): Promise<OcrWord[] |
   catch { return undefined; }
 }
 const extracting = new Map<string, Promise<TextContent>>();
+const cancelled = (error: any) => ["AbortError", "AbortException", "RenderingCancelledException"].includes(error?.name) ||
+  /reader closed|worker was (?:destroyed|terminated)/i.test(error?.message || "");
 /** Persist the PDF's own text too: resizing and reopening need no re-extraction. */
 export function pageText(book: Edition, page: PDFPageProxy): Promise<TextContent> {
   const key = textKey(book, page.pageNumber);
   const existing = extracting.get(key);
-  if (existing) return existing;
+  if (existing) return existing.catch(error => {
+    // A different PDF owner may have closed while we shared its extraction.
+    if (cancelled(error)) return pageText(book, page);
+    throw error;
+  });
   const task = (async () => {
     const row = await db.meta.get(key);
     try {
@@ -58,7 +64,12 @@ export function preparePageText(book: Edition, page: PDFPageProxy, ocr: PageOcr,
   progress: (percent: number) => void = () => {}, check: () => void = () => {}): Promise<OcrWord[] | undefined> {
   const key = ocrKey(book, page.pageNumber);
   const existing = recognizing.get(key);
-  if (existing) return existing;
+  if (existing) return existing.catch(error => {
+    // The joining caller has its own page/worker and cancellation check. Only
+    // an abandoned owner's job is retried, never a genuine recognition error.
+    if (cancelled(error)) { check(); return preparePageText(book, page, ocr, progress, check); }
+    throw error;
+  });
   const task = (async () => {
     const cached = await savedOcr(book, page.pageNumber);
     if (cached !== undefined) { await pageText(book, page); return cached; }

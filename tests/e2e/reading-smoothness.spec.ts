@@ -10,6 +10,38 @@ test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("leafmark-controls-pinned", "true"));
 });
 
+test("closing during recognition releases the job so library preparation can resume", async ({ page }) => {
+  test.setTimeout(90_000);
+  const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
+  await page.addInitScript(() => {
+    (window as any).__preparationHidden = true; (window as any).__heldRecognition = false; (window as any).__heldWorkerStopped = false;
+    Object.defineProperty(document, "hidden", { configurable: true, get: () => (window as any).__preparationHidden });
+    let held: Worker | undefined;
+    const post = Worker.prototype.postMessage, terminate = Worker.prototype.terminate;
+    Worker.prototype.postMessage = function(message: any, ...args: any[]) {
+      if (message?.action === "recognize" && !(window as any).__heldRecognition) {
+        held = this; (window as any).__heldRecognition = true; return;
+      }
+      return (post as any).call(this, message, ...args);
+    };
+    Worker.prototype.terminate = function() {
+      if (this === held) (window as any).__heldWorkerStopped = true;
+      return terminate.call(this);
+    };
+  });
+  await page.goto("/");
+  await page.locator("input[type=file]").setInputFiles({ name: "Resume recognition.pdf", mimeType: "application/pdf", buffer: await scanPdf(page, false, 2) });
+  await page.locator(".book-cover-link").click();
+  await expect(page.locator(".reader-shell")).toHaveAttribute("data-loading", "false");
+  await page.evaluate(() => { (window as any).__preparationHidden = false; document.dispatchEvent(new Event("visibilitychange")); });
+  await expect.poll(() => page.evaluate(() => !!(window as any).__heldRecognition), { timeout: 30_000 }).toBe(true);
+  await clickTool(page, "Reading settings");
+  await page.getByRole("link", { name: "Back to library", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => !!(window as any).__heldWorkerStopped)).toBe(true);
+  await expect(page.locator(".book-preparation")).toContainText("Text ready", { timeout: 60_000 });
+  expect(errors).toEqual([]);
+});
+
 test("an imported scan is prepared in the library and reopens with saved text and settings", async ({ page }) => {
   test.setTimeout(90_000);
   await page.addInitScript(() => {

@@ -1,9 +1,10 @@
 import "fake-indexeddb/auto";
-import { beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { PDFPageProxy } from "pdfjs-dist";
 import { db, get, save, saveBookFile } from "../src/db";
 import type { Book } from "../src/model";
-import { pageText, ocrKey, textKey, preparationKey, savePageCache } from "../src/pdfText";
+import { pageText, ocrKey, textKey, preparationKey, savePageCache, preparePageText } from "../src/pdfText";
+import type { PageOcr } from "../src/reader/ocr";
 import { publishPreparedText, restorePreparedText } from "../src/preparedText";
 
 const book: Book = { id: "prepared", title: "Saved text", author: "Reader", description: "", format: "pdf", filename: "saved.pdf",
@@ -15,6 +16,39 @@ beforeEach(async () => {
   for (const table of db.tables) await table.clear();
   await save("book", book);
   await saveBookFile({ id: book.id, source: new Blob(["original"]), uploaded: true });
+});
+afterEach(() => vi.unstubAllGlobals());
+
+it("continues shared extraction using the surviving PDF owner after cancellation", async () => {
+  let cancel!: (error: Error) => void;
+  const oldPage = { pageNumber: 1, getTextContent: vi.fn(() => new Promise<never>((_resolve, reject) => { cancel = reject; })) } as unknown as PDFPageProxy;
+  const first = pageText(book, oldPage).catch(error => error);
+  await vi.waitFor(() => expect(oldPage.getTextContent).toHaveBeenCalledOnce());
+  const livePage = { pageNumber: 1, getTextContent: vi.fn().mockResolvedValue(content) } as unknown as PDFPageProxy;
+  const joined = pageText(book, livePage);
+  cancel(new DOMException("Worker destroyed", "AbortError"));
+  expect((await first).name).toBe("AbortError");
+  expect(await joined).toEqual(content); expect(livePage.getTextContent).toHaveBeenCalledOnce();
+});
+
+it("hands recognition to an opening reader if the library's preparation was paused", async () => {
+  vi.stubGlobal("document", { createElement: () => ({ width: 0, height: 0 }) });
+  let finish!: (value: unknown) => void, closed = false;
+  const oldPage = { pageNumber: 1, getTextContent: vi.fn(() => new Promise(resolve => { finish = resolve; })) } as unknown as PDFPageProxy;
+  const oldOcr = { recognize: vi.fn() } as unknown as PageOcr;
+  const first = preparePageText(book, oldPage, oldOcr, undefined, () => {
+    if (closed) throw new DOMException("Library left", "AbortError");
+  }).catch(error => error);
+  await vi.waitFor(() => expect(oldPage.getTextContent).toHaveBeenCalledOnce());
+  const livePage = { pageNumber: 1, getTextContent: vi.fn(),
+    getViewport: () => ({ width: 500, height: 650, convertToPdfPoint: (x: number, y: number) => [x, y] }),
+    render: () => ({ promise: Promise.resolve() }) } as unknown as PDFPageProxy;
+  const liveOcr = { recognize: vi.fn().mockResolvedValue([{ text: "Handed off", box: { x0: 10, y0: 20, x1: 100, y1: 40 } }]) } as unknown as PageOcr;
+  const joined = preparePageText(book, livePage, liveOcr);
+  closed = true; finish({ items: [], styles: {} });
+  expect((await first).name).toBe("AbortError");
+  expect(await joined).toEqual([{ text: "Handed off", rect: [10, 20, 100, 40] }]);
+  expect(oldOcr.recognize).not.toHaveBeenCalled(); expect(liveOcr.recognize).toHaveBeenCalledOnce();
 });
 
 it("coalesces extraction and reuses saved native text across page instances", async () => {
