@@ -93,6 +93,9 @@ test("zoom finishes an active pen stroke in the old coordinates before redrawing
 
 test("an edge tap dismisses saved-highlight tools without turning until the next tap", async ({ page }) => {
   await open(page); await clickTool(page, "Reading mode");
+  // Reading mode awaits notebook flushing before it clears the old selection.
+  // Wait for that action and its layout before creating this test's range.
+  await expect(page.locator(".reader-header")).toBeHidden(); await drawingReady(page);
   const span = page.locator('.pdf-page[data-page="1"] .textLayer span').first();
   await span.evaluate(el => { const r = document.createRange(); r.selectNodeContents(el); const s = document.getSelection()!; s.removeAllRanges(); s.addRange(r); document.dispatchEvent(new Event("selectionchange")); });
   await showPassageAction(page, "yellow highlight"); await page.getByRole("button", { name: "yellow highlight", exact: true }).click();

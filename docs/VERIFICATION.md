@@ -6,6 +6,8 @@
 - PDF view updates now pause for active reading touches, including cancelling and rescheduling a redraw already in progress, then resume after release. Pinch interaction and normal reading touches share that pause state; drawing-mode palm contacts do not hold the view indefinitely. Swipes retain their intent through transient layout eligibility changes, while explicit selection/fold ownership permanently cancels the same swipe to prevent accidental or double turns.
 - Added coverage for deferred active redraws, transient swipe eligibility and edge-fold ownership. All 153 unit tests and type checking passed. The exact failed phone case passed along with real edge selection, saved-highlight dismissal, native fold cancellation and drawing-mode pinch/pen input. The exact phone swipe scenario then passed three consecutive runs without automatic retries. Deployment checks are rerun for the corrected commit.
 
+- The next release run (`44151707117`) passed all 164 desktop/phone cases and 71 tablet cases, with one iPad setup race in the new saved-highlight test. Reading mode flushes notebook writing asynchronously before clearing selection; the test now waits for its header/layout completion before creating a native range. All three repeated iPad cases passed with the edge-dismissal and next-tap navigation assertions unchanged. Application code is unchanged by this follow-up.
+
 ## Local highlight, page-turn and stylus follow-up on 2026-11-17
 
 Verified locally and not yet deployed. The owner requested committing the complete update after testing.
