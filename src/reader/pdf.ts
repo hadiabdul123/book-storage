@@ -111,10 +111,14 @@ export class PdfReader implements ReaderAdapter {
   private columns = 1;
   private layingOut = false;
   private fingers = 0;
+  private mouseSelecting = false;
   private zoomInteracting = false;
+  private pauseView() {
+    this.view?.pause(this.fingers > 0 || this.mouseSelecting || this.zoomInteracting);
+  }
   private touchPause = (event: TouchEvent) => {
     this.fingers = this.drawing || event.type === "touchcancel" ? 0 : event.touches.length;
-    this.view?.pause(this.fingers > 0 || this.zoomInteracting);
+    this.pauseView();
   };
   private drag?: { page: PageState; x: number; y: number; box: HTMLDivElement };
   private timer: ReturnType<typeof setTimeout> | undefined;
@@ -250,7 +254,11 @@ export class PdfReader implements ReaderAdapter {
     }, range => this.readSelection(range, true), () => this.events.onSelection(null), this.events.onSelectionInteraction);
     this.unbindNativeSelection = bindNativeSelection(this.host, {
       selected: range => range ? this.readSelection(range) : this.events.onSelection(null),
-      dragging: this.events.onMouseSelection,
+      dragging: active => {
+        this.mouseSelecting = active;
+        this.pauseView();
+        this.events.onMouseSelection?.(active);
+      },
       allowed: element => !this.drawing && !this.region && !!element.closest(".textLayer"),
     });
     // Retain the gesture's original text/canvas nodes until touch release.
@@ -284,7 +292,7 @@ export class PdfReader implements ReaderAdapter {
     });
     this.resizeObserver.observe(this.host);
     this.zoomController = bindPdfZoom(this.host, {
-      interaction: active => { this.zoomInteracting = active; this.view?.pause(active || this.fingers > 0); },
+      interaction: active => { this.zoomInteracting = active; this.pauseView(); },
       target: zoom => { void this.setView(zoom, this.view?.target.rotation ?? this.rotation).catch(e => this.events.onError(e.message)); },
       value: () => this.zoom,
       preview: (ratio, point, origin) => {
@@ -492,7 +500,7 @@ export class PdfReader implements ReaderAdapter {
     if (!this.cropPending || this.disposed) return;
     this.cropTimer = setTimeout(() => {
       if (this.disposed) return;
-      if (this.events.canPrepare?.() === false || this.hasSelection() || this.host.dataset.pageTurning || this.host.classList.contains("pdf-zooming")) { this.scheduleCrop(); return; }
+      if (this.events.canPrepare?.() === false || this.mouseSelecting || this.hasSelection() || this.host.dataset.pageTurning || this.host.classList.contains("pdf-zooming")) { this.scheduleCrop(); return; }
       this.cropPending = false;
       void this.setView(this.zoomController?.target() ?? this.zoom, this.view?.target.rotation ?? this.rotation, true).catch(e => this.events.onError(e.message));
     }, 500);

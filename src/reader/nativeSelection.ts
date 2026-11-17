@@ -25,12 +25,8 @@ export function bindNativeSelection(root: HTMLElement, options: {
     if (clearEmpty) options.selected(null);
   }
 
-  function schedule() {
-    if (press || frame) return;
-    frame = clock.requestAnimationFrame(() => {
-      frame = 0;
-      if (!press) read();
-    });
+  function selectionChanged() {
+    if (!press) read();
   }
 
   function cancel() {
@@ -90,12 +86,12 @@ export function bindNativeSelection(root: HTMLElement, options: {
   }
 
   root.addEventListener("pointerdown", down, true);
-  doc.addEventListener("selectionchange", schedule);
+  doc.addEventListener("selectionchange", selectionChanged);
   win.addEventListener("pagehide", cancel);
   return () => {
     cancel();
     root.removeEventListener("pointerdown", down, true);
-    doc.removeEventListener("selectionchange", schedule);
+    doc.removeEventListener("selectionchange", selectionChanged);
     win.removeEventListener("pagehide", cancel);
   };
 }

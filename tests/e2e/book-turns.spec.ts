@@ -44,7 +44,9 @@ test("PDF curl follows a held edge, reverses without navigation, and commits a c
   await page.mouse.up();
   await expect(page.locator(".paper-turn-stage")).toHaveCount(0);
   await expect(page.locator(".reader-progress")).toContainText("Page 1");
-  await drag(page, -.10);
+  // A drag across most of the page commits without requiring the test mouse
+  // to leave the browser viewport when the paper fills an iPad's width.
+  await drag(page, .20);
   await expect(page.locator(".reader-progress")).toContainText("Page 2");
   await expect(page.locator(".paper-turn-stage")).toHaveCount(0);
   // Backward folds use the same cancellation threshold in portrait mode.
