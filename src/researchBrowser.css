@@ -12,3 +12,9 @@
 .research-conversation-list small { color:#526578; margin-top:4px; }
 .research-browser-actions { gap:8px; background:#f4f6f8; }
 .research-browser-welcome { align-self:stretch; margin:clamp(32px,9dvh,112px) auto auto; }
+.research-conversation-list .source-navigator { margin-bottom:10px; }
+.research-conversation-list .source-navigator nav { max-height:180px; }
+@media (min-width:701px) and (max-width:960px) {
+  .research-detail-open .research-history-layout { grid-template-columns:minmax(0,1fr); }
+  .research-detail-open .research-conversation-list { display:none; }
+}

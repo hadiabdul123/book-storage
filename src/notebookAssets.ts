@@ -5,6 +5,8 @@ export type NotebookOverlay = {
   x: number;
   y: number;
   scale: number;
+  scaleX?: number;
+  scaleY?: number;
   createdAt: string;
 };
 
@@ -26,16 +28,21 @@ export type NotebookMedia = {
   hash: string;
   createdAt: string;
   placement?: MediaPlacement;
+  displayWidth?: number;
   purgedAt?: string;
 };
 
 export const assetId = (value: unknown): value is string => typeof value === "string" && /^[a-zA-Z0-9-]{1,100}$/.test(value);
+export const validMediaWidth = (value: number) => Number.isFinite(value) && value >= .16 && value <= 1;
+const validScale = (value: number) => Number.isFinite(value) && value >= .1 && value <= 10;
 export const validOverlay = (value: NotebookOverlay) => assetId(value.noteId) && (value.anchor === "paper" || assetId(value.anchor)) &&
-  [value.x, value.y].every(n => Number.isFinite(n) && Math.abs(n) <= 100000) && Number.isFinite(value.scale) && value.scale >= .1 && value.scale <= 10;
+  [value.x, value.y].every(n => Number.isFinite(n) && Math.abs(n) <= 100000) && validScale(value.scale) &&
+  (value.scaleX === undefined || validScale(value.scaleX)) && (value.scaleY === undefined || validScale(value.scaleY));
 export const validMedia = (value: NotebookMedia) => assetId(value.noteId) && assetId(value.id) &&
   typeof value.title === "string" && !!value.title.trim() && value.title.length <= 200 &&
   Object.hasOwn(mediaTypes, value.extension) && Number.isInteger(value.size) && value.size > 0 && value.size <= mediaLimitBytes &&
   typeof value.hash === "string" && /^[a-f0-9]{64}$/.test(value.hash) &&
+  (value.displayWidth === undefined || validMediaWidth(value.displayWidth)) &&
   (value.placement === undefined || (value.placement && assetId(value.placement.after) &&
     Number.isSafeInteger(value.placement.order) && value.placement.order >= 0 &&
     (value.placement.free === undefined || validFreeMedia(value.placement.free)))) &&

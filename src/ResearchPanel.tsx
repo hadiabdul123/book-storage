@@ -10,6 +10,7 @@ import { citedSources } from "./sourceReferences";
 import { SourceLink } from "./Citation";
 import { SaveResearch } from "./SaveResearch";
 import { BookReviewPicker } from "./BookReviewPicker";
+import { BookComparisonPicker, BookComparisonView, queueBookComparison } from "./BookComparison";
 import { reviewQuestion, type ReviewSection } from "./bookReview";
 import "./researchPanel.css";
 
@@ -33,6 +34,8 @@ export function ResearchPanel({ book, selection, notebookId, defaultNoteId, init
   const [noteIds, setNoteIds] = useState<string[]>(defaultNoteId ? [defaultNoteId] : []);
   const [highlightIds, setHighlightIds] = useState<string[]>([]);
   const [review, setReview] = useState(false);
+  const [compare, setCompare] = useState(false);
+  const [followUp, setFollowUp] = useState(false);
   const [matches, setMatches] = useState<SourceRef[]>();
   useEffect(() => { if (defaultNoteId) { setNoteIds(ids => ids.includes(defaultNoteId) ? ids : [...ids, defaultNoteId]); setMode("sources"); } }, [defaultNoteId]);
   const [status, setStatus] = useState("");
@@ -165,6 +168,7 @@ export function ResearchPanel({ book, selection, notebookId, defaultNoteId, init
     finally { setBusy(false); }
   };
   const hasConversation = messages.length > 0 || jobs.length > 0;
+  const comparisonOnly = libraryFirst && !followUp && (messages.some(message => message.comparison) || jobs.some(job => job.request.comparison));
   const relatedThreads = threads.filter(t => t.bookId === book?.id && t.notebookId === notebookId).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const suggestions = mode === "web" ? ["Find reliable sources", "What is the latest evidence?"] : mode === "sources" ? ["What are the main ideas?", "How do these ideas connect?"] : ["Explain simply", "Give me an example", "Why does this matter?"];
   const suggest = (label: string) => {
@@ -172,7 +176,7 @@ export function ResearchPanel({ book, selection, notebookId, defaultNoteId, init
     setQuestion(text); draft(text, searchQuery); questionInput.current?.focus();
   };
   return <section className={`research-workspace ${hasConversation ? "has-conversation" : "is-new"}`} aria-label="Research workspace">
-    <div className="research-chrome">
+    {!comparisonOnly && <div className="research-chrome">
       <div className="research-heading">
         <div className="research-context"><BookOpen size={16} /><div><strong title={thread?.title}>{thread?.title || book?.title || "Research"}</strong></div></div>
         <button className="research-new-chat" aria-label="New research conversation" title="Start a new conversation" onClick={async () => {
@@ -201,16 +205,17 @@ export function ResearchPanel({ book, selection, notebookId, defaultNoteId, init
         <p>Choose up to seven sources per question. Leafmark sends excerpts from those sources.</p>
       </div></details>
       <div className="research-study-actions"><button className="text-button" disabled={!thread || !chosenBooks.length || busy} onClick={() => setReview(true)}>Review chapters</button>
-        <button className="text-button" disabled={chosenBooks.length < 2 || busy} onClick={() => suggest("Compare the chosen books. Explain where they agree and differ. Combine compatible ideas into a study outline, cite evidence from each book, and flag unanswered questions.")}>Compare books</button>
+        <button className="text-button" disabled={!thread || books.length < 2 || busy} onClick={() => setCompare(true)}>Compare these books</button>
         <button className="text-button" disabled={!chosenBooks.length || !question.trim() || busy} onClick={() => void findPassages()}>Find passages</button>
       </div></>}
       {relatedThreads.length > 1 && <details className="research-history"><summary><Clock3 size={14} />Previous conversations<ChevronDown size={14} /></summary><label>Conversation<select aria-label="Research conversation" value={thread?.id || ""} onChange={e => { setThread(threads.find(t => t.id === e.target.value)); onThreadChange?.(e.target.value); }}>{relatedThreads.map(t => <option key={t.id} value={t.id}>{t.title} · {new Date(t.createdAt).toLocaleDateString()}</option>)}</select></label></details>}
       {!online && <p className="research-offline" role="status"><WifiOff size={15} /><span>Offline. Your questions will wait for a connection.</span></p>}
-    </div>
+    </div>}
     <div className="research-conversation" ref={conversation} onScroll={e => { const el = e.currentTarget; nearEnd.current = el.scrollHeight - el.scrollTop - el.clientHeight < 100; }}>
       {matches && <section className="research-passage-results"><header><strong>Matching passages</strong><button className="text-button" onClick={() => setMatches(undefined)}>Close results</button></header>
         {matches.length ? matches.map(source => <article key={source.id}><SourceLink source={source} /><p>{source.excerpt}</p><button className="text-button" onClick={() => setClip({ text: source.excerpt, sources: [source] })}>Save passage…</button></article>) : <p>No matching passages in the selected books.</p>}</section>}
-      <div className="research-answers">{messages.length > visibleAnswers && <button className="text-button" onClick={() => { nearEnd.current = false; setVisibleAnswers(n => n + 50); }}>Load earlier answers</button>}{messages.slice(-visibleAnswers).map(m => <article className="research-answer" key={m.id}>
+      <div className="research-answers">{messages.length > visibleAnswers && <button className="text-button" onClick={() => { nearEnd.current = false; setVisibleAnswers(n => n + 50); }}>Load earlier answers</button>}{messages.slice(-visibleAnswers).map(m => m.comparison ?
+        <BookComparisonView key={m.id} message={{ ...m, comparison: m.comparison }} onSave={(text, sources) => setClip({ text, sources })} /> : <article className="research-answer" key={m.id}>
         <div className="research-asked"><MessageSquare size={14} /><h4>{m.question}</h4></div>
         <header><span><Sparkles size={14} />{m.mode === "web" ? "Web research" : m.mode === "sources" ? "From your sources" : "Explanation"}</span><time dateTime={m.createdAt}>{new Date(m.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time></header>
         <div className="research-answer-text" data-research-message={m.id} onPointerUp={e => {
@@ -239,7 +244,9 @@ export function ResearchPanel({ book, selection, notebookId, defaultNoteId, init
       })}
       {!hasConversation && <div className="research-empty"><Sparkles size={25} /><h4>{currentSelection ? "Make this idea your own" : mode === "web" ? "Follow your curiosity" : "Go a little deeper"}</h4><p>{currentSelection ? "Unpack the meaning, find an example, or explore the evidence behind it." : "Ask a question. Explore a connection. Keep the useful parts with their sources."}</p><div className="research-suggestions">{suggestions.map(label => <button key={label} onClick={() => suggest(label)}>{label}</button>)}</div></div>}
     </div>
-    <form onSubmit={submit} className="research-question">
+    {comparisonOnly ? <div className="comparison-follow-up"><button className="text-button" onClick={() => {
+      setFollowUp(true); requestAnimationFrame(() => questionInput.current?.focus());
+    }}>Ask a follow-up</button></div> : <form onSubmit={submit} className="research-question">
       {status && <p className="research-status" role="status">{status}</p>}
       {mode === "web" && <label className="research-web-query">Search the web for<div><Globe size={15} /><input aria-label="Web search query" maxLength={500} value={searchQuery} onChange={e => { setSearchQuery(e.target.value); draft(question, e.target.value); }} placeholder="A topic or search phrase" /></div></label>}
       <label className="research-question-label">{hasConversation ? "Ask a follow-up" : "Your question"}<textarea ref={questionInput} aria-label="Research question" maxLength={1500} required rows={2} value={question} onChange={e => { setQuestion(e.target.value); draft(e.target.value, searchQuery); }} onKeyDown={e => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); e.currentTarget.form?.requestSubmit(); } }} placeholder={hasConversation ? "What would you like to explore next?" : "What does this mean? How does it connect?"} /></label>
@@ -248,8 +255,12 @@ export function ResearchPanel({ book, selection, notebookId, defaultNoteId, init
         {busy && <button type="button" className="research-cancel-preparation" aria-label="Cancel source preparation" onClick={() => { controller.current?.abort(); setBusy(false); setStatus("Preparation cancelled. Your question is kept."); }}><X size={17} /></button>}
       </div>
       <p className="research-footnote">Check the sources. AI can make mistakes.</p>
-    </form>
+    </form>}
     {clip && <SaveResearch text={clip.text} sources={clip.sources} passage={currentSelection} onClose={() => { setClip(undefined); setSelectedClip(undefined); }} />}
     {review && <BookReviewPicker books={chosenBooks} focus={question} previous={new Set([...messages.map(message => message.question), ...jobs.map(job => job.request.question)])} onClose={() => setReview(false)} onReview={queueReview} />}
+    {compare && thread && <BookComparisonPicker books={books} selected={bookIds} question={question} onClose={() => setCompare(false)} onCompare={async (text, chosen) => {
+      await queueBookComparison(thread.id, text, chosen);
+      nearEnd.current = true; setCompare(false);
+    }} />}
   </section>;
 }

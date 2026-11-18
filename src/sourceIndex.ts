@@ -203,3 +203,22 @@ export async function retrieveSources(query: string, bookIds: string[], noteIds:
 export function chunkSource(chunk: IndexedChunk): SourceRef {
   return { id: chunk.id.slice(0, 200), kind: "book", bookId: chunk.bookId, title: chunk.title, locator: chunk.locator, excerpt: chunk.text };
 }
+
+export async function comparisonSources(
+  question: string, bookIds: string[], signal: AbortSignal, progress: (message: string) => void,
+) {
+  const books = await list("book");
+  const perBook: SourceRef[][] = [];
+  for (const id of bookIds) {
+    signal.throwIfAborted();
+    const book = books.find(book => book.id === id);
+    if (!book) continue;
+    try { await indexBook(book, signal, progress); }
+    catch { signal.throwIfAborted(); }
+    const chunks = (await db.chunks.where("bookId").equals(id).toArray()).filter(chunk => chunk.hash === book.hash);
+    perBook.push(rankChunks(question, chunks, 3));
+  }
+  // Give each book evidence before allocating extra passages from any book.
+  return [0, 1, 2].flatMap(i => perBook.flatMap(refs => refs[i] ? [refs[i]] : [])).slice(0, 7)
+    .map((source, i) => ({ ...source, id: `S${i + 1}` }));
+}

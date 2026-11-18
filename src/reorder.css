@@ -1,0 +1,15 @@
+.reorder-item { position: relative; min-width: 0; }
+.reorder-item > .book-card { height: 100%; }
+.reorder-item > .workspace-more { position: absolute; right: 4px; top: 4px; z-index: 1; width: 38px; background:#fff; border-radius:4px; }
+.books-list .reorder-item > .workspace-more { right:42px; }
+.reorder-grip { display: grid; place-items: center; flex: 0 0 30px; min-height: 38px; flex-shrink: 0; cursor: grab; color: #526578; touch-action: none; user-select: none; }
+.reorder-item > .reorder-grip { position: absolute; top: 4px; left: 4px; z-index: 1; width: 34px; background: #fff; border-radius: 4px; }
+[data-reordering], [data-reordering] * { cursor: grabbing !important; user-select: none; }
+[data-dragging] { opacity: .55; }
+[data-drop-side]::after { content: ""; position: absolute; height: 3px; left: 0; right: 0; background: #315c86; pointer-events: none; z-index: 2; }
+[data-drop-side="before"]::after { top: 0; }
+[data-drop-side="after"]::after { bottom: 0; }
+.books-grid [data-drop-side]::after { width: 3px; height: auto; top: 0; bottom: 0; }
+.books-grid [data-drop-side="before"]::after { right: auto; }
+.books-grid [data-drop-side="after"]::after { left: auto; }
+@media (pointer: coarse) { .reorder-grip { flex-basis: 44px; min-height: 44px; } .reorder-item > .reorder-grip { width: 44px; } }

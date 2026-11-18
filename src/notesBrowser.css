@@ -16,7 +16,7 @@
 .notes-reference-bar > button:first-of-type { margin-left:auto; }
 .notes-browser .notes-passage-list { padding-block:10px; }
 .notes-preview-pane { container-type:inline-size; }
-.highlight-study-detail { min-width:0; }
+.highlight-study-detail { min-width:0; width:100%; max-width:600px; }
 .highlight-labels { display:flex; flex-wrap:wrap; gap:4px; margin:0 0 8px; font:600 12px/1.4 "Source Sans 3",sans-serif; }
 .highlight-labels > span { border-radius:4px; padding:2px 7px; color:#293541; background:#e8eef4; overflow-wrap:anywhere; }
 .highlight-labels > .priority-important { background:#f5dfa7; color:#5b3b0d; }
@@ -37,8 +37,9 @@
 .highlight-pdf-surface canvas { width:100%; height:auto; vertical-align:top; }
 .highlight-pdf-surface svg { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
 .highlight-pdf-surface rect { fill:#efaa22; fill-opacity:.35; stroke:#99650e; stroke-width:1; vector-effect:non-scaling-stroke; }
-@media (min-width:1100px) {
-  .pdf-preview-open .source-layout { grid-template-columns:178px minmax(0,1fr); }
-  .pdf-preview-open .notes-browser-layout { grid-template-columns:180px minmax(0,1fr); }
-}
-@container (min-width:545px) { .with-pdf-preview { grid-template-columns:minmax(0,1fr) minmax(0,1.15fr); } }
+.with-pdf-preview { grid-template-columns:600px minmax(0,1fr); }
+.notes-pdf-dialog.dialog { width:min(820px, calc(100vw - 24px)); height:auto; max-height:calc(100dvh - 24px); overflow:auto; overscroll-behavior:contain; padding:0; }
+.notes-pdf-dialog .highlight-pdf-preview { border:0; border-radius:0; }
+.notes-pdf-dialog .highlight-pdf-preview header { position:sticky; z-index:1; top:0; background:#f5f7fa; }
+.pdf-preview-loading { padding:16px; }
+.notes-page.notes-browser { max-width:1800px; }

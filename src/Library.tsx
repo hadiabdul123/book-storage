@@ -14,6 +14,7 @@ import {
   FolderPlus,
   Trash2,
   BookOpen,
+  ListOrdered,
 } from "lucide-react";
 import { db, get, list, save } from "./db";
 import { importBook } from "./import";
@@ -22,6 +23,9 @@ import { useBookPreparation, BookPreparationStatus } from "./BookPreparation";
 import { BookSyncStatus } from "./BookSyncStatus";
 import { type Book, type Collection, uid } from "./model";
 import { BookCard, Cover, Dialog, Empty, messageOf } from "./components";
+import { ItemMenu } from "./ItemMenu";
+import { moveActions, orderedBooks, reorder, type Move } from "./reordering";
+import { ReorderGrip, useReorderDrag } from "./useReorderDrag";
 
 export function Library({ notify }: { notify: (message: string) => void }) {
   const books = useLiveQuery(() => list("book"), []) || [],
@@ -31,7 +35,8 @@ export function Library({ notify }: { notify: (message: string) => void }) {
     files = useLiveQuery(() => db.files.toCollection().primaryKeys(), []) || [];
   useBookPreparation(books);
   const browse = useBrowseState();
-  const query = browse.value("q"), filter = browse.value("status", "all"), sort = browse.value("sort", "recent"), collection = browse.value("collection");
+  const hasManualOrder = books.some(book => book.manualOrder !== undefined);
+  const query = browse.value("q"), filter = browse.value("status", "all"), sort = browse.value("sort", hasManualOrder ? "manual" : "recent"), collection = browse.value("collection");
   const change = (key: string, value: string) => browse.update({ [key]: value, page: "1" });
   const setQuery = (v: string) => change("q", v), setFilter = (v: string) => change("status", v), setSort = (v: string) => change("sort", v), setCollection = (v: string) => change("collection", v);
   const [layout, setLayout] = useState(() => { try { return localStorage.getItem("library-layout") || "grid"; } catch { return "grid"; } });
@@ -68,7 +73,9 @@ export function Library({ notify }: { notify: (message: string) => void }) {
               )),
         )
         .sort((a, b) =>
-          sort === "title"
+          sort === "manual"
+            ? orderedBooks(a, b)
+            : sort === "title"
             ? a.title.localeCompare(b.title)
             : sort === "author"
               ? a.author.localeCompare(b.author)
@@ -79,6 +86,11 @@ export function Library({ notify }: { notify: (message: string) => void }) {
     [books, query, filter, collection, members, sort, positions, files],
   );
   const page = pageOf(shown, browse.value("page"));
+  const canReorder = !query && !collection && filter === "all" && (sort === "manual" || (sort === "recent" && !hasManualOrder));
+  const moveBook = (id: string, target: Move) => void reorder("book", id, target).then(() => {
+    if (sort !== "manual") browse.update({ sort: "manual" }, false);
+  }, error => notify(messageOf(error)));
+  const bookDrag = useReorderDrag(canReorder, moveBook, layout === "grid");
   async function importFiles(selected: FileList | File[]) {
     if (importing) return;
     setErrors([]);
@@ -248,6 +260,7 @@ export function Library({ notify }: { notify: (message: string) => void }) {
           onChange={(e) => setSort(e.target.value)}
         >
           <option value="recent">Recently added</option>
+          <option value="manual">Manual order</option>
           <option value="title">Title</option>
           <option value="author">Author</option>
           <option value="progress">Progress</option>
@@ -317,16 +330,20 @@ export function Library({ notify }: { notify: (message: string) => void }) {
           <p>Try another search or change your filters.</p>
         </Empty>
       ) : (
-        <div className={layout === "grid" ? "books-grid" : "books-list"}>
-          {page.items.map((book) => (
+        <div className={layout === "grid" ? "books-grid" : "books-list"} {...bookDrag}>
+          {page.items.map((book) => {
+            const card = (
             <BookCard
               key={book.id}
               book={book}
               progress={progress(book.id)}
               downloaded={files.includes(book.id)}
               onDetails={() => setDetail(book)}
-            />
-          ))}
+            />);
+            return canReorder ? <ItemMenu key={book.id} title={book.title} className="reorder-item" reorderId={book.id} icon={<ListOrdered size={18} />} grip={<ReorderGrip title={book.title} />} actions={[
+              ...moveActions(shown, book.id, target => moveBook(book.id, target)),
+            ]}>{card}</ItemMenu> : card;
+          })}
         </div>
       )}
       <BrowsePages {...page} label="Books" onChange={n => browse.update({ page: String(n) })} /></div></div>
@@ -405,7 +422,12 @@ function BookDetails({
         onSubmit={async (e) => {
           e.preventDefault();
           try {
-            await save("book", draft);
+            await db.transaction("rw", db.rows, db.outbox, db.conflicts, db.meta, async () => {
+              const latest = await get("book", draft.id);
+              if (!latest) throw new Error("This book was removed.");
+              const { title, author, description, tags, status, cover } = draft;
+              await save("book", { ...latest, title, author, description, tags, status, cover });
+            });
             onClose();
           } catch (e) {
             setError(messageOf(e));

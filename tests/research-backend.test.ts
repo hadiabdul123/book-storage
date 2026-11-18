@@ -103,3 +103,33 @@ it("validates source locators and the bounded history contract", () => {
   expect(validResearchInput({ ...input(), sources: [{ ...source, locator: { type: "pdf", hash: "bad" } }] })).toBe(false);
   expect(validResearchInput({ ...input(), history: Array(5).fill({ question: "Q", answer: "A" }) })).toBe(false);
 });
+
+it("builds a cited book comparison with an explicit gap for books with no matching text", async () => {
+  const books = [{ bookId: "book", title: "Cosmology" }, { bookId: "empty", title: "Other book" }];
+  const generated = {
+    columns: [{ bookId: "book", answer: "The book discusses expansion.", gap: "", sourceIds: ["S1"] }],
+    synthesis: { text: "Only one book supplied relevant evidence.", sourceIds: ["S1"] },
+  };
+  d.fetcher.mockResolvedValueOnce(Response.json({ choices: [{ message: { content: JSON.stringify(generated) } }] }));
+  const response = await createResearchHandler(d)(request({ ...input(), mode: "sources", comparison: { books } }));
+  expect(response.status).toBe(200);
+  const output = await response.json();
+  expect(output.comparison.columns).toMatchObject([{ ...books[0], ...generated.columns[0] }, { ...books[1], answer: "", sourceIds: [] }]);
+  expect(output.comparison.columns[1].gap).toContain("No relevant text");
+  expect(output.answer).toContain("[S1]");
+  expect(output.sources[0].locator).toEqual(source.locator);
+  expect(d.fetcher).toHaveBeenCalledOnce();
+});
+
+it("rejects comparison citations that point to another book", async () => {
+  const books = [{ bookId: "book", title: "Cosmology" }, { bookId: "other", title: "Other book" }];
+  const generated = {
+    columns: books.map(book => ({ bookId: book.bookId, answer: "An answer.", gap: "", sourceIds: ["S1"] })),
+    synthesis: { text: "Compared.", sourceIds: ["S1"] },
+  };
+  d.fetcher.mockResolvedValueOnce(Response.json({ choices: [{ message: { content: JSON.stringify(generated) } }] }));
+  const response = await createResearchHandler(d)(request({ ...input(), mode: "sources", comparison: { books },
+    sources: [source, { ...source, bookId: "other" }] }));
+  expect(response.status).toBe(502);
+  expect((await response.json()).code).toBe("citations");
+});

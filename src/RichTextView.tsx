@@ -15,7 +15,7 @@ export function RichTextView({ document }: { document: RichNode }) {
         if (mark.type === "italic") result = <em>{result}</em>;
         if (mark.type === "underline") result = <u>{result}</u>;
         if (mark.type === "highlight") result = <mark style={{ backgroundColor: mark.attrs!.color }}>{result}</mark>;
-        if (mark.type === "textStyle") result = <span style={{ color: mark.attrs!.color }}>{result}</span>;
+        if (mark.type === "textStyle") result = <span style={{ color: mark.attrs?.color, fontSize: mark.attrs?.fontSize }}>{result}</span>;
         if (mark.type === "link") result = <a href={mark.attrs!.href} target="_blank" rel="noopener noreferrer">{result}</a>;
       }
       return <span key={key}>{result}</span>;

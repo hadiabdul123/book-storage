@@ -75,6 +75,9 @@
 .paper-ink-frame button { position:absolute; pointer-events:auto; touch-action:none; background:#fff; border:1px solid #315c86; padding:0; }
 .paper-ink-move { left:0; right:0; top:0; height:11px; cursor:move; background:#d8e8f4 !important; }
 .paper-ink-resize { right:0; bottom:0; width:19px; height:19px; cursor:nwse-resize; border-radius:3px; }
+.paper-ink-width { bottom:calc(50% - 8px); cursor:ew-resize; }
+.paper-ink-height { right:calc(50% - 8px); cursor:ns-resize; }
+@media (pointer:coarse) { .paper-ink-resize { width:30px; height:30px; } }
 .unplaced-ink { position:relative; display:flex; flex-wrap:wrap; gap:8px; align-items:center; border-top:1px solid #dce4ec; padding:8px 0; }
 .notebook-media-widget { margin:18px 0 24px; font:400 15px/1.45 "Source Sans 3",sans-serif; }
 .notebook-drop-line { position:absolute; left:0; right:0; border-top:3px solid #315c86; z-index:4; pointer-events:none; }
@@ -107,4 +110,43 @@
 @media (max-width:700px) {
   .workspace-notebooks .notebook-toolbar { flex-wrap:nowrap; overflow-x:auto; overscroll-behavior-inline:contain; scrollbar-width:thin; }
   .workspace-notebooks .notebook-toolbar > * { flex-shrink:0; }
+}
+.workspace-notebooks.workspace-writing {
+  height: 100dvh;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.workspace-notebooks.workspace-writing > :not(.notebook-layout) { flex-shrink: 0; }
+.workspace-writing.workspace-notebooks .notebook-layout { flex: 1; min-height: 0; grid-template-rows: minmax(0, 1fr); }
+.workspace-writing .notebook-list, .workspace-writing .notebook-pages { min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.workspace-writing.workspace-notebooks .notebook-detail { display: flex; flex-direction: column; min-height: 0; padding-bottom: 0; }
+.workspace-writing.workspace-notebooks.notebook-focus .notebook-layout { display:grid; grid-template-columns:minmax(0,1fr); }
+.workspace-writing .notebook-detail > :not(.notebook-page-scroll) { flex-shrink: 0; }
+.notebook-page-scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding-bottom: 30px; }
+.notebook-toolbar-host { width:min(48rem,100%); margin:0 auto 10px; }
+.notebook-toolbar-host .notebook-ribbon { position:static; }
+.workspace-notebooks .notebook-toolbar-host .notebook-toolbar { flex-wrap:nowrap; overflow-x:auto; scrollbar-width:thin; }
+.notebook-toolbar-host .notebook-toolbar > * { flex-shrink:0; }
+.note-text-size { display:inline-flex; align-items:center; gap:5px; margin:0 4px; font-size:13px; }
+.note-text-size input { width:65px; min-height:36px; padding:3px 5px; }
+.note-media-resize { position:absolute; right:4px; bottom:4px; z-index:2; width:34px; height:34px; display:grid; place-items:center; padding:0; color:#315c86; background:#fffefa; border:1px solid #dce4ec; border-radius:5px; cursor:nwse-resize; touch-action:none; opacity:0; pointer-events:none; }
+.note-media:hover .note-media-resize, .note-media:focus-within .note-media-resize, .note-media.is-selected .note-media-resize, .note-media.is-resizing .note-media-resize { opacity:1; pointer-events:auto; }
+.note-media.is-image .note-media-resize { right:42px; top:6px; bottom:auto; }
+.note-media[data-sized] img { width:100%; }
+.note-media .notebook-media-menu > .workspace-more { z-index:3; }
+.note-media-resize:focus-visible { opacity:1; }
+.workspace-notebooks [data-reorder-id] > .reorder-grip { display:grid; }
+@media (pointer:coarse) { .note-media-resize { width:44px; height:44px; } .note-media.is-image .note-media-resize { right:50px; } }
+@media (min-width:701px) and (max-width:1100px) {
+  .workspace-writing.workspace-notebooks.navigator-open .notebook-detail { display:none; }
+}
+@media (max-width: 700px) {
+  .workspace-notebooks.workspace-writing { padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
+  .workspace-writing.workspace-notebooks .notebook-layout { overflow: auto; }
+  .workspace-writing.workspace-notebooks.has-open-page:not(.navigator-open) .notebook-layout { overflow: hidden; }
+  .workspace-writing.workspace-notebooks .notebook-detail { flex: 1; }
+  .workspace-writing.workspace-notebooks.navigator-open .notebook-detail { display: none; }
+  .workspace-writing .notebook-list, .workspace-writing .notebook-pages { flex-shrink: 0; }
 }

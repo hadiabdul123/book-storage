@@ -1,6 +1,6 @@
 import { db, get, list, save } from "./db";
 import { now, uid } from "./model";
-import { mediaKind, mediaLimitBytes, mediaObjectPath, mediaTypes, validFreeMedia, validMedia, type FreeMediaPosition, type MediaExtension, type MediaPlacement, type NotebookMedia } from "./notebookAssets";
+import { mediaKind, mediaLimitBytes, mediaObjectPath, mediaTypes, validFreeMedia, validMedia, validMediaWidth, type FreeMediaPosition, type MediaExtension, type MediaPlacement, type NotebookMedia } from "./notebookAssets";
 import { cloud, synchronize, uploadLimitBytes } from "./sync";
 
 async function mediaHash(bytes: ArrayBuffer) {
@@ -31,6 +31,21 @@ export async function attachMedia(noteId: string, file: File, placement?: MediaP
 export async function notebookMediaList() {
   const [media, images] = await Promise.all([list("notebook-media"), list("notebook-image")]);
   return [...media, ...images];
+}
+
+export async function resizeMedia(media: NotebookMedia, width?: number) {
+  if (width !== undefined && !validMediaWidth(width)) throw new Error("Choose a width from 16 to 100 percent.");
+  const kind = mediaKind(media);
+  await db.transaction("rw", db.rows, db.outbox, db.conflicts, db.meta, async () => {
+    const latest = await get(kind, media.id);
+    if (!latest) throw new Error("This attachment was removed.");
+    const free = latest.placement?.free;
+    const displayWidth = width;
+    if (free) {
+      const nextWidth = Math.min(width ?? .45, 1 - free.x);
+      await save(kind, { ...latest, displayWidth, placement: { ...latest.placement!, free: { ...free, width: nextWidth } } });
+    } else await save(kind, { ...latest, displayWidth });
+  });
 }
 
 export async function placeMedia(noteId: string, after: string, orderedIds: string[]) {

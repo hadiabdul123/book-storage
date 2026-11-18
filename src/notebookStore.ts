@@ -5,6 +5,7 @@ import { citationNode, validSourceRef } from "./sourceReferences";
 import { emptyDocument, paragraph, plainText, validRichDocument } from "./richText";
 import { samePassage } from "./reader/passages";
 import { pageNoteId, savePageNote } from "./pageNotes";
+import { noteOrder, noteSection } from "./notebookSections";
 
 const flushers = new Map<string, () => Promise<boolean>>();
 export function registerNoteFlusher(id: string, flush: () => Promise<boolean>) {
@@ -16,8 +17,13 @@ export async function saveNotebookNote(note: NotebookNote, expectedUpdatedAt?: s
   const value = { ...note, updatedAt: now() };
   await db.transaction("rw", db.rows, db.outbox, db.conflicts, db.meta, async () => {
     const prior = await get("notebook-note", note.id);
-    if (prior?.sectionId && value.sectionId === undefined) value.sectionId = prior.sectionId;
-    if (prior?.order !== undefined && value.order === undefined) value.order = prior.order;
+    if (prior) {
+      value.sectionId = prior.sectionId;
+      value.order = prior.order;
+    } else if (value.order === undefined) {
+      const siblings = (await list("notebook-note")).filter(item => item.notebookId === value.notebookId && noteSection(item) === noteSection(value));
+      value.order = Math.max(0, ...siblings.map(noteOrder)) + 1024;
+    }
     if (prior && expectedUpdatedAt && prior.updatedAt !== expectedUpdatedAt)
       await db.meta.put({ key: `note-version:${note.id}:local-${uid()}`, value: JSON.stringify({ value: prior }) });
     await save("notebook-note", value);
@@ -26,7 +32,7 @@ export async function saveNotebookNote(note: NotebookNote, expectedUpdatedAt?: s
 }
 export async function recoverNotebookNote(note: NotebookNote, notebookId: string) {
   const section = note.sectionId ? await get("notebook-section", note.sectionId) : undefined;
-  const recovered = await saveNotebookNote({ ...note, id: uid(), notebookId, sectionId: section?.notebookId === notebookId ? section.id : undefined, title: `${note.title} (recovered)`.slice(0, 200), createdAt: now(), updatedAt: now() });
+  const recovered = await saveNotebookNote({ ...note, id: uid(), notebookId, sectionId: section?.notebookId === notebookId ? section.id : undefined, order: undefined, title: `${note.title} (recovered)`.slice(0, 200), createdAt: now(), updatedAt: now() });
   const groups = new Map<string, string>();
   for (const drawing of (await list("notebook-overlay")).filter(d => d.noteId === note.id)) {
     const id = uid(); groups.set(drawing.id, id);

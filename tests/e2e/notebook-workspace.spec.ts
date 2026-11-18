@@ -12,6 +12,28 @@ async function openNote(page: Page) {
   await expect(page.getByRole("textbox", { name: "Topic note content" })).toHaveAttribute("contenteditable", "true");
 }
 
+test("long notebook pages scroll independently of the notebook navigation and formatting toolbar", async ({ page }) => {
+  await openNote(page);
+  const editor = page.getByRole("textbox", { name: "Topic note content" });
+  await editor.evaluate(element => {
+    const { editor } = element as HTMLElement & { editor: import("@tiptap/core").Editor };
+    editor.commands.setContent({ type: "doc", content: Array.from({ length: 45 }, (_, i) => ({
+      type: "paragraph", content: [{ type: "text", text: `Study entry ${i + 1}` }],
+    })) });
+  });
+  const header = page.getByRole("heading", { name: "Notebooks" });
+  const toolbar = page.getByRole("toolbar", { name: "Topic note formatting" });
+  const start = { head: (await header.boundingBox())!.y, tools: (await toolbar.boundingBox())!.y };
+  const last = editor.getByText("Study entry 45", { exact: true });
+  await last.evaluate(element => {
+    const scroll = element.closest(".notebook-page-scroll")!;
+    scroll.scrollTop += element.getBoundingClientRect().top - scroll.getBoundingClientRect().top - 12;
+  });
+  await expect.poll(() => page.locator(".notebook-page-scroll").evaluate(element => element.scrollTop)).toBeGreaterThan(100);
+  expect((await header.boundingBox())!.y).toBeCloseTo(start.head);
+  expect((await toolbar.boundingBox())!.y).toBeCloseTo(start.tools);
+  await expect(last).toBeInViewport();
+});
 
 test("paper ink stays with its paragraph, reopens and can be resized", async ({ page }, info) => {
   test.skip(info.project.name === "mobile-layout", "Mouse drawing and context menu regression.");
@@ -19,6 +41,7 @@ test("paper ink stays with its paragraph, reopens and can be resized", async ({ 
   const editor = page.getByRole("textbox", { name: "Topic note content" });
   await editor.fill("The river runs through the old town.");
   await page.getByRole("button", { name: "Pen", exact: true }).click();
+  await editor.locator("p").scrollIntoViewIfNeeded();
   const bounds = (await editor.locator("p").boundingBox())!;
   const y = bounds.y + bounds.height / 2;
   await page.mouse.move(bounds.x + 20, y);
@@ -38,7 +61,7 @@ test("paper ink stays with its paragraph, reopens and can be resized", async ({ 
     return { x: screen.x, y: screen.y };
   });
   await page.mouse.click(point.x, point.y);
-  const handle = page.getByRole("button", { name: "Resize drawing" });
+  const handle = page.getByRole("button", { name: "Resize drawing", exact: true });
   await expect(handle).toBeVisible();
   if (info.project.name === "desktop") {
     const resize = (await handle.boundingBox())!;
@@ -49,6 +72,12 @@ test("paper ink stays with its paragraph, reopens and can be resized", async ({ 
   const scale = await page.evaluate(async () => (await (await import("/src/db.ts")).list("notebook-overlay"))[0].scale);
   await handle.focus(); await page.keyboard.press("+");
   await expect.poll(() => page.evaluate(async () => (await (await import("/src/db.ts")).list("notebook-overlay"))[0].scale)).toBeCloseTo(scale * 1.1);
+  const heightHandle = page.getByRole("button", { name: "Resize drawing height", exact: true });
+  await heightHandle.press("+");
+  await expect.poll(() => page.evaluate(async () => {
+    const [drawing] = await (await import("/src/db.ts")).list("notebook-overlay");
+    return drawing.scaleY! > drawing.scaleX!;
+  })).toBe(true);
   await page.getByRole("button", { name: "Write", exact: true }).click();
   // Insert a paragraph before the anchored block without splitting its identity.
   const paperOffset = () => stroke.evaluate(path => path.getBoundingClientRect().top - path.closest(".notebook-paper")!.getBoundingClientRect().top);
@@ -133,6 +162,14 @@ test("a downloaded video opens in the notebook player", async ({ page, browserNa
     return [...new Uint8Array(await (await ready).arrayBuffer())];
   });
   await page.getByLabel("Attach image, video or audio").setInputFiles({ name: "sample.webm", mimeType: "video/webm", buffer: Buffer.from(raw) });
+  const attachment = page.getByRole("figure", { name: "Attachment: sample.webm" });
+  await expect(attachment).toBeVisible();
+  const original = (await attachment.boundingBox())!.width;
+  await page.getByRole("button", { name: "More actions for sample.webm" }).click();
+  await page.getByRole("menuitem", { name: "Display size" }).click();
+  await page.getByLabel("Width (% of page)").fill("55");
+  await page.getByRole("button", { name: "Apply size" }).click();
+  await expect.poll(async () => (await attachment.boundingBox())!.width).toBeLessThan(original * .65);
   await expect.poll(() => page.getByLabel("Topic note content").locator("video").evaluate(v => (v as HTMLVideoElement).videoWidth)).toBe(32);
   await expect(page.getByRole("figure", { name: "Attachment: sample.webm" })).not.toContainText("sample.webm");
 });

@@ -1,4 +1,4 @@
-type Point = { node: Text; offset: number };
+import type { TextPoint } from "./pdfTextPoint";
 export type TouchSelection = ReturnType<typeof bindTouchSelection>;
 
 /** A Range is our model, never a browser Selection: Android has no native
@@ -10,6 +10,7 @@ export function bindTouchSelection(root: HTMLElement, options: {
   prepare?: (element: HTMLElement) => Promise<void>;
   allowed?: () => boolean;
   scrollHost?: HTMLElement;
+  textPoint?: (x: number, y: number) => TextPoint | undefined;
 }) {
   const doc = root.ownerDocument, win = doc.defaultView!;
   const scrollHost = options.scrollHost || root;
@@ -33,7 +34,8 @@ export function bindTouchSelection(root: HTMLElement, options: {
   const container = root.closest(".reader-shell") || doc.body;
   const valid = (node: Node | null): node is Text => !!node && node.nodeType === 3 && root.contains(node) &&
     !!node.textContent?.trim() && !node.parentElement?.closest("button,a,input,textarea,[contenteditable],svg,script,style,.app-selection-overlay");
-  const caret = (x: number, y: number): Point | undefined => {
+  const caret = (x: number, y: number): TextPoint | undefined => {
+    if (options.textPoint) return options.textPoint(x, y);
     const pos = doc.caretPositionFromPoint?.(x, y);
     const hit = !pos ? doc.caretRangeFromPoint?.(x, y) : undefined;
     const node = pos?.offsetNode || hit?.startContainer;
@@ -104,12 +106,12 @@ export function bindTouchSelection(root: HTMLElement, options: {
     if (!handles.length) for (const edge of ["start", "end"] as const) {
       const handle = doc.createElement("button"); handle.className = `pdf-selection-handle ${edge}`;
       handle.setAttribute("aria-label", `Drag selection ${edge}`);
-      let dragging = false, pending: PointerEvent | undefined, dragFrame = 0;
+      let dragging = false, pending: PointerEvent | undefined, dragFrame = 0, offsetX = 0, offsetY = 0;
       const move = () => {
         dragFrame = 0;
         if (!dragging || !range || !pending) return;
         handle.style.pointerEvents = "none";
-        const word = wordAt(pending.clientX, pending.clientY + (edge === "start" ? 28 : -28));
+        const word = wordAt(pending.clientX + offsetX, pending.clientY + offsetY);
         handle.style.pointerEvents = "";
         if (!word) return;
         const next = range.cloneRange();
@@ -117,9 +119,21 @@ export function bindTouchSelection(root: HTMLElement, options: {
         else next.setEnd(word.endContainer, word.endOffset);
         apply(next);
       };
-      handle.addEventListener("pointerdown", e => { e.preventDefault(); e.stopPropagation(); root.dispatchEvent(new Event("reader-selection-start", { bubbles: true })); dragging = handleDragging = true; options.adjusting?.(true); handle.setPointerCapture(e.pointerId); });
+      handle.addEventListener("pointerdown", e => {
+        e.preventDefault(); e.stopPropagation();
+        const rects = range && Array.from(range.getClientRects()).filter(r => r.width && r.height);
+        const endpoint = edge === "start" ? rects?.[0] : rects?.at(-1);
+        offsetX = endpoint ? (edge === "start" ? endpoint.left + 1 : endpoint.right - 1) - e.clientX : 0;
+        offsetY = endpoint ? (endpoint.top + endpoint.bottom) / 2 - e.clientY : edge === "start" ? 28 : -28;
+        root.dispatchEvent(new Event("reader-selection-start", { bubbles: true }));
+        dragging = handleDragging = true; options.adjusting?.(true); handle.setPointerCapture(e.pointerId);
+      });
       handle.addEventListener("pointermove", e => { if (!dragging) return; e.preventDefault(); pending = e; if (!dragFrame) dragFrame = win.requestAnimationFrame(move); });
-      const stop = () => { if (pending) move(); dragging = handleDragging = false; win.cancelAnimationFrame(dragFrame); options.adjusting?.(false); };
+      const stop = (event: PointerEvent) => {
+        win.cancelAnimationFrame(dragFrame);
+        if (event.type === "pointerup" && pending) move();
+        pending = undefined; dragFrame = 0; dragging = handleDragging = false; options.adjusting?.(false);
+      };
       handle.addEventListener("pointerup", stop); handle.addEventListener("pointercancel", stop);
       handle.addEventListener("keydown", e => {
         if (!range || !["ArrowLeft", "ArrowRight"].includes(e.key)) return;

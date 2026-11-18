@@ -1,4 +1,5 @@
 import type { Locator, RichNode } from "./model";
+import type { BookComparison, ComparisonRequest } from "../supabase/functions/research/comparison";
 
 export type SourceRef = {
   id: string;
@@ -12,7 +13,7 @@ export type SourceRef = {
   url?: string;
   retrievedAt?: string;
 };
-export type Notebook = { id: string; title: string; createdAt: string };
+export type Notebook = { id: string; title: string; createdAt: string; manualOrder?: number };
 export type NotebookSection = { id: string; notebookId: string; title: string; order: number; createdAt: string };
 export type NotebookNote = {
   sectionId?: string; order?: number;
@@ -29,13 +30,15 @@ export type ResearchThread = {
 export type ResearchMessage = {
   id: string; threadId: string; question: string; mode: ResearchMode;
   answer: string; sources: SourceRef[]; createdAt: string; model: string;
+  comparison?: BookComparison;
 };
 export type ResearchRequest = {
   meaning?: { term: string };
+  comparison?: ComparisonRequest;
   requestId: string; mode: ResearchMode; question: string; searchQuery?: string;
   sources: SourceRef[]; history: { question: string; answer: string }[];
 };
-export type ResearchResult = { answer: string; sources: SourceRef[]; model: string };
+export type ResearchResult = { answer: string; sources: SourceRef[]; model: string; comparison?: BookComparison };
 export type ResearchJob = {
   id: string; threadId: string; request: ResearchRequest; cacheKey: string;
   state: "queued" | "running" | "done" | "error" | "cancelled" | "paused";

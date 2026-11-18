@@ -142,15 +142,42 @@ test("book study queues separate cited reviews and compares evidence from every 
   await page.getByRole("button", { name: "Review 2 sections" }).click();
   await expect(page.getByRole("dialog")).toContainText("2 sections queued");
   await page.getByRole("button", { name: "Back to conversation", exact: true }).click();
-  await page.getByRole("button", { name: "Compare books", exact: true }).click();
-  await expect(page.getByLabel("Research question")).toHaveValue(/where they agree/);
-  await page.getByRole("button", { name: "Research", exact: true }).click();
+  await page.context().setOffline(true);
+  await page.getByRole("button", { name: "Compare these books", exact: true }).click();
+  await page.getByLabel("Comparison question").fill("How do these books compare river restoration?");
+  await page.getByRole("button", { name: "Start comparison", exact: true }).click();
   await expect.poll(async () => page.evaluate(async () => {
     const { db } = await import("/src/db.ts");
     const jobs = await db.researchJobs.toArray();
     return { reviews: jobs.filter(job => job.request.question.startsWith("Review ")).length,
-      books: new Set(jobs.find(job => job.request.question.startsWith("Compare "))?.request.sources.map(source => source.bookId)).size };
+      books: jobs.find(job => job.request.comparison)?.request.comparison?.books.length };
   })).toEqual({ reviews: 2, books: 2 });
+  await page.evaluate(async () => {
+    const { db, list, save } = await import("/src/db.ts");
+    const pending = (await db.researchJobs.toArray()).find(job => job.request.comparison)!;
+    const books = await list("book");
+    const sources = pending.request.comparison!.books.map((item, index) => ({
+      id: `S${index + 1}`, kind: "book" as const, bookId: item.bookId, title: item.title,
+      excerpt: "A supporting passage about river restoration.",
+      locator: { v: 1 as const, type: "pdf" as const, page: 1, y: .1, hash: books.find(book => book.id === item.bookId)!.hash },
+    }));
+    await save("research-message", {
+      id: pending.id, threadId: pending.threadId, question: pending.request.question, mode: "sources",
+      answer: "Both discuss river restoration. [S1] [S2]", sources, model: "test", createdAt: new Date().toISOString(),
+      comparison: {
+        columns: pending.request.comparison!.books.map((item, index) => ({
+          ...item, answer: index ? "Community support matters." : "Habitat matters.", gap: "", sourceIds: [sources[index].id],
+        })),
+        synthesis: { text: "They emphasize different parts of restoration.", sourceIds: sources.map(source => source.id) },
+      },
+    });
+    await db.researchJobs.update(pending.id, { state: "done" });
+  });
+  const comparison = page.getByRole("article", { name: "Book comparison" });
+  await expect(comparison.getByRole("region", { name: "Study Alpha" })).toContainText("Habitat matters");
+  await expect(comparison.getByRole("region", { name: "Study Beta" })).toContainText("Community support matters");
+  await comparison.getByRole("button", { name: "Save finding" }).first().click();
+  await expect(page.getByRole("dialog")).toContainText("1 source reference");
 });
 
 for (const format of ["epub", "docx"] as const) test(`${format} contextual research retains a navigable source and locally indexes its text`, async ({ page }) => {

@@ -47,14 +47,19 @@ test("a highlight keeps follow-ups, study labels and an on-demand full PDF previ
   await expect(notes).toContainText("Check the updated equation");
   await expect(page.locator(".annotation-card")).toContainText("Original observation");
 
+  if (info.project.name === "desktop") await page.setViewportSize({ width: 1950, height: 900 });
+  const detailBefore = await page.locator(".highlight-study-detail").boundingBox();
+  const listBefore = await page.locator(".notes-passage-list").boundingBox();
   await page.getByRole("button", { name: "Show PDF page" }).click();
   await expect(page.getByRole("img", { name: /Page 1 of Study source/ })).toBeVisible();
   if (info.project.name === "desktop") {
-    await page.setViewportSize({ width: 1440, height: 900 });
+    await expect(page.locator(".with-pdf-preview")).toBeVisible();
     const detail = await page.locator(".highlight-study-detail").boundingBox();
     const preview = await page.locator(".highlight-pdf-preview").boundingBox();
     expect(preview!.x).toBeGreaterThan(detail!.x + detail!.width);
-  }
+    expect(detail!.width).toBeCloseTo(detailBefore!.width);
+    expect((await page.locator(".notes-passage-list").boundingBox())!.width).toBeCloseTo(listBefore!.width);
+  } else await expect(page.getByRole("dialog", { name: "Source PDF page" })).toBeVisible();
   await expect(page.locator(".highlight-pdf-surface svg rect")).toHaveCount(1);
   await page.getByLabel("Highlighted page").selectOption("2");
   const rotated = page.getByRole("img", { name: /Page 2 of Study source/ });
@@ -62,6 +67,7 @@ test("a highlight keeps follow-ups, study labels and an on-demand full PDF previ
   expect(await rotated.evaluate((canvas: HTMLCanvasElement) => canvas.width / canvas.height)).toBeGreaterThan(1);
   await page.getByRole("button", { name: "Close PDF page" }).click();
   await expect(page.locator(".highlight-pdf-preview")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Show PDF page" })).toBeFocused();
   const download = page.waitForEvent("download");
   await page.getByLabel("Export notes", { exact: true }).selectOption("json");
   const exported = JSON.parse(await readFile((await (await download).path())!, "utf8"));

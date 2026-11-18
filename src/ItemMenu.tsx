@@ -6,7 +6,7 @@ import "./itemMenu.css";
 
 export type ItemAction = { label: string; run: () => void; danger?: boolean; disabled?: boolean };
 
-export function ItemMenu({ title, children, actions, className, touch = false }: { title: string; children: ReactNode; actions: ItemAction[]; className?: string; touch?: boolean }) {
+export function ItemMenu({ title, children, actions, className, touch = false, reorderId, grip, icon }: { title: string; children: ReactNode; actions: ItemAction[]; className?: string; touch?: boolean; reorderId?: string; grip?: ReactNode; icon?: ReactNode }) {
   const [point, setPoint] = useState<{ x: number; y: number }>();
   const trigger = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
@@ -39,8 +39,9 @@ export function ItemMenu({ title, children, actions, className, touch = false }:
     window.addEventListener("resize", leave);
     return () => { document.removeEventListener("pointerdown", outside, true); window.removeEventListener("resize", leave); };
   }, [point]);
-  return <div className={`workspace-item${className ? ` ${className}` : ""}`} onContextMenu={event => {
+  return <div data-reorder-id={reorderId} className={`workspace-item${className ? ` ${className}` : ""}`} onContextMenu={event => {
     event.preventDefault();
+    if (event.currentTarget.hasAttribute("data-dragging") || (event.target as Element).closest(".reorder-grip")) return;
     stopHold();
     open(event.clientX, event.clientY, event.currentTarget.querySelector("button"));
   }} onPointerDown={event => {
@@ -61,10 +62,11 @@ export function ItemMenu({ title, children, actions, className, touch = false }:
     open(box.left, box.bottom, event.target as HTMLElement);
   }}>
     {children}
+    {grip}
     <button ref={trigger} type="button" className="workspace-more" aria-label={`More actions for ${title}`} aria-haspopup="menu" aria-expanded={!!point} onClick={event => {
       const box = event.currentTarget.getBoundingClientRect();
       if (point) close(); else open(box.right - 176, box.bottom, trigger.current);
-    }}><MoreHorizontal size={18} /></button>
+    }}>{icon || <MoreHorizontal size={18} />}</button>
     {point && createPortal(<div ref={menu} className="workspace-menu" role="menu" aria-label={`Actions for ${title}`} onKeyDown={event => {
       event.stopPropagation();
       if (event.key === "Escape") { event.preventDefault(); close(true); return; }

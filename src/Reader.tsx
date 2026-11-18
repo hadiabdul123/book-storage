@@ -432,8 +432,10 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
       setOpened(true);
       setLoading(false);
       setReady((v) => v + 1);
-      if (book.status === "unread")
-        await save("book", { ...book, status: "reading" });
+      if (book.status === "unread") await db.transaction("rw", db.rows, db.outbox, db.conflicts, db.meta, async () => {
+        const latest = await get("book", book.id);
+        if (latest?.status === "unread") await save("book", { ...latest, status: "reading" });
+      });
     };
     void start().catch((e) => {
       if (!cancelled) {

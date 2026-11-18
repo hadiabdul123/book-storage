@@ -1,15 +1,18 @@
+import type { TextPoint } from "./pdfTextPoint";
+
 /** Read the final browser range without building reader locators on drag frames. */
 export function bindNativeSelection(root: HTMLElement, options: {
   selected: (range: Range | null) => void;
   dragging?: (active: boolean) => void;
   allowed?: (target: Element) => boolean;
+  textPoint?: (x: number, y: number) => TextPoint | undefined;
 }) {
   const doc = root.ownerDocument;
   const win = doc.defaultView!;
   const iframe = win.frameElement;
   const outer = iframe?.ownerDocument.defaultView;
   const clock = outer ?? win;
-  let press: { id: number; x: number; y: number; moved: boolean } | undefined;
+  let press: { id: number; x: number; y: number; moved: boolean; anchor?: TextPoint; end?: TextPoint } | undefined;
   let releaseListeners: AbortController | undefined;
   let frame = 0;
 
@@ -44,16 +47,29 @@ export function bindNativeSelection(root: HTMLElement, options: {
   function release(event: PointerEvent) {
     if (!press || event.pointerId !== press.id) return;
     const moved = press.moved || Math.hypot(event.clientX - press.x, event.clientY - press.y) > 3;
+    const began = press;
+    if (moved && began.anchor) began.end = options.textPoint?.(event.clientX, event.clientY) ?? began.end;
     releaseListeners?.abort();
     releaseListeners = undefined;
     clock.cancelAnimationFrame(frame);
     // Default mouseup processing can still change the native range.
     frame = clock.requestAnimationFrame(() => {
       frame = 0;
+      if (moved) showRange(began);
       press = undefined;
       read(moved);
       options.dragging?.(false);
     });
+  }
+
+  function showRange(began: NonNullable<typeof press>) {
+    const { anchor, end } = began;
+    if (!anchor || !end || !root.contains(anchor.node) || !root.contains(end.node)) return;
+    const current = doc.getSelection();
+    if (current && (current.anchorNode !== anchor.node || current.anchorOffset !== anchor.offset ||
+        current.focusNode !== end.node || current.focusOffset !== end.offset)) {
+      current.setBaseAndExtent(anchor.node, anchor.offset, end.node, end.offset);
+    }
   }
 
   function move(event: PointerEvent) {
@@ -62,6 +78,13 @@ export function bindNativeSelection(root: HTMLElement, options: {
       release(event);
     } else if (Math.hypot(event.clientX - press.x, event.clientY - press.y) > 3) {
       press.moved = true;
+      if (press.anchor) {
+        press.end = options.textPoint?.(event.clientX, event.clientY) ?? press.end;
+        if (!frame) frame = clock.requestAnimationFrame(() => {
+          frame = 0;
+          if (press) showRange(press);
+        });
+      }
     }
   }
 
@@ -70,7 +93,8 @@ export function bindNativeSelection(root: HTMLElement, options: {
     const target = event.target as Element;
     if (target.closest?.("button,a,input,textarea,select,[contenteditable]") || options.allowed?.(target) === false) return;
     cancel();
-    press = { id: event.pointerId, x: event.clientX, y: event.clientY, moved: false };
+    const anchor = options.textPoint?.(event.clientX, event.clientY);
+    press = { id: event.pointerId, x: event.clientX, y: event.clientY, moved: false, anchor, end: anchor };
     options.dragging?.(true);
     releaseListeners = new AbortController();
     const listener = { capture: true, signal: releaseListeners.signal };

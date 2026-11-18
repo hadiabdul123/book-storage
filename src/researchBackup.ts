@@ -7,10 +7,12 @@ import type { SourceRef } from "./researchTypes";
 import { validInkStroke, type InkStroke } from "./inkTypes";
 import { isMediaKind, mediaKind, validMedia, validOverlay } from "./notebookAssets";
 import { notebookMediaList } from "./notebookMediaStore";
+import { validBookComparison } from "../supabase/functions/research/comparison";
 const kinds = ["notebook", "notebook-section", "notebook-note", "notebook-overlay", "notebook-media", "notebook-image", "ink-stroke", "research-thread", "research-message"] as const;
 export function validResearchEntity(kind: string, v: any): boolean {
   if (!v || typeof v !== "object" || typeof v.id !== "string" || !v.id || v.id.length > 100 || typeof v.createdAt !== "string" || !Number.isFinite(Date.parse(v.createdAt))) return false;
-  if (kind === "notebook") return typeof v.title === "string" && !!v.title.trim() && v.title.length <= 200;
+  if (kind === "notebook") return typeof v.title === "string" && !!v.title.trim() && v.title.length <= 200 &&
+    (v.manualOrder === undefined || (Number.isSafeInteger(v.manualOrder) && v.manualOrder >= 0));
   if (kind === "notebook-section") return typeof v.notebookId === "string" && typeof v.title === "string" && !!v.title.trim() && v.title.length <= 200 && Number.isFinite(v.order);
   if (kind === "ink-stroke") return validInkStroke(v);
   if (kind === "notebook-overlay") return validOverlay(v);
@@ -18,7 +20,8 @@ export function validResearchEntity(kind: string, v: any): boolean {
   if (kind === "notebook-note") return typeof v.notebookId === "string" && (v.sectionId === undefined || typeof v.sectionId === "string") && (v.order === undefined || Number.isFinite(v.order)) && typeof v.title === "string" && !!v.title.trim() && v.title.length <= 200 && validRichDocument(v.document) && Array.isArray(v.tags) && v.tags.every((t: unknown) => typeof t === "string") && typeof v.updatedAt === "string" && Number.isFinite(Date.parse(v.updatedAt));
   if (kind === "research-thread") return typeof v.title === "string" && v.title.length <= 200 && (v.bookId === undefined || typeof v.bookId === "string") && (v.notebookId === undefined || typeof v.notebookId === "string") && (v.selection === undefined || validSourceRef(v.selection)) &&
     (v.scope === undefined || (v.scope && [v.scope.bookIds, v.scope.noteIds, v.scope.highlightIds].every(ids => Array.isArray(ids) && ids.length <= 7 && ids.every(id => typeof id === "string" && id.length <= 100))));
-  if (kind === "research-message") return typeof v.threadId === "string" && typeof v.question === "string" && v.question.length <= 1500 && ["explain", "sources", "web"].includes(v.mode) && typeof v.answer === "string" && v.answer.length <= 12000 && typeof v.model === "string" && Array.isArray(v.sources) && v.sources.length <= 20 && v.sources.every(validSourceRef);
+  if (kind === "research-message") return typeof v.threadId === "string" && typeof v.question === "string" && v.question.length <= 1500 && ["explain", "sources", "web"].includes(v.mode) && typeof v.answer === "string" && v.answer.length <= 12000 && typeof v.model === "string" && Array.isArray(v.sources) && v.sources.length <= 20 && v.sources.every(validSourceRef) &&
+    (v.comparison === undefined || validBookComparison(v.comparison, v.sources));
   return false;
 }
 export async function researchBackup() {
@@ -61,6 +64,7 @@ export async function restoreResearchBackup(value: unknown) {
         if (v.notebookId && !(await get("notebook", v.notebookId))) throw new Error("A conversation’s parent notebook is missing.");
         if (v.bookId) v.bookId = map.get(v.bookId) || undefined;
         if (v.selection) v.selection = source(v.selection);
+        if (v.scope) v.scope.bookIds = v.scope.bookIds.flatMap((id: string) => map.get(id) || []);
       }
       if (kind === "ink-stroke") {
         if (v.target.type === "pdf") { const bookId = map.get(v.target.bookId); if (!bookId) { skipped++; continue; } v.target.bookId = bookId; }
@@ -68,6 +72,10 @@ export async function restoreResearchBackup(value: unknown) {
       }
       if (kind === "research-message") {
         if (!(await get("research-thread", v.threadId))) throw new Error("An answer’s conversation is missing.");
+        if (v.comparison) v.comparison.columns = v.comparison.columns.map((column: { bookId: string }) => {
+          const ref = v.sources.find((s: SourceRef) => s.bookId === column.bookId);
+          return { ...column, bookId: map.get(column.bookId) || (ref ? source(ref).bookId : column.bookId) };
+        });
         v.sources = v.sources.map(source);
       }
       await save(kind as Kind, v as EntityMap[Kind]); restored++;

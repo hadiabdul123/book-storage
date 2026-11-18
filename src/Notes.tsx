@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { BrowsePages, SourceNavigator, pageOf, useBrowseState } from "./browse";
 import { Link, useNavigate } from "react-router-dom";
 import { useLiveQuery } from "dexie-react-hooks";
@@ -14,6 +14,18 @@ import { highlightStudyData, priorities, setHighlightPriority, type HighlightFol
 import "./notesBrowser.css";
 const InkPreview = lazy(() => import("./InkPreview").then(m => ({ default: m.InkPreview })));
 const PdfPreview = lazy(() => import("./HighlightPdfPreview").then(m => ({ default: m.HighlightPdfPreview })));
+function PdfPreviewOverlay({ children, onClose }: { children: ReactNode; onClose: () => void }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useLayoutEffect(() => {
+    const element = dialog.current!;
+    const previous = document.activeElement as HTMLElement | null;
+    element.showModal();
+    return () => { element.close(); previous?.focus({ preventScroll: true }); };
+  }, []);
+  return <dialog ref={dialog} className="dialog notes-pdf-dialog" aria-label="Source PDF page" onCancel={event => {
+    event.preventDefault(); onClose();
+  }} onClick={event => { if (event.target === event.currentTarget) onClose(); }}>{children}</dialog>;
+}
 function readingOrder(a: Locator, b: Locator) {
   if (a.type === "pdf" && b.type === "pdf") return a.page - b.page ||
     (b.regions?.[0]?.rects[0]?.[3] ?? b.point?.[1] ?? -b.y) - (a.regions?.[0]?.rects[0]?.[3] ?? a.point?.[1] ?? -a.y);
@@ -39,6 +51,16 @@ export function Notes() {
   const [editing, setEditing] = useState<Annotation>();
   const [editingTags, setEditingTags] = useState<string>();
   const [pdfItem, setPdfItem] = useState("");
+  const [canDockPdf, setCanDockPdf] = useState(false);
+  const [previewPane, setPreviewPane] = useState<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    if (!previewPane) return;
+    const observer = new ResizeObserver(([entry]) => setCanDockPdf(entry.contentRect.width >= 960));
+    observer.observe(previewPane);
+    return () => observer.disconnect();
+  }, [previewPane]);
+  const pdfTrigger = useRef<HTMLButtonElement>(null);
+  const closePdf = () => { setPdfItem(""); requestAnimationFrame(() => pdfTrigger.current?.focus({ preventScroll: true })); };
   const [actionError, setActionError] = useState("");
   const [clipboard, setClipboard] = useState("");
   const bookMap = useMemo(() => new Map(books.map(b => [b.id, b])), [books]);
@@ -113,6 +135,7 @@ export function Notes() {
   const activeBook = activeAnnotation && bookMap.get(activeAnnotation.bookId);
   const previewLocator = activeAnnotation?.locator.type === "pdf" && activeBook?.hash === activeAnnotation.locator.hash ? activeAnnotation.locator : undefined;
   const previewOpen = !!previewLocator && !!active && pdfItem === active.id;
+  const pdf = previewOpen && activeBook && previewLocator && <Suspense fallback={<div className="pdf-preview-loading"><p role="status">Opening PDF preview…</p><button className="text-button" onClick={closePdf}>Close PDF page</button></div>}><PdfPreview key={active.id} book={activeBook} locator={previewLocator} onClose={closePdf} /></Suspense>;
   const tagsAnnotation = annotations.find(annotation => annotation.id === editingTags);
   useEffect(() => { setPdfItem(""); setClipboard(""); }, [active?.id]);
   const detail = !!selected && !!active;
@@ -120,7 +143,7 @@ export function Notes() {
   const drawingCount = (id: string) => [...drawingGroups.values()].filter(d => d.sourceId === id).length;
   const sourceItems = [...books.map(b => ({ id: `book:${b.id}`, title: b.title, detail: b.author, count: annotations.filter(a => a.bookId === b.id).length + drawingCount(`book:${b.id}`) })), ...notebooks.map(n => ({ id: `notebook:${n.id}`, title: n.title, detail: "Notebook drawings", count: drawingCount(`notebook:${n.id}`) }))];
   return (
-    <div className={`notes-page notes-browser ${detail ? "notes-detail-open" : ""} ${previewOpen ? "pdf-preview-open" : ""}`}>
+    <div className={`notes-page notes-browser ${detail ? "notes-detail-open" : ""}`}>
       <header className="page-header">
         <div>
           <p className="page-kicker">Keep the good parts close</p>
@@ -229,7 +252,7 @@ export function Notes() {
             </button>;
             return r.annotation && r.annotation.type !== "page-note" ? <ItemMenu key={r.id} title={r.text.slice(0, 75) || "highlight"} actions={studyActions(r.annotation)}>{open}</ItemMenu> : open;
           })}</section>)}</nav>
-          <div className="notes-preview-pane"><button className="text-button notes-back-list" onClick={() => { setPdfItem(""); browse.update({ item: "" }); }}>Back to saved items</button>
+          <div className="notes-preview-pane" ref={setPreviewPane}><button className="text-button notes-back-list" onClick={() => { setPdfItem(""); browse.update({ item: "" }); }}>Back to saved items</button>
           {active && activeAnnotation && <><div className="notes-reference-bar"><strong>{active.title}</strong><span>{active.subtitle}</span><button className="text-button" onClick={async () => {
             try {
               const url = new URL(location.href); url.search = "";
@@ -237,16 +260,16 @@ export function Notes() {
               await navigator.clipboard.writeText(`${active.annotation!.text || active.annotation!.note}\n\n${active.title}, ${active.subtitle}\n${url.href}`);
               setClipboard("Copied quote and source.");
             } catch { setClipboard("Clipboard unavailable. You can select and copy the quote."); }
-          }}><Copy size={15} />Copy quote and source</button>{previewLocator && !previewOpen && <button className="text-button show-highlight-pdf" onClick={() => setPdfItem(active.id)}><FileText size={16} />Show PDF page</button>}
+          }}><Copy size={15} />Copy quote and source</button>{previewLocator && <button ref={pdfTrigger} className="text-button show-highlight-pdf" aria-expanded={previewOpen} onClick={() => previewOpen ? closePdf() : setPdfItem(active.id)}><FileText size={16} />Show PDF page</button>}
           {activeAnnotation.type !== "page-note" && <ItemMenu title="selected highlight" actions={studyActions(activeAnnotation)}>{null}</ItemMenu>}</div>
           {clipboard && <small role="status">{clipboard}</small>}
-          <div className={previewOpen ? "highlight-study-layout with-pdf-preview" : "highlight-study-layout"}>
+          <div className={previewOpen && canDockPdf ? "highlight-study-layout with-pdf-preview" : "highlight-study-layout"}>
             <div className="highlight-study-detail">
               <HighlightLabels tags={activeAnnotation.tags} priority={priorityMap.get(active.id)} />
               <AnnotationCard annotation={activeAnnotation} book={activeBook} showTags={false} onEdit={() => setEditing(activeAnnotation)} />
               {activeAnnotation.type !== "page-note" && <HighlightFollowups key={active.id} annotationId={active.id} notes={followupMap.get(active.id) || []} />}
             </div>
-            {previewOpen && activeBook && previewLocator && <Suspense fallback={<p role="status">Opening PDF preview…</p>}><PdfPreview key={active.id} book={activeBook} locator={previewLocator} onClose={() => setPdfItem("")} /></Suspense>}
+            {pdf && (canDockPdf ? pdf : <PdfPreviewOverlay onClose={closePdf}>{pdf}</PdfPreviewOverlay>)}
           </div></>}
           {active?.drawing && <article className="drawing-detail"><h2>{active.title}</h2><p>{active.subtitle}</p><Suspense fallback={<p>Opening drawing preview…</p>}><InkPreview strokes={active.drawing.strokes} /></Suspense><Link className="primary" to={active.drawing.href}>Open drawing</Link><p className="muted">Use Draw to edit or erase strokes. Drawings sync with your library.</p></article>}
           </div>

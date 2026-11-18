@@ -41,6 +41,7 @@ export type Locator =
     };
 export type Book = {
   id: string;
+  manualOrder?: number;
   title: string;
   author: string;
   description: string;

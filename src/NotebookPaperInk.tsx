@@ -40,11 +40,23 @@ export const NotebookInkAnchors = Extension.create({
 
 export type PaperTool = "write" | "draw" | "select";
 type AnchorBox = { left: number; top: number; unit: number };
+type ResizeEdge = "width" | "height" | "corner";
+type DrawingBounds = { left: number; top: number; width: number; height: number };
+const clampScale = (value: number) => Math.max(.1, Math.min(10, value));
 const frameFor = (anchor: AnchorBox, overlay: NotebookOverlay) => ({
   left: anchor.left + overlay.x * anchor.unit,
   top: anchor.top + overlay.y * anchor.unit,
   unit: anchor.unit * overlay.scale,
+  unitX: anchor.unit * (overlay.scaleX ?? overlay.scale),
+  unitY: anchor.unit * (overlay.scaleY ?? overlay.scale),
 });
+
+function resizeDrawing(overlay: NotebookOverlay, bounds: DrawingBounds, factorX: number, factorY: number) {
+  const oldX = overlay.scaleX ?? overlay.scale, oldY = overlay.scaleY ?? overlay.scale;
+  const scaleX = clampScale(oldX * factorX), scaleY = clampScale(oldY * factorY);
+  const scale = factorX === factorY ? clampScale(overlay.scale * factorX) : overlay.scale;
+  return { ...overlay, scale, scaleX, scaleY, x: overlay.x + bounds.left * (oldX - scaleX), y: overlay.y + bounds.top * (oldY - scaleY) };
+}
 
 export function NotebookPaperInk({ editor, noteId, paper, mode, style, saveNote, history, notice, bindingRef, writes, openDrawing }: {
   editor: Editor; noteId: string; paper: RefObject<HTMLDivElement | null>; mode: PaperTool;
@@ -63,7 +75,7 @@ export function NotebookPaperInk({ editor, noteId, paper, mode, style, saveNote,
   const draft = useRef<NotebookOverlay | undefined>(undefined);
   const latest = useRef({ mode, style, saveNote, notice });
   latest.current = { mode, style, saveNote, notice };
-  const move = useRef<{ pointer: number; startX: number; startY: number; overlay: NotebookOverlay; anchor: AnchorBox; size: number; resize: boolean; next?: NotebookOverlay } | undefined>(undefined);
+  const move = useRef<{ pointer: number; startX: number; startY: number; overlay: NotebookOverlay; anchor: AnchorBox; bounds: DrawingBounds; edge?: ResizeEdge; next?: NotebookOverlay } | undefined>(undefined);
   const frameButton = useRef<HTMLButtonElement>(null);
 
   function track(action: () => Promise<void>) {
@@ -157,19 +169,22 @@ export function NotebookPaperInk({ editor, noteId, paper, mode, style, saveNote,
   useEffect(() => { draft.current = undefined; if (mode === "write") setSelected(undefined); }, [mode]);
   const ink = history.visible(strokes);
   const erasing = mode === "draw" && style.tool === "eraser";
-  function begin(event: ReactPointerEvent<HTMLButtonElement>, overlay: NotebookOverlay, anchor: AnchorBox, size: number, resize: boolean) {
+  function begin(event: ReactPointerEvent<HTMLButtonElement>, overlay: NotebookOverlay, anchor: AnchorBox, bounds: DrawingBounds, edge?: ResizeEdge) {
     if (event.button !== 0) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
-    move.current = { pointer: event.pointerId, startX: event.clientX, startY: event.clientY, overlay, anchor, size, resize };
+    move.current = { pointer: event.pointerId, startX: event.clientX, startY: event.clientY, overlay, anchor, bounds, edge };
   }
   function adjust(event: ReactPointerEvent<HTMLButtonElement>) {
     const drag = move.current;
     if (!drag || drag.pointer !== event.pointerId) return;
     const dx = event.clientX - drag.startX, dy = event.clientY - drag.startY;
-    if (drag.resize) {
-      const distance = Math.abs(dx) > Math.abs(dy) ? dx : dy;
-      drag.next = { ...drag.overlay, scale: Math.max(.1, Math.min(10, drag.overlay.scale * (1 + distance / Math.max(8, drag.size)))) };
+    if (drag.edge) {
+      const { width, height } = drag.bounds;
+      const factor = 1 + (dx * width + dy * height) / (width * width + height * height);
+      const x = drag.edge === "height" ? 1 : drag.edge === "width" ? 1 + dx / width : factor;
+      const y = drag.edge === "width" ? 1 : drag.edge === "height" ? 1 + dy / height : factor;
+      drag.next = resizeDrawing(drag.overlay, drag.bounds, x, y);
     } else drag.next = { ...drag.overlay, x: drag.overlay.x + dx / drag.anchor.unit, y: drag.overlay.y + dy / drag.anchor.unit };
     setPreview(drag.next);
   }
@@ -181,18 +196,20 @@ export function NotebookPaperInk({ editor, noteId, paper, mode, style, saveNote,
     draft.current = undefined;
     const next = drag.next;
     void track(async () => {
-      if (!drag.resize) {
+      if (!drag.edge) {
         const absolute = frameFor(drag.anchor, next), anchor = findAnchor(absolute.left, absolute.top);
         next.anchor = anchor.id;
         next.x = (absolute.left - anchor.box.left) / anchor.box.unit;
         next.y = (absolute.top - anchor.box.top) / anchor.box.unit;
         next.scale = Math.max(.1, Math.min(10, absolute.unit / anchor.box.unit));
+        if (next.scaleX !== undefined) next.scaleX = clampScale(absolute.unitX / anchor.box.unit);
+        if (next.scaleY !== undefined) next.scaleY = clampScale(absolute.unitY / anchor.box.unit);
         if (!(await latest.current.saveNote())) throw new Error("Save the page before moving this drawing.");
       }
       await save("notebook-overlay", next);
     }).catch(e => notice(e.message));
   }
-  const gestures = { onPointerMove: adjust, onPointerUp: finish, onPointerCancel: finish };
+  const gestures = { onPointerMove: adjust, onPointerUp: finish, onPointerCancel: finish, onLostPointerCapture: finish };
   const unplaced = overlays.filter(drawing => !anchorBoxes[drawing.anchor] && ink.some(s => s.target.type === "notebook" && s.target.blockId === drawing.id));
 
   return <>
@@ -202,7 +219,7 @@ export function NotebookPaperInk({ editor, noteId, paper, mode, style, saveNote,
         const anchor = anchorBoxes[drawing.anchor];
         if (!anchor) return null;
         const origin = frameFor(anchor, drawing);
-        return <g key={drawing.id} transform={`translate(${origin.left} ${origin.top}) scale(${origin.unit})`}>
+        return <g key={drawing.id} transform={`translate(${origin.left} ${origin.top}) scale(${origin.unitX} ${origin.unitY})`}>
           {ink.filter(s => s.target.type === "notebook" && s.target.blockId === drawing.id).map(s => <path key={s.id} d={inkPath(s)} fill={s.color} opacity={s.tool === "highlighter" ? .3 : 1}
             onPointerDown={event => {
               if (event.button !== 0 || (!erasing && mode !== "select")) return;
@@ -223,18 +240,22 @@ export function NotebookPaperInk({ editor, noteId, paper, mode, style, saveNote,
           left = Math.min(left, x - stroke.width); top = Math.min(top, y - stroke.width);
           right = Math.max(right, x + stroke.width); bottom = Math.max(bottom, y + stroke.width);
         }
-        const width = Math.max(24, (right - left) * origin.unit), height = Math.max(24, (bottom - top) * origin.unit);
-        return <div key={drawing.id} className="paper-ink-frame" style={{ left: origin.left + left * origin.unit, top: origin.top + top * origin.unit, width, height }}>
-          <button ref={frameButton} className="paper-ink-move" aria-label="Move drawing" {...gestures} onPointerDown={e => begin(e, drawing, anchor, width, false)} onKeyDown={event => {
+        const width = Math.max(24, (right - left) * origin.unitX), height = Math.max(24, (bottom - top) * origin.unitY);
+        const bounds = { left, top, width, height };
+        return <div key={drawing.id} className="paper-ink-frame" style={{ left: origin.left + left * origin.unitX, top: origin.top + top * origin.unitY, width, height }}>
+          <button ref={frameButton} className="paper-ink-move" aria-label="Move drawing" {...gestures} onPointerDown={e => begin(e, drawing, anchor, bounds)} onKeyDown={event => {
             const offset = { ArrowUp: [0, -8], ArrowDown: [0, 8], ArrowLeft: [-8, 0], ArrowRight: [8, 0] }[event.key];
             if (!offset) return;
             event.preventDefault(); void save("notebook-overlay", { ...drawing, x: drawing.x + offset[0] / anchor.unit, y: drawing.y + offset[1] / anchor.unit }).catch(e => notice(e.message));
           }} />
-          <button className="paper-ink-resize" aria-label="Resize drawing" {...gestures} onPointerDown={e => begin(e, drawing, anchor, width, true)} onKeyDown={event => {
-            if (event.key !== "+" && event.key !== "-") return;
-            event.preventDefault(); const scale = Math.min(10, Math.max(.1, drawing.scale * (event.key === "+" ? 1.1 : .9)));
-            void save("notebook-overlay", { ...drawing, scale }).catch(e => notice(e.message));
-          }} />
+          {(["width", "height", "corner"] as const).map(edge => <button key={edge} className={`paper-ink-resize paper-ink-${edge}`}
+            aria-label={edge === "corner" ? "Resize drawing" : `Resize drawing ${edge}`} {...gestures}
+            onPointerDown={e => begin(e, drawing, anchor, bounds, edge)} onKeyDown={event => {
+              if (!["+", "=", "-"].includes(event.key)) return;
+              event.preventDefault();
+              const factor = event.key === "-" ? .9 : 1.1;
+              void save("notebook-overlay", resizeDrawing(drawing, bounds, edge === "height" ? 1 : factor, edge === "width" ? 1 : factor)).catch(e => notice(e.message));
+            }} />)}
         </div>;
       })}
     </div>

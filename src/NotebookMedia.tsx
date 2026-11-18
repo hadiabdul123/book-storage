@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { GripVertical } from "lucide-react";
+import { GripVertical, MoveDiagonal } from "lucide-react";
 import type { DragEvent, PointerEvent } from "react";
 import { db, get, save } from "./db";
 import { cloud, subscribeSync, syncSnapshot, synchronize } from "./sync";
 import { mediaKind, mediaTypes } from "./notebookAssets";
-import { keepMediaOffline, originalMediaBytes, playbackUrl, restoreOriginal } from "./notebookMediaStore";
+import { keepMediaOffline, originalMediaBytes, playbackUrl, resizeMedia, restoreOriginal } from "./notebookMediaStore";
 import { ItemMenu, RenameItem } from "./ItemMenu";
+import { Dialog } from "./components";
 import type { NotebookMedia as Media } from "./notebookAssets";
 import { mediaDragType } from "./inlineMedia";
 
@@ -44,6 +45,9 @@ export function NotebookMedia({ media, cue, selected, onTimestamp, onMove, onSel
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [refresh, setRefresh] = useState(0);
+  const [sizeDialog, setSizeDialog] = useState(false);
+  const [previewWidth, setPreviewWidth] = useState<number>();
+  const gesture = useRef<{ id: number; x: number; width: number; paper: number }>(undefined);
   const pendingSeek = useRef<number | undefined>(cue?.time);
   const refreshed = useRef(false);
   const player = useRef<HTMLMediaElement | null>(null);
@@ -119,14 +123,41 @@ export function NotebookMedia({ media, cue, selected, onTimestamp, onMove, onSel
   }
 
   const floating = !!media.placement?.free;
+  const free = media.placement?.free;
+  const resizable = image || Player === "video";
+  const maxWidth = free ? 1 - free.x : 1;
+  const clampWidth = (width: number) => Math.min(maxWidth, Math.max(.16, width));
+  const currentWidth = free?.width ?? media.displayWidth ?? 1;
+  const shownWidth = previewWidth ?? currentWidth;
+  function beginResize(event: PointerEvent<HTMLButtonElement>) {
+    if (event.button !== 0 || !block.current) return;
+    const paper = block.current.closest(".notebook-paper")?.getBoundingClientRect().width;
+    if (!paper) return;
+    event.stopPropagation(); event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    gesture.current = { id: event.pointerId, x: event.clientX, width: block.current.getBoundingClientRect().width / paper, paper };
+  }
+  function finishResize(event: PointerEvent<HTMLButtonElement>) {
+    const start = gesture.current;
+    if (!start || start.id !== event.pointerId) return;
+    gesture.current = undefined;
+    if (event.type === "pointerup" && Math.abs(event.clientX - start.x) > 2) {
+      const width = clampWidth(start.width + (event.clientX - start.x) / start.paper);
+      setPreviewWidth(width);
+      void run(() => resizeMedia(media, width)).finally(() => setPreviewWidth(undefined));
+    } else setPreviewWidth(undefined);
+  }
   function startDrag(event: DragEvent<HTMLElement>) {
     event.dataTransfer.setData(mediaDragType, media.id);
     event.dataTransfer.effectAllowed = "move";
   }
-  return <figure className={`note-media${selected ? " is-selected" : ""}`} ref={block} aria-label={`Attachment: ${media.title}`} data-media-id={media.id}>
+  return <figure className={`note-media${image ? " is-image" : ""}${selected ? " is-selected" : ""}${previewWidth === undefined ? "" : " is-resizing"}`} ref={block} aria-label={`Attachment: ${media.title}`} data-media-id={media.id}
+    data-sized={previewWidth !== undefined || media.displayWidth !== undefined ? "" : undefined}
+    style={resizable ? { width: `${(free ? shownWidth / free.width : shownWidth) * 100}%` } : undefined}>
     <ItemMenu title={media.title} className="notebook-media-menu" touch actions={[
       { label: selected ? "Deselect attachment" : "Select attachment", run: onSelect },
       { label: floating ? "Return to text flow" : "Move freely", run: onFree },
+      ...(resizable ? [{ label: "Display size", run: () => setSizeDialog(true) }] : []),
       ...(!floating ? [{ label: "Move up", run: () => onMove(-1) }, { label: "Move down", run: () => onMove(1) }] : []),
       ...(!image ? [{ label: `Play ${Player}`, disabled: !source || !!error, run: () => { if (player.current) void run(() => player.current!.play()); } }] : []),
       ...(!image ? [{ label: "Insert timestamp", disabled: !source || !!error, run: () => onTimestamp({ id: media.id, time: player.current?.currentTime ?? 0 }) }] : []),
@@ -143,6 +174,12 @@ export function NotebookMedia({ media, cue, selected, onTimestamp, onMove, onSel
       {!source && visible && !error && <p role="status">Opening attachment…</p>}
       <button className="note-media-handle" type="button" aria-label={`Drag ${media.title}`}
         onPointerDown={onDrag} onClick={e => { e.stopPropagation(); if (!e.detail) onSelect(); }}><GripVertical size={17} /></button>
+      {resizable && <button className="note-media-resize" type="button" aria-label={`Resize ${media.title}`}
+        onPointerDown={beginResize} onPointerMove={event => {
+          const start = gesture.current;
+          if (start?.id === event.pointerId) setPreviewWidth(clampWidth(start.width + (event.clientX - start.x) / start.paper));
+        }} onPointerUp={finishResize} onPointerCancel={finishResize} onLostPointerCapture={finishResize}
+        onClick={event => { event.stopPropagation(); if (!event.detail) setSizeDialog(true); }}><MoveDiagonal size={16} /></button>}
     </div></ItemMenu>
     <div className="note-media-status">
       {transfer?.state === "uploading" && <progress aria-label="Attachment upload" value={transfer.percent} max={100} />}
@@ -151,5 +188,14 @@ export function NotebookMedia({ media, cue, selected, onTimestamp, onMove, onSel
       {error && <div role="status"><p>{error}</p><button className="text-button" onClick={() => { refreshed.current = false; setVisible(true); setRefresh(n => n + 1); }}>Retry preview</button>{!local && <label className="text-button">Restore original file<input type="file" onChange={e => { const file = e.currentTarget.files?.[0]; if (file) void run(() => restoreOriginal(media, file)); }} /></label>}</div>}
     </div>
     {rename && <RenameItem label="attachment" value={media.title} onClose={() => setRename(false)} onSave={title => change({ title })} />}
+    {sizeDialog && <Dialog title="Display size" onClose={() => setSizeDialog(false)}><form className="clip-form" onSubmit={event => {
+      event.preventDefault();
+      const percent = Number(new FormData(event.currentTarget).get("width"));
+      void run(async () => { await resizeMedia(media, clampWidth(percent / 100)); setSizeDialog(false); });
+    }}>
+      <label>Width (% of page)<input name="width" type="number" required min={16} max={Math.max(16, Math.floor(maxWidth * 100 + .000001))} defaultValue={Math.floor(currentWidth * 100 + .000001)} /></label>
+      {error && <p role="alert">{error}</p>}
+      <div className="button-row"><button className="primary" disabled={busy}>Apply size</button><button className="text-button" type="button" disabled={busy} onClick={() => void run(async () => { await resizeMedia(media); setSizeDialog(false); })}>Reset size</button></div>
+    </form></Dialog>}
   </figure>;
 }

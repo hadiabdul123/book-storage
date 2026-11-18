@@ -3,6 +3,7 @@ import { cloud } from "./sync";
 import { now, uid } from "./model";
 import type { ResearchJob, ResearchRequest, ResearchResult } from "./researchTypes";
 import { validSourceRef } from "./sourceReferences";
+import { validBookComparison } from "../supabase/functions/research/comparison";
 
 export class ResearchFailure extends Error {
   constructor(message: string, public code: string, public retryAfter = 0) { super(message); }
@@ -11,7 +12,8 @@ export function validResearchResult(value: unknown): value is ResearchResult {
   const r = value as ResearchResult;
   return !!r && typeof r.answer === "string" && r.answer.length <= 12000 && typeof r.model === "string" &&
     Array.isArray(r.sources) && r.sources.length <= 8 && r.sources.every(validSourceRef) &&
-    [...r.answer.matchAll(/\[(S\d+)\]/g)].every(m => r.sources.some(s => s.id === m[1]));
+    [...r.answer.matchAll(/\[(S\d+)\]/g)].every(m => r.sources.some(s => s.id === m[1])) &&
+    (r.comparison === undefined || validBookComparison(r.comparison, r.sources));
 }
 export async function researchCacheKey(request: Omit<ResearchRequest, "requestId">) {
   const bytes = new TextEncoder().encode(JSON.stringify(request));
@@ -73,12 +75,24 @@ export function runResearchQueue(transport: Transport = callResearch): Promise<v
       if (!(await get("research-thread", job.threadId))) { await db.researchJobs.update(job.id, { state: "cancelled" }); continue; }
       if (await get("research-message", job.id)) { await db.researchJobs.update(job.id, { state: "done" }); continue; }
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 55000);
+      let timer: ReturnType<typeof setTimeout> | undefined;
       controllers.set(job.id, controller);
       await db.researchJobs.update(job.id, { state: "running", message: "Researching your question…" });
       try {
-        const result = await transport(job.request, controller.signal);
+        let request = job.request;
+        if (request.comparison) {
+          const { comparisonSources } = await import("./sourceIndex");
+          const sources = await comparisonSources(request.question, request.comparison.books.map(book => book.bookId), controller.signal,
+            message => { void db.researchJobs.update(job.id, { message }).catch(() => {}); });
+          controller.signal.throwIfAborted();
+          request = { ...request, sources };
+          await db.researchJobs.update(job.id, { message: "Comparing your books…" });
+        }
+        timer = setTimeout(() => controller.abort(), 55000);
+        const result = await transport(request, controller.signal);
         if (!validResearchResult(result)) throw new ResearchFailure("The answer contained invalid source references.", "citations");
+        if (request.comparison && !validBookComparison(result.comparison, result.sources, request.comparison))
+          throw new ResearchFailure("The comparison was incomplete. Retry your saved question.", "format");
         await db.transaction("rw", db.rows, db.outbox, db.conflicts, db.meta, db.researchJobs, async () => {
           const currentJob = await db.researchJobs.get(job.id);
           if (!currentJob || currentJob.state === "cancelled" || !(await get("research-thread", job.threadId))) return;

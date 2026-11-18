@@ -351,6 +351,11 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
     const writing = first.getByRole("textbox", { name: "Topic note content" });
     await expect(writing).toHaveAttribute("contenteditable", "true");
     await writing.fill("Return to this moment. ");
+    await writing.press("ControlOrMeta+a");
+    await first.getByRole("spinbutton", { name: "Note text size" }).fill("14");
+    await first.getByRole("spinbutton", { name: "Note text size" }).press("Enter");
+    await expect(writing.locator("span[style*=font-size]")).toHaveCSS("font-size", "14px");
+    await writing.press("ArrowRight");
     await first.getByLabel("Attach image, video or audio").setInputFiles({ name: "seminar.wav", mimeType: "audio/wav", buffer: wavFixture() });
     await expect.poll(() => [...rows.values()].some(row => row.kind === "notebook-media" && !row.deleted), { timeout: 20000 }).toBe(true);
     expect(interruptedMedia).toBe(true);
@@ -360,7 +365,10 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
     await first.getByRole("button", { name: "More actions for seminar.wav" }).click();
     await first.getByRole("menuitem", { name: "Insert timestamp", exact: true }).click();
     await expect.poll(() => JSON.stringify(rows.get(`notebook-note:${media.noteId}`)?.value.document)).toContain("&at=1.5");
+    expect(JSON.stringify(rows.get(`notebook-note:${media.noteId}`)?.value.document)).toContain('"fontSize":"14px"');
     await second.goto(new URL(`/#/notebooks?note=${media.noteId}`, baseURL!).href);
+    await second.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await expect(second.getByRole("textbox", { name: "Topic note content" }).locator("span[style*=font-size]").first()).toHaveCSS("font-size", "14px", { timeout: 20_000 });
     await second.getByRole("link", { name: "0:01" }).click();
     await expect.poll(() => second.locator("audio").evaluate((element: HTMLAudioElement) => element.currentTime)).toBeCloseTo(1.5, 1);
     const seminarMenu = second.getByRole("button", { name: "More actions for seminar.wav" });
@@ -387,6 +395,20 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
     await second.getByRole("menuitem", { name: "Keep offline" }).click();
     const imageId = [...rows.values()].find(row => row.kind === "notebook-image").id;
     await expect.poll(() => second.evaluate(async id => Boolean(await (await import("/src/db.ts")).db.mediaFiles.get(id)), imageId)).toBe(true);
+    await first.evaluate(async () => {
+      const { get, save } = await import("/src/db.ts");
+      const { reorder } = await import("/src/reordering.ts");
+      const existing = `z-${crypto.randomUUID()}`;
+      await save("notebook", { id: existing, title: "Reading queue", createdAt: new Date().toISOString() });
+      const notebook = await get("notebook", existing);
+      await reorder("notebook", notebook!.id, "first");
+    });
+    await expect.poll(() => [...rows.values()].find(row => row.kind === "notebook" && row.value.title === "Reading queue")?.value.manualOrder).toBe(0);
+    await second.reload();
+    await expect.poll(() => second.evaluate(async () => {
+      const { list } = await import("/src/db.ts");
+      return (await list("notebook")).find(note => note.title === "Reading queue")?.manualOrder;
+    })).toBe(0);
 
     const highlightId = await first.evaluate(async () => {
       const { list, save } = await import("/src/db.ts");

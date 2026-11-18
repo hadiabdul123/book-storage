@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { DragEvent, PointerEvent } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { useLiveQuery } from "dexie-react-hooks";
@@ -28,7 +29,7 @@ import { useSearchParams } from "react-router-dom";
 
 const noMedia: NotebookMedia[] = [];
 
-export function TopicEditor({ note }: { note: NotebookNote }) {
+export function TopicEditor({ note, toolbarHost }: { note: NotebookNote; toolbarHost?: HTMLElement | null }) {
   const [title, setTitle] = useState(note.title), [tags, setTags] = useState(note.tags.join(", "));
   const [status, setStatus] = useState("Opening note…");
   const [loaded, setLoaded] = useState(false);
@@ -210,7 +211,7 @@ export function TopicEditor({ note }: { note: NotebookNote }) {
       if (target && target.placement?.free) { positions.set(mediaId, undefined); continue; }
       if (media.placement?.free) continue;
       const block = root.querySelector(`[data-media-id="${CSS.escape(mediaId)}"]`)?.getBoundingClientRect();
-      if (block) positions.set(mediaId, { x: 0, y: Math.max(0, Math.min(100, (block.top - bounds.top) / bounds.width)), width: .45 });
+      if (block) positions.set(mediaId, { x: 0, y: Math.max(0, Math.min(100, (block.top - bounds.top) / bounds.width)), width: media.displayWidth ?? .45 });
     }
     if (positions.size) updateMedia(() => positionMedia(note.id, positions));
   }
@@ -297,8 +298,7 @@ export function TopicEditor({ note }: { note: NotebookNote }) {
   const mediaParam = params.get("media"), timeParam = params.get("at");
   useEffect(() => { const next = readCue(location.href, note.id); if (next) setCue(next); }, [mediaParam, timeParam, note.id]);
   useEffect(() => { if (drawing) setPaperTool("select"); }, [drawing]);
-  return <section className="topic-editor" onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) void flush(); }}>
-    <div className="notebook-ribbon">
+  const ribbon = <div className="notebook-ribbon">
     <div className="notebook-toolbar" role="toolbar" aria-label="Topic note formatting" onMouseDown={e => { if (!(e.target as Element).closest("input,select")) e.preventDefault(); }}>
       <button type="button" aria-pressed={paperTool === "draw"} disabled={!loaded} onClick={() => switchTool(paperTool === "draw" ? "write" : "draw")}><PenLine size={17} />Pen</button>
       <button type="button" disabled={!loaded || attaching} onClick={() => fileInput.current?.click()}><Paperclip size={17} />Attach media</button>
@@ -330,7 +330,12 @@ export function TopicEditor({ note }: { note: NotebookNote }) {
       <button className="text-button" aria-pressed={paperTool === "select"} onClick={() => switchTool("select")}><MousePointer2 size={16} />Select drawing</button>
       <button className="text-button" onClick={() => switchTool("write")}><Type size={16} />Write</button>
       <InkToolbar style={inkStyle} change={style => { inkBinding.current?.flush(); setInkStyle(style); switchTool("draw"); }} undo={() => void inkHistory.move().catch(e => setNotice(e.message))} redo={() => void inkHistory.move(true).catch(e => setNotice(e.message))} />
-    </div>}</div>
+    </div>}</div>;
+  return <section className="topic-editor" onBlur={e => {
+    const target = e.relatedTarget as Node | null;
+    if (!e.currentTarget.contains(target) && !toolbarHost?.contains(target)) void flush();
+  }}>
+    {toolbarHost ? createPortal(ribbon, toolbarHost) : ribbon}
     <input ref={fileInput} type="file" multiple accept={Object.keys(mediaTypes).map(ext => `.${ext}`).join(",")} aria-label="Attach image, video or audio" hidden onChange={e => {
       const input = Array.from(e.currentTarget.files || []);
       e.currentTarget.value = "";

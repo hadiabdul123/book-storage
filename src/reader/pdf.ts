@@ -11,6 +11,7 @@ import { PageOcr } from "./ocr";
 import { surroundingText } from "../sourceIndex";
 import { bindPdfTouch } from "./pdfTouch";
 import { bindNativeSelection } from "./nativeSelection";
+import { pdfTextPoint } from "./pdfTextPoint";
 import { pdfLibrary, pdfOptions, pdfOpenError } from "../pdf";
 import type {
   PDFDocumentLoadingTask,
@@ -260,6 +261,7 @@ export class PdfReader implements ReaderAdapter {
         this.events.onMouseSelection?.(active);
       },
       allowed: element => !this.drawing && !this.region && !!element.closest(".textLayer"),
+      textPoint: (x, y) => pdfTextPoint(this.host, x, y),
     });
     // Retain the gesture's original text/canvas nodes until touch release.
     // Replacing its target mid-swipe loses Chrome's remaining touch events.
@@ -637,9 +639,9 @@ export class PdfReader implements ReaderAdapter {
       !this.host.contains(range.endContainer)
     )
       return;
-    const fragment = touch ? range.cloneContents() : undefined;
-    fragment?.querySelectorAll("br").forEach(br => br.replaceWith(document.createTextNode("\n")));
-    const text = touch ? fragment?.textContent || range.toString() : document.getSelection()?.toString() || range.toString();
+    const fragment = range.cloneContents();
+    fragment.querySelectorAll("br").forEach(br => br.replaceWith(document.createTextNode("\n")));
+    const text = fragment.textContent || range.toString();
     const rangeRects = Array.from(range.getClientRects());
     const regions: { page: number; rects: Rect[] }[] = [];
     for (const state of this.pages) {
