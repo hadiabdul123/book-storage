@@ -345,8 +345,12 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
     await first.getByRole("button", { name: "New notebook", exact: true }).click();
     await first.getByLabel("Notebook name").fill("Shared seminar");
     await first.getByRole("button", { name: "Create notebook" }).click();
+    await expect(first.getByRole("dialog").filter({ has: first.getByRole("heading", { name: "New notebook" }) })).toBeHidden();
+    await expect(first.locator(".notebook-detail-actions")).toContainText("Shared seminar");
     await first.getByRole("button", { name: "New note", exact: true }).click();
-    await first.getByRole("textbox", { name: "Topic note content" }).fill("Return to this moment. ");
+    const writing = first.getByRole("textbox", { name: "Topic note content" });
+    await expect(writing).toHaveAttribute("contenteditable", "true");
+    await writing.fill("Return to this moment. ");
     await first.getByLabel("Attach image, video or audio").setInputFiles({ name: "seminar.wav", mimeType: "audio/wav", buffer: wavFixture() });
     await expect.poll(() => [...rows.values()].some(row => row.kind === "notebook-media" && !row.deleted), { timeout: 20000 }).toBe(true);
     expect(interruptedMedia).toBe(true);
