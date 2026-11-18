@@ -66,8 +66,10 @@ test("stylus wins over a resting palm and unrelated palm cancellation at zoom", 
   await cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: x + 70, y, button: "left", buttons: 0, pointerType: "pen" });
   await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] }); await cdp.detach();
   await expect(svg.locator("path")).toHaveCount(1);
-  const strokes = await page.evaluate(async () => { const { list } = await import("/src/db.ts"); return list("ink-stroke"); });
-  expect(strokes).toHaveLength(1); expect(strokes[0].points.length).toBeGreaterThan(2);
+  const saved = () => page.evaluate(async () => { const { list } = await import("/src/db.ts"); return list("ink-stroke"); });
+  await expect.poll(saved).toHaveLength(1);
+  const strokes = await saved();
+  expect(strokes[0].points.length).toBeGreaterThan(2);
   expect(strokes[0].points.some(p => p[2] > .6)).toBe(true);
   await page.reload(); await expect(page.locator('.pdf-page[data-page="1"] .pdf-ink-layer path')).toHaveCount(1);
 });
@@ -86,8 +88,9 @@ test("zoom finishes an active pen stroke in the old coordinates before redrawing
   await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: x + 100, y: y + 80, button: "left", buttons: 1, pointerType: "pen", force: .8 });
   await cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: x + 100, y: y + 80, button: "left", buttons: 0, pointerType: "pen" }); await cdp.detach();
   await expect(page.locator('.pdf-page[data-page="1"] .pdf-ink-layer path')).toHaveCount(1);
-  const strokes = await page.evaluate(async () => { const { list } = await import("/src/db.ts"); return list("ink-stroke"); });
-  expect(strokes).toHaveLength(1); expect(strokes[0].points).toHaveLength(2);
+  const saved = () => page.evaluate(async () => { const { list } = await import("/src/db.ts"); return list("ink-stroke"); });
+  await expect.poll(saved).toHaveLength(1);
+  expect((await saved())[0].points).toHaveLength(2);
 });
 
 
