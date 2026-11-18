@@ -1,9 +1,10 @@
-import { db, list, save } from "./db";
+import { db, get, list, save } from "./db";
 import type { Book } from "./model";
 import { validAnnotation } from "./validation";
 import { pageNoteId } from "./pageNotes";
 import { remapSourceBooks, remapDocumentBooks } from "./sourceReferences";
 import { validInkStroke, type InkStroke } from "./inkTypes";
+import { validHighlightFollowup, validHighlightStudy } from "./highlightStudy";
 
 export async function restoreAnnotationBackup(data: unknown, books: Book[]) {
   if (
@@ -12,16 +13,20 @@ export async function restoreAnnotationBackup(data: unknown, books: Book[]) {
     !("schema" in data) ||
     data.schema !== "leafmark.annotations" ||
     !("version" in data) ||
-    ![1, 2, 3, 4].includes(data.version as number) ||
+    ![1, 2, 3, 4, 5].includes(data.version as number) ||
     !("annotations" in data) ||
     !Array.isArray(data.annotations)
   )
     throw new Error("This is not a Leafmark annotation backup.");
   const annotations = data.annotations;
   const ink: InkStroke[] = "ink" in data && Array.isArray(data.ink) ? data.ink : [];
-  if (data.version === 4 && (!("ink" in data) || !Array.isArray(data.ink) || !ink.every(s => validInkStroke(s) && s.target.type === "pdf"))) throw new Error("The backup contains an invalid drawing.");
+  if ((data.version === 4 || data.version === 5) && (!("ink" in data) || !Array.isArray(data.ink) || !ink.every(s => validInkStroke(s) && s.target.type === "pdf"))) throw new Error("The backup contains an invalid drawing.");
   if (!annotations.every(validAnnotation))
     throw new Error("The backup contains an invalid annotation.");
+  const study = data.version === 5 && "study" in data ? data.study : [];
+  const followups = data.version === 5 && "followups" in data ? data.followups : [];
+  if (!Array.isArray(study) || !study.every(validHighlightStudy) || !Array.isArray(followups) || !followups.every(validHighlightFollowup))
+    throw new Error("The backup contains invalid highlight study records.");
 
   return db.transaction(
     "rw",
@@ -54,6 +59,19 @@ export async function restoreAnnotationBackup(data: unknown, books: Book[]) {
         const target = stroke.target, book = books.find(b => b.hash === target.hash);
         if (!book || await db.rows.get(`ink-stroke:${stroke.id}`)) { skipped++; continue; }
         await save("ink-stroke", { ...stroke, target: { ...target, bookId: book.id } }); restored++;
+      }
+      const backedUp = new Map(annotations.filter(a => a.type !== "page-note").map(a => [a.id, a]));
+      const matches = async (id: string) => {
+        const local = await get("annotation", id), imported = backedUp.get(id);
+        return !!(local && imported && local.type !== "page-note" && local.locator.hash === imported.locator.hash && local.text === imported.text);
+      };
+      for (const item of study) {
+        if (!(await matches(item.id)) || await db.rows.get(`highlight-study:${item.id}`)) { skipped++; continue; }
+        await save("highlight-study", item); restored++;
+      }
+      for (const item of followups) {
+        if (!(await matches(item.annotationId)) || await db.rows.get(`highlight-followup:${item.id}`)) { skipped++; continue; }
+        await save("highlight-followup", item); restored++;
       }
       return { restored, skipped };
     },

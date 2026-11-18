@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "re
 import { createPortal } from "react-dom";
 import { MoreHorizontal } from "lucide-react";
 import { Dialog } from "./components";
+import "./itemMenu.css";
 
 export type ItemAction = { label: string; run: () => void; danger?: boolean; disabled?: boolean };
 

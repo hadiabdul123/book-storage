@@ -47,6 +47,7 @@ import { downloadBook } from "./sync";
 import type { ReaderAdapter, SearchHit, Section } from "./reader/types";
 import { AnnotationCard, EditAnnotation, messageOf } from "./components";
 import { exportAnnotations } from "./export";
+import { highlightStudyData } from "./highlightStudy";
 import { PageNotebook, type NotebookHandle } from "./PageNotebook";
 import { Meaning } from "./Meaning";
 import { ResearchPanel } from "./ResearchPanel";
@@ -1002,8 +1003,8 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
                     <span>{annotations.length} saved</span>
                     <button
                       className="text-button"
-                      onClick={() =>
-                        exportAnnotations(annotations, [book], "md")
+                      onClick={async () =>
+                        exportAnnotations(annotations, [book], "md", [], await highlightStudyData())
                       }
                     >
                       <Download size={15} />

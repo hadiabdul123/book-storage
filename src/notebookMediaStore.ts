@@ -1,6 +1,6 @@
-import { db, get, save } from "./db";
+import { db, get, list, save } from "./db";
 import { now, uid } from "./model";
-import { mediaLimitBytes, mediaObjectPath, mediaTypes, validMedia, type MediaExtension, type NotebookMedia } from "./notebookAssets";
+import { mediaKind, mediaLimitBytes, mediaObjectPath, mediaTypes, validMedia, type MediaExtension, type MediaPlacement, type NotebookMedia } from "./notebookAssets";
 import { cloud, synchronize, uploadLimitBytes } from "./sync";
 
 async function mediaHash(bytes: ArrayBuffer) {
@@ -8,19 +8,40 @@ async function mediaHash(bytes: ArrayBuffer) {
   return Array.from(new Uint8Array(digest), value => value.toString(16).padStart(2, "0")).join("");
 }
 
-export async function attachMedia(noteId: string, file: File) {
+export function attachmentExtension(file: File) {
   const extension = file.name.split(".").at(-1)?.toLowerCase() as MediaExtension;
-  if (!Object.hasOwn(mediaTypes, extension)) throw new Error("Choose an MP4, WebM, MP3, M4A, WAV, or Ogg file.");
+  if (!Object.hasOwn(mediaTypes, extension)) throw new Error(`Unsupported file format: ${file.name}. Choose an image, video, or audio file in a supported format.`);
   const limit = Math.min(mediaLimitBytes, uploadLimitBytes);
   if (!file.size || file.size > limit) throw new Error(`Choose a file between 1 byte and ${Math.floor(limit / 1024 / 1024)} MB.`);
+  return extension;
+}
+
+export async function attachMedia(noteId: string, file: File, placement?: MediaPlacement) {
+  const extension = attachmentExtension(file);
   const bytes = await file.arrayBuffer();
-  const media: NotebookMedia = { id: uid(), noteId, title: file.name.trim().slice(0, 200), extension, size: file.size, hash: await mediaHash(bytes), createdAt: now() };
+  const media: NotebookMedia = { id: uid(), noteId, title: file.name.trim().slice(0, 200), extension, size: file.size, hash: await mediaHash(bytes), createdAt: now(), placement };
   await db.transaction("rw", [db.mediaFiles, db.rows, db.outbox, db.conflicts, db.meta], async () => {
     if (!(await get("notebook-note", noteId))) throw new Error("This notebook page has been removed.");
     await db.mediaFiles.add({ id: media.id, bytes, uploaded: false });
-    await save("notebook-media", media);
+    await save(mediaKind(media), media);
   });
   return media;
+}
+
+export async function notebookMediaList() {
+  const [media, images] = await Promise.all([list("notebook-media"), list("notebook-image")]);
+  return [...media, ...images];
+}
+
+export async function placeMedia(noteId: string, after: string, orderedIds: string[]) {
+  await db.transaction("rw", [db.rows, db.outbox, db.conflicts, db.meta], async () => {
+    for (const [order, id] of orderedIds.entries()) {
+      const media = await get("notebook-media", id) || await get("notebook-image", id);
+      if (media?.noteId === noteId && (media.placement?.after !== after || media.placement.order !== order)) {
+        await save(mediaKind(media), { ...media, placement: { after, order } });
+      }
+    }
+  });
 }
 
 async function storageFile(media: NotebookMedia) {
@@ -54,7 +75,7 @@ export async function originalMediaBytes(media: NotebookMedia) {
 export async function keepMediaOffline(media: NotebookMedia) {
   const bytes = await originalMediaBytes(media);
   await db.transaction("rw", [db.mediaFiles, db.rows], async () => {
-    if (!(await get("notebook-media", media.id))) throw new Error("This attachment has been removed.");
+    if (!(await get(mediaKind(media), media.id))) throw new Error("This attachment has been removed.");
     await db.mediaFiles.put({ id: media.id, bytes, uploaded: true });
   });
   return bytes;
@@ -66,19 +87,20 @@ export async function restoreOriginal(media: NotebookMedia, file: File) {
   const bytes = await file.arrayBuffer();
   if (await mediaHash(bytes) !== media.hash) throw new Error("This file does not match the original attachment.");
   await db.transaction("rw", [db.mediaFiles, db.rows, db.outbox, db.conflicts, db.meta], async () => {
-    const latest = await get("notebook-media", media.id);
+    const latest = await get(mediaKind(media), media.id);
     if (!latest) throw new Error("The attachment was removed.");
     await db.mediaFiles.put({ id: media.id, bytes, uploaded: false });
     // The prior metadata may already exist remotely. Queue a fresh operation
     // so the restored file passes through the same upload path.
-    await save("notebook-media", { ...latest, createdAt: now() });
+    await save(mediaKind(media), { ...latest, createdAt: now() });
   });
 }
 
 export async function purgeMedia(media: NotebookMedia) {
-  const row = await db.rows.get(`notebook-media:${media.id}`);
+  const kind = mediaKind(media);
+  const row = await db.rows.get(`${kind}:${media.id}`);
   if (!row?.deleted) throw new Error("Move the attachment to Trash first.");
-  await save("notebook-media", { ...media, purgedAt: media.purgedAt || now() }, true);
+  await save(kind, { ...media, purgedAt: media.purgedAt || now() }, true);
   if (cloud) {
     await synchronize();
     const confirmed = await db.rows.get(row.key);

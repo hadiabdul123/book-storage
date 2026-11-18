@@ -1,0 +1,8 @@
+.workspace-item { display:flex; align-items:stretch; min-width:0; position:relative; }
+.workspace-item > button:first-child { flex:1; min-width:0; text-align:left; }
+.workspace-item > .workspace-more { flex:0 0 38px; padding:0; display:grid; place-items:center; min-height:38px; border:0; color:#526578; background:transparent; }
+.workspace-item > .workspace-more:hover,.workspace-item > .workspace-more[aria-expanded="true"] { background:#e4edf5; color:#234461; }
+.workspace-menu { position:fixed; z-index:110; width:176px; max-height:calc(100dvh - 16px); overflow:auto; display:grid; padding:5px; background:#fff; border:1px solid #dce4ec; border-radius:7px; box-shadow:0 8px 25px #29354126; }
+.workspace-menu > button { text-align:left; padding:8px 10px; min-height:38px; border-radius:4px; }
+.workspace-menu > button:focus,.workspace-menu > button:hover { background:#edf2f7; }
+@media (max-width:700px) { .workspace-item > .workspace-more { flex-basis:44px; min-height:44px; } }

@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { Upload } from "tus-js-client";
 import { db, acceptRemote, resolveStoredConflicts, saveBookFile } from "./db";
 import { type Book, type Row } from "./model";
-import { mediaObjectPath, mediaTypes, type NotebookMedia } from "./notebookAssets";
+import { isMediaKind, mediaObjectPath, mediaTypes, type NotebookMedia } from "./notebookAssets";
 
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined;
@@ -199,7 +199,7 @@ async function runSync() {
               "The original file is missing on this device. Import it again before syncing.",
             );
         }
-        if (operation.kind === "notebook-media" && !operation.deleted) {
+        if (isMediaKind(operation.kind) && !operation.deleted) {
           const media = operation.value as NotebookMedia;
           const local = await db.mediaFiles.get(media.id);
           const path = mediaObjectPath(session.user.id, media);
@@ -228,9 +228,9 @@ async function runSync() {
           continue;
         }
         await acceptRemote(remote, operation.opId);
-        if (operation.kind === "book" || operation.kind === "notebook-media") transferStatus(operation.id);
+        if (operation.kind === "book" || isMediaKind(operation.kind)) transferStatus(operation.id);
       } catch (error: any) {
-        if (operation.kind === "book" || operation.kind === "notebook-media")
+        if (operation.kind === "book" || isMediaKind(operation.kind))
           transferStatus(operation.id, {
             state: "error",
             message: error.message || String(error),

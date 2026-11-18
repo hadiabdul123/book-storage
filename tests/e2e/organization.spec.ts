@@ -62,12 +62,12 @@ test("large libraries use source IDs, bounded lists, complete exports and resear
   await page.goto("/#/"); await expect(page.locator(".book-card")).toHaveCount(50);
   await expect(page.getByRole("navigation", { name: "Books pagination" })).toContainText("100");
   await page.getByRole("button", { name: "Next books page" }).click(); await expect(page).toHaveURL(/page=2/);
-  await page.goto("/#/notes"); await expect(page.locator(".notes-passage-list section button")).toHaveCount(50);
+  await page.goto("/#/notes"); await expect(page.locator(".notes-passage-open")).toHaveCount(50);
   await expect(page.locator(".annotation-card")).toHaveCount(1);
   const download = page.waitForEvent("download"); await page.getByLabel("Export notes", { exact: true }).selectOption("json");
   const backup = JSON.parse(await readFile((await (await download).path())!, "utf8")); expect(backup.annotations).toHaveLength(5000);
   await page.getByRole("navigation", { name: "Books & notebooks", exact: true }).getByRole("button").filter({ has: page.getByText("Author 0", { exact: true }) }).click();
-  await expect(page).toHaveURL(/book=book0/); await page.locator(".notes-passage-list section button").first().click();
+  await expect(page).toHaveURL(/book=book0/); await page.locator(".notes-passage-open").first().click();
   await expect(page.locator(".annotation-card")).toContainText("in book 0");
   await page.reload(); await expect(page.locator(".annotation-card")).toContainText("in book 0");
   await page.goto("/#/notebooks");

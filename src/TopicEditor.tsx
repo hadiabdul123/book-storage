@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import type { DragEvent } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
+import { useLiveQuery } from "dexie-react-hooks";
 import StarterKit from "@tiptap/starter-kit";
 import { TaskList, TaskItem } from "@tiptap/extension-list";
 import { db, get } from "./db";
@@ -11,21 +13,24 @@ import { registerNoteFlusher, saveNotebookNote } from "./notebookStore";
 import { noteFormatting } from "./noteFormatting";
 import { NoteFormatButtons } from "./NoteFormatButtons";
 import { DrawingExtension } from "./NotebookDrawing";
-import { uid } from "./model";
 import { Paperclip, PenLine, MousePointer2, Type } from "lucide-react";
 import { InkToolbar } from "./InkToolbar";
 import { defaultInkStyle } from "./inkTypes";
 import { InkHistory, type bindInkSurface } from "./ink";
 import { NotebookInkAnchors, NotebookPaperInk, type PaperTool } from "./NotebookPaperInk";
-import { NotebookMedia, mediaLabel, cueHref, readCue, type MediaCue } from "./NotebookMedia";
-import { attachMedia } from "./notebookMediaStore";
+import { mediaLabel, cueHref, readCue, type MediaCue } from "./NotebookMedia";
+import { NotebookMediaLayer } from "./NotebookMediaLayer";
+import { attachmentExtension, attachMedia, notebookMediaList, placeMedia } from "./notebookMediaStore";
+import { adjacentMediaGap, InlineMediaExtension, mediaDragType, mediaFlow, mediaPosition, reserveMediaGap } from "./inlineMedia";
+import { mediaTypes, type NotebookMedia } from "./notebookAssets";
 import { useSearchParams } from "react-router-dom";
+
+const noMedia: NotebookMedia[] = [];
 
 export function TopicEditor({ note }: { note: NotebookNote }) {
   const [title, setTitle] = useState(note.title), [tags, setTags] = useState(note.tags.join(", "));
   const [status, setStatus] = useState("Opening note…");
   const [loaded, setLoaded] = useState(false);
-  const [tab, setTab] = useState("home");
   const [params] = useSearchParams();
   const drawing = params.get("drawing") || undefined;
   const [paperTool, setPaperTool] = useState<PaperTool>(drawing ? "select" : "write");
@@ -33,7 +38,9 @@ export function TopicEditor({ note }: { note: NotebookNote }) {
   const [inkHistory] = useState(() => new InkHistory());
   const [notice, setNotice] = useState("");
   const [attaching, setAttaching] = useState(false);
+  const [dropLine, setDropLine] = useState<number>();
   const [cue, setCue] = useState<MediaCue | undefined>(() => readCue(location.href, note.id));
+  const files = useLiveQuery(async () => (await notebookMediaList()).filter(media => media.noteId === note.id), [note.id]);
   const paper = useRef<HTMLDivElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const inkBinding = useRef<ReturnType<typeof bindInkSurface> | undefined>(undefined);
@@ -41,9 +48,10 @@ export function TopicEditor({ note }: { note: NotebookNote }) {
   const value = useRef({ note, revision: 0, saved: 0 });
   const active = useRef(true), timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const pending = useRef<Promise<boolean> | null>(null);
+  const mediaWrite = useRef<Promise<void> | undefined>(undefined);
   const draftKey = `topic-draft:${note.id}`;
   const editor = useEditor({
-    extensions: [NotebookInkAnchors, CitationExtension, DrawingExtension.configure({ noteId: note.id }), ...noteFormatting(), StarterKit.configure({ heading: { levels: [1, 2, 3] }, blockquote: false, code: false, codeBlock: false, horizontalRule: false, link: { openOnClick: false, autolink: false, linkOnPaste: false }, strike: false }), TaskList, TaskItem.configure({ nested: true })],
+    extensions: [NotebookInkAnchors, InlineMediaExtension, CitationExtension, DrawingExtension.configure({ noteId: note.id }), ...noteFormatting(), StarterKit.configure({ heading: { levels: [1, 2, 3] }, blockquote: false, code: false, codeBlock: false, horizontalRule: false, link: { openOnClick: false, autolink: false, linkOnPaste: false }, strike: false }), TaskList, TaskItem.configure({ nested: true })],
     content: note.document, editable: false,
     editorProps: { attributes: { role: "textbox", "aria-label": "Topic note content", "aria-multiline": "true", class: "notebook-writing" } },
     onUpdate: ({ editor }) => change({ document: editor.getJSON() as RichNode }),
@@ -75,6 +83,7 @@ export function TopicEditor({ note }: { note: NotebookNote }) {
   }
   useEffect(() => registerNoteFlusher(note.id, async () => {
     inkBinding.current?.flush();
+    await mediaWrite.current;
     const inkSaved = Promise.all([...inkWrites.current]).then(() => true, () => false);
     return (await flush()) && await inkSaved && !inkHistory.pending.size;
   }), [note.id, editor]);
@@ -106,13 +115,94 @@ export function TopicEditor({ note }: { note: NotebookNote }) {
     inkBinding.current?.flush(); setPaperTool(tool);
     if (tool === "write") editor?.commands.focus();
   }
+
+  function updateMedia(action: () => Promise<void>) {
+    if (mediaWrite.current) return;
+    setAttaching(true);
+    setNotice("");
+    mediaWrite.current = action().catch(e => setNotice(e instanceof Error ? e.message : String(e))).finally(() => {
+      mediaWrite.current = undefined;
+      setAttaching(false);
+    });
+  }
+
+  function addFiles(input: File[], position: number) {
+    if (!editor || !loaded || !input.length) return;
+    updateMedia(async () => {
+      const errors: string[] = [];
+      const accepted = input.filter(file => {
+        try { attachmentExtension(file); return true; }
+        catch (e) { errors.push(e instanceof Error ? e.message : String(e)); return false; }
+      });
+      if (!accepted.length) { setNotice(errors.join(" ")); return; }
+      const gap = reserveMediaGap(editor, position);
+      if (!(await flush())) throw new Error("Save the note and try attaching the files again.");
+      const before = mediaFlow(editor.state.doc, files || noMedia).filter(item => item.position === gap.position).map(item => item.media.id);
+      const saved: string[] = [];
+      for (const file of accepted) {
+        try { saved.push((await attachMedia(note.id, file, { after: gap.after, order: before.length + saved.length })).id); }
+        catch (e) { errors.push(e instanceof Error ? e.message : String(e)); }
+      }
+      if (saved.length) await placeMedia(note.id, gap.after, [...before, ...saved]);
+      if (errors.length) setNotice(errors.join(" "));
+    });
+  }
+
+  function moveMedia(id: string, position: number, direction: -1 | 1, reference?: string, split = false) {
+    if (!editor || !loaded) return;
+    updateMedia(async () => {
+      const gap = reserveMediaGap(editor, position, split);
+      if (!(await flush())) throw new Error("Save the note before moving attachments.");
+      const target = mediaFlow(editor.state.doc, files || noMedia).filter(item => item.position === gap.position && item.media.id !== id).map(item => item.media.id);
+      const index = reference ? target.indexOf(reference) : -1;
+      target.splice(index < 0 ? (direction < 0 ? target.length : 0) : index + (direction > 0 ? 1 : 0), 0, id);
+      await placeMedia(note.id, gap.after, target);
+    });
+  }
+
+  function bumpMedia(id: string, direction: -1 | 1) {
+    if (!editor) return;
+    const flow = mediaFlow(editor.state.doc, files || noMedia);
+    const index = flow.findIndex(item => item.media.id === id);
+    const current = flow[index], neighbor = flow[index + direction];
+    if (!current) return;
+    if (neighbor?.position === current.position) moveMedia(id, current.position, direction, neighbor.media.id);
+    else {
+      const target = adjacentMediaGap(editor.state.doc, current.position, direction);
+      if (target !== undefined) moveMedia(id, target, direction);
+    }
+  }
+
+  function handleDrop(event: DragEvent<HTMLDivElement>, commit: boolean) {
+    const types = event.dataTransfer.types;
+    if (!editor || !loaded || (!types.includes("Files") && !types.includes(mediaDragType))) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = types.includes(mediaDragType) ? "move" : "copy";
+    const block = (event.target as Element).closest<HTMLElement>("[data-media-id]");
+    const target = files?.find(media => media.id === block?.dataset.mediaId);
+    const rect = block?.getBoundingClientRect();
+    const position = target ? mediaPosition(editor.state.doc, target) : editor.view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos ?? editor.state.doc.content.size;
+    const before = rect ? event.clientY < rect.top + rect.height / 2 : false;
+    if (!commit && paper.current) {
+      const top = rect ? (before ? rect.top : rect.bottom) : editor.view.coordsAtPos(position).top;
+      setDropLine(Math.max(0, top - paper.current.getBoundingClientRect().top));
+    }
+    if (!commit) return;
+    setDropLine(undefined);
+    switchTool("write");
+    const id = event.dataTransfer.getData(mediaDragType);
+    if (id && files?.some(media => media.id === id) && target?.id !== id) moveMedia(id, position, before ? -1 : 1, target?.id, !target);
+    else if (!id) addFiles(Array.from(event.dataTransfer.files), position);
+  }
   const mediaParam = params.get("media"), timeParam = params.get("at");
   useEffect(() => { const next = readCue(location.href, note.id); if (next) setCue(next); }, [mediaParam, timeParam, note.id]);
   useEffect(() => { if (drawing) setPaperTool("select"); }, [drawing]);
   return <section className="topic-editor" onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) void flush(); }}>
-    <div className="notebook-ribbon"><div className="ribbon-tabs" role="tablist" aria-label="Notebook tools">{["home", "insert", "draw"].map(t => <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>{t[0].toUpperCase() + t.slice(1)}</button>)}</div>
-    <div className={`notebook-toolbar ribbon-${tab}`} role="toolbar" aria-label="Topic note formatting" onMouseDown={e => { if (!(e.target as Element).closest("input,select")) e.preventDefault(); }}>
-      {tab === "home" && <>
+    <div className="notebook-ribbon">
+    <div className="notebook-toolbar" role="toolbar" aria-label="Topic note formatting" onMouseDown={e => { if (!(e.target as Element).closest("input,select")) e.preventDefault(); }}>
+      <button type="button" aria-pressed={paperTool === "draw"} disabled={!loaded} onClick={() => switchTool(paperTool === "draw" ? "write" : "draw")}><PenLine size={17} />Pen</button>
+      <button type="button" disabled={!loaded || attaching} onClick={() => fileInput.current?.click()}><Paperclip size={17} />Attach media</button>
       <button aria-label="Bold" aria-pressed={editor?.isActive("bold") || false} onClick={() => editor?.chain().focus().toggleBold().run()}><b>B</b></button>
       <button aria-label="Italic" onClick={() => editor?.chain().focus().toggleItalic().run()}><i>I</i></button>
       <NoteFormatButtons editor={editor} />
@@ -121,11 +211,6 @@ export function TopicEditor({ note }: { note: NotebookNote }) {
       <button aria-label="Numbered list" onClick={() => editor?.chain().focus().toggleOrderedList().run()}>1. List</button>
       <button aria-label="Checklist" onClick={() => editor?.chain().focus().toggleTaskList().run()}>☑</button>
       <button aria-label="Undo" onClick={() => editor?.chain().focus().undo().run()}>↶</button><button aria-label="Redo" onClick={() => editor?.chain().focus().redo().run()}>↷</button>
-      <button type="button" aria-pressed={paperTool === "draw"} disabled={!loaded} onClick={() => switchTool(paperTool === "draw" ? "write" : "draw")}><PenLine size={17} />Pen</button>
-      <button type="button" disabled={!loaded || attaching} onClick={() => fileInput.current?.click()}><Paperclip size={17} />Attach media</button>
-      </>}
-      {tab === "insert" && <><button onClick={() => editor?.chain().focus().insertContent({ type: "drawing", attrs: { blockId: uid(), height: 300 } }).run()}>Insert drawing</button><NoteFormatButtons editor={editor} /></>}
-      {tab === "draw" && <><button onClick={() => editor?.chain().focus().insertContent({ type: "drawing", attrs: { blockId: uid(), height: 300 } }).run()}>New drawing</button><span className="muted">Choose Edit drawing on a canvas to use pens and highlighters.</span></>}
     </div>
     {paperTool !== "write" && <div className="paper-ink-tools">
       <button className="text-button" aria-pressed={paperTool === "draw"} onClick={() => switchTool("draw")}><PenLine size={16} />Draw</button>
@@ -133,28 +218,30 @@ export function TopicEditor({ note }: { note: NotebookNote }) {
       <button className="text-button" onClick={() => switchTool("write")}><Type size={16} />Write</button>
       <InkToolbar style={inkStyle} change={style => { inkBinding.current?.flush(); setInkStyle(style); switchTool("draw"); }} undo={() => void inkHistory.move().catch(e => setNotice(e.message))} redo={() => void inkHistory.move(true).catch(e => setNotice(e.message))} />
     </div>}</div>
-    <input ref={fileInput} type="file" accept=".mp4,.webm,.mp3,.m4a,.wav,.ogg" aria-label="Attach video or audio" hidden onChange={async e => {
-      const file = e.currentTarget.files?.[0]; e.currentTarget.value = "";
-      if (!file || attaching) return;
-      setAttaching(true); setNotice("");
-      try { const media = await attachMedia(note.id, file); setCue({ id: media.id, time: 0 }); }
-      catch (e) { setNotice(e instanceof Error ? e.message : String(e)); }
-      finally { setAttaching(false); }
+    <input ref={fileInput} type="file" multiple accept={Object.keys(mediaTypes).map(ext => `.${ext}`).join(",")} aria-label="Attach image, video or audio" hidden onChange={e => {
+      const input = Array.from(e.currentTarget.files || []);
+      e.currentTarget.value = "";
+      const position = editor?.state.selection.to ?? 0;
+      switchTool("write");
+      addFiles(input, position);
     }} />
-    {attaching && <p role="status">Saving attachment…</p>}
+    {attaching && <p role="status">Saving attachments…</p>}
     {notice && <p className="notice" role="status">{notice} {inkHistory.pending.size > 0 && <button className="text-button" onClick={() => void inkHistory.retry().then(() => setNotice("Drawing saved."), e => setNotice(e.message))}>Retry drawing save</button>}</p>}
     <div className="note-paper-layout">
-      <NotebookMedia noteId={note.id} cue={cue} onTimestamp={value => {
-        switchTool("write");
-        editor?.chain().focus().insertContent([{ type: "text", text: mediaLabel(value.time), marks: [{ type: "link", attrs: { href: cueHref(note.id, value), target: "_self", rel: null, class: null } }] }, { type: "text", text: " " }]).run();
-      }} />
+      {cue && files && !files.some(media => media.id === cue.id) && <p role="status">This attachment is unavailable. Check sync or restore it from Trash.</p>}
       <div className="note-paper-column">
         <label className="topic-title-label"><input aria-label="Topic note title" maxLength={200} disabled={!loaded} value={title} onChange={e => { setTitle(e.target.value); change({ title: e.target.value }); }} /></label>
-        <div ref={paper} className="notebook-paper">
+        <div ref={paper} className="notebook-paper" onDragOverCapture={event => handleDrop(event, false)} onDropCapture={event => handleDrop(event, true)}
+          onDragLeave={event => { if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setDropLine(undefined); }} onDragEnd={() => setDropLine(undefined)}>
           <EditorContent editor={editor} onClickCapture={event => {
             const link = (event.target as Element).closest("a"); const next = link && readCue(link.href, note.id);
             if (next) { event.preventDefault(); event.stopPropagation(); setCue(next); }
           }} />
+          {dropLine !== undefined && <div className="notebook-drop-line" style={{ top: dropLine }} aria-hidden="true" />}
+          {editor && loaded && <NotebookMediaLayer editor={editor} files={files || noMedia} cue={cue} onMove={bumpMedia} onTimestamp={value => {
+            switchTool("write");
+            editor.chain().focus().insertContent([{ type: "text", text: mediaLabel(value.time), marks: [{ type: "link", attrs: { href: cueHref(note.id, value), target: "_self", rel: null, class: null } }] }, { type: "text", text: " " }]).run();
+          }} />}
           {editor && loaded && <NotebookPaperInk editor={editor} noteId={note.id} paper={paper} mode={paperTool} style={inkStyle} history={inkHistory} notice={setNotice} saveNote={flush} bindingRef={inkBinding} writes={inkWrites} openDrawing={drawing} />}
         </div>
       </div>

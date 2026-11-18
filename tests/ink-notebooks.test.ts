@@ -81,6 +81,13 @@ it("restores legacy v2 notebook ink and round-trips new v3 assets", async () => 
   expect(await get("notebook-overlay", "overlay")).toEqual(overlay);
   expect(await get("notebook-media", "audio")).toEqual(media);
   expect(await db.mediaFiles.get("audio")).toBeUndefined();
+  const image = { ...media, id: "image", extension: "png" as const, title: "Diagram.png", placement: { after: "anchor-1", order: 2 } };
+  await save("notebook-image", image);
+  const withImage = await researchBackup(); expect(withImage.version).toBe(4);
+  for (const table of db.tables) await table.clear();
+  await restoreResearchBackup(withImage);
+  expect(await get("notebook-image", "image")).toEqual(image);
+  expect(await db.mediaFiles.get("image")).toBeUndefined();
 });
 it("preserves rich marks and rejects executable links or malformed drawing nodes", () => {
   const doc = emptyDocument(); doc.content = [{ type: "paragraph", content: [{ type: "text", text: "Keep", marks: [{ type: "underline" }, { type: "highlight", attrs: { color: "#f4cc60" } }, { type: "textStyle", attrs: { color: "#315c86" } }, { type: "link", attrs: { href: "https://example.com" } }] }] }];

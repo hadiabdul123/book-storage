@@ -5,15 +5,16 @@ import { validSourceRef, sourceMarkdown } from "./sourceReferences";
 import { downloadText } from "./export";
 import type { SourceRef } from "./researchTypes";
 import { validInkStroke, type InkStroke } from "./inkTypes";
-import { validMedia, validOverlay } from "./notebookAssets";
-const kinds = ["notebook", "notebook-section", "notebook-note", "notebook-overlay", "notebook-media", "ink-stroke", "research-thread", "research-message"] as const;
+import { isMediaKind, mediaKind, validMedia, validOverlay } from "./notebookAssets";
+import { notebookMediaList } from "./notebookMediaStore";
+const kinds = ["notebook", "notebook-section", "notebook-note", "notebook-overlay", "notebook-media", "notebook-image", "ink-stroke", "research-thread", "research-message"] as const;
 export function validResearchEntity(kind: string, v: any): boolean {
   if (!v || typeof v !== "object" || typeof v.id !== "string" || !v.id || v.id.length > 100 || typeof v.createdAt !== "string" || !Number.isFinite(Date.parse(v.createdAt))) return false;
   if (kind === "notebook") return typeof v.title === "string" && !!v.title.trim() && v.title.length <= 200;
   if (kind === "notebook-section") return typeof v.notebookId === "string" && typeof v.title === "string" && !!v.title.trim() && v.title.length <= 200 && Number.isFinite(v.order);
   if (kind === "ink-stroke") return validInkStroke(v);
   if (kind === "notebook-overlay") return validOverlay(v);
-  if (kind === "notebook-media") return !v.purgedAt && validMedia(v);
+  if (isMediaKind(kind)) return !v.purgedAt && validMedia(v) && mediaKind(v) === kind;
   if (kind === "notebook-note") return typeof v.notebookId === "string" && (v.sectionId === undefined || typeof v.sectionId === "string") && (v.order === undefined || Number.isFinite(v.order)) && typeof v.title === "string" && !!v.title.trim() && v.title.length <= 200 && validRichDocument(v.document) && Array.isArray(v.tags) && v.tags.every((t: unknown) => typeof t === "string") && typeof v.updatedAt === "string" && Number.isFinite(Date.parse(v.updatedAt));
   if (kind === "research-thread") return typeof v.title === "string" && v.title.length <= 200 && (v.bookId === undefined || typeof v.bookId === "string") && (v.notebookId === undefined || typeof v.notebookId === "string") && (v.selection === undefined || validSourceRef(v.selection));
   if (kind === "research-message") return typeof v.threadId === "string" && typeof v.question === "string" && v.question.length <= 1500 && ["explain", "sources", "web"].includes(v.mode) && typeof v.answer === "string" && v.answer.length <= 12000 && typeof v.model === "string" && Array.isArray(v.sources) && v.sources.length <= 20 && v.sources.every(validSourceRef);
@@ -25,18 +26,18 @@ export async function researchBackup() {
   const activeThreads = threads.filter(t => !t.notebookId || notebooks.some(n => n.id === t.notebookId));
   const records = (await Promise.all(kinds.map(async kind => (await list(kind)).filter(value => {
     if (kind === "notebook-note") return notebooks.some(n => n.id === (value as EntityMap["notebook-note"]).notebookId);
-    if (kind === "notebook-media" || kind === "notebook-overlay") return notes.some(n => n.id === (value as EntityMap["notebook-media" | "notebook-overlay"]).noteId && notebooks.some(b => b.id === n.notebookId));
+    if (isMediaKind(kind) || kind === "notebook-overlay") return notes.some(n => n.id === (value as EntityMap["notebook-media" | "notebook-overlay"]).noteId && notebooks.some(b => b.id === n.notebookId));
     if (kind === "notebook-section") return notebooks.some(n => n.id === (value as EntityMap["notebook-section"]).notebookId);
     if (kind === "ink-stroke") { const target = (value as EntityMap["ink-stroke"]).target; return target.type === "pdf" ? books.some(b => b.id === target.bookId && b.hash === target.hash) : notes.some(n => n.id === target.noteId && notebooks.some(b => b.id === n.notebookId)); }
     if (kind === "research-thread") return activeThreads.some(t => t.id === value.id);
     if (kind === "research-message") return activeThreads.some(t => t.id === (value as EntityMap["research-message"]).threadId);
     return true;
   }).map(value => ({ kind, value }))))).flat();
-  return { schema: "leafmark.research", version: 3, exportedAt: new Date().toISOString(), books, records };
+  return { schema: "leafmark.research", version: records.some(record => record.kind === "notebook-image") ? 4 : 3, exportedAt: new Date().toISOString(), books, records };
 }
 export async function restoreResearchBackup(value: unknown) {
   const data = value as Awaited<ReturnType<typeof researchBackup>>;
-  if (!data || data.schema !== "leafmark.research" || ![1, 2, 3].includes(data.version) || !Array.isArray(data.records) || data.records.length > 200000 || !Array.isArray(data.books) ||
+  if (!data || data.schema !== "leafmark.research" || ![1, 2, 3, 4].includes(data.version) || !Array.isArray(data.records) || data.records.length > 200000 || !Array.isArray(data.books) ||
     !data.books.every(b => typeof b?.id === "string" && typeof b.hash === "string" && /^[a-f0-9]{64}$/.test(b.hash)) ||
     !data.records.every(r => kinds.includes(r?.kind) && validResearchEntity(r.kind, r.value))) throw new Error("This is not a valid Leafmark research backup.");
   const books = await list("book");
@@ -53,7 +54,7 @@ export async function restoreResearchBackup(value: unknown) {
         if (!(await get("notebook", v.notebookId))) throw new Error("A note’s parent notebook is missing from the backup.");
         v.document = document(v.document);
       }
-      if ((kind === "notebook-media" || kind === "notebook-overlay") && !(await get("notebook-note", v.noteId))) throw new Error("An attachment’s notebook page is missing.");
+      if ((isMediaKind(kind) || kind === "notebook-overlay") && !(await get("notebook-note", v.noteId))) throw new Error("An attachment’s notebook page is missing.");
       if (kind === "research-thread") {
         if (v.notebookId && !(await get("notebook", v.notebookId))) throw new Error("A conversation’s parent notebook is missing.");
         if (v.bookId) v.bookId = map.get(v.bookId) || undefined;
@@ -75,7 +76,7 @@ export async function restoreResearchBackup(value: unknown) {
 export async function exportResearch(format: "json" | "md") {
   if (format === "json") { downloadText(`leafmark-research-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(await researchBackup(), null, 2), "application/json"); return; }
   const notebooks = await list("notebook"), notes = await list("notebook-note"), threads = await list("research-thread"), messages = await list("research-message");
-  const overlays = await list("notebook-overlay"), media = await list("notebook-media");
+  const overlays = await list("notebook-overlay"), media = await notebookMediaList();
   let text = "# Leafmark notebooks and research\n\n";
   for (const notebook of notebooks) {
     text += `## ${notebook.title}\n\n`;

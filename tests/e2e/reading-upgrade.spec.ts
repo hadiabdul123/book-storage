@@ -110,7 +110,9 @@ test("notebook sections, text highlighting and inline drawings persist", async (
   await expect.poll(() => page.evaluate(() => document.getSelection()?.isCollapsed)).toBe(true);
   await editor.press("Enter");
   await expect(editor.locator("mark")).toHaveText("An important thought worth keeping.");
-  await page.getByRole("tab", { name: "Draw", exact: true }).click(); await page.getByRole("button", { name: "New drawing", exact: true }).click();
+  await editor.evaluate(element => (element as HTMLElement & { editor: import("@tiptap/core").Editor }).editor.commands.insertContent({
+    type: "drawing", attrs: { blockId: crypto.randomUUID(), height: 300 },
+  }));
   await page.getByRole("button", { name: "Edit drawing", exact: true }).click();
   await draw(page, ".notebook-ink"); await expect(page.locator(".notebook-ink path")).toHaveCount(1);
   await page.getByRole("button", { name: "Done drawing", exact: true }).click();

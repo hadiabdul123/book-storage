@@ -140,6 +140,7 @@ export const defaults: Preferences = {
 };
 export interface EntityMap {
   "notebook-media": NotebookMedia;
+  "notebook-image": NotebookMedia;
   "notebook-overlay": NotebookOverlay;
   "ink-stroke": InkStroke;
   "notebook-section": NotebookSection;
@@ -151,6 +152,8 @@ export interface EntityMap {
   collection: Collection;
   membership: Membership;
   annotation: Annotation;
+  "highlight-study": import("./highlightStudy").HighlightStudy;
+  "highlight-followup": import("./highlightStudy").HighlightFollowup;
   bookmark: Bookmark;
   position: Position;
   session: ReadingSession;

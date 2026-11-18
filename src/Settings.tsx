@@ -18,8 +18,10 @@ import { type Book, type Annotation, readingSeconds, now } from "./model";
 import { exportAnnotations } from "./export";
 import { Dialog, messageOf } from "./components";
 import { restoreAnnotationBackup } from "./backup";
+import { highlightStudyData } from "./highlightStudy";
 import type { NotebookMedia } from "./notebookAssets";
 import { purgeMedia } from "./notebookMediaStore";
+import { isMediaKind } from "./notebookAssets";
 
 export function Settings({ notify }: { notify: (m: string) => void }) {
   const books = useLiveQuery(() => list("book"), []) || [],
@@ -30,7 +32,7 @@ export function Settings({ notify }: { notify: (m: string) => void }) {
           db.rows
             .filter(
               (r) =>
-                r.deleted && ["book", "annotation", "notebook", "notebook-note", "notebook-media", "research-thread"].includes(r.kind),
+                r.deleted && (isMediaKind(r.kind) || ["book", "annotation", "notebook", "notebook-note", "research-thread"].includes(r.kind)),
             )
             .toArray(),
         [],
@@ -258,7 +260,7 @@ export function Settings({ notify }: { notify: (m: string) => void }) {
               key={format}
               className="secondary"
               onClick={async () =>
-                exportAnnotations(await list("annotation"), books, format)
+                exportAnnotations(await list("annotation"), books, format, [], await highlightStudyData())
               }
             >
               <Download size={16} />
@@ -282,12 +284,12 @@ export function Settings({ notify }: { notify: (m: string) => void }) {
                 {row.kind === "book"
                   ? (row.value as Book).title
                   : row.kind === "annotation" ? (row.value as Annotation).text.slice(0, 85) : (row.value as { title: string }).title}
-                {(row.kind === "book" || row.kind === "notebook-media") && (row.value as Book | NotebookMedia).purgedAt
+                {(row.kind === "book" || isMediaKind(row.kind)) && (row.value as Book | NotebookMedia).purgedAt
                   ? " · Permanently removed"
                   : ""}
               </span>
               <div className="button-row">
-                {!((row.kind === "book" || row.kind === "notebook-media") && (row.value as Book | NotebookMedia).purgedAt) && (
+                {!((row.kind === "book" || isMediaKind(row.kind)) && (row.value as Book | NotebookMedia).purgedAt) && (
                   <button
                     className="text-button"
                     onClick={async () => {
@@ -298,7 +300,7 @@ export function Settings({ notify }: { notify: (m: string) => void }) {
                           if (parent?.deleted) await save("notebook", parent.value as import("./researchTypes").Notebook, false);
                           if (n.sectionId) { const section = await db.rows.get(`notebook-section:${n.sectionId}`); if (section?.deleted) await save("notebook-section", section.value as import("./researchTypes").NotebookSection, false); else if (!section) delete n.sectionId; }
                         }
-                        if (row.kind === "notebook-media") {
+                        if (isMediaKind(row.kind)) {
                           const parent = await db.rows.get(`notebook-note:${(row.value as NotebookMedia).noteId}`);
                           if (!parent || parent.deleted) throw new Error("Restore the notebook page before restoring this attachment.");
                         }
@@ -323,7 +325,7 @@ export function Settings({ notify }: { notify: (m: string) => void }) {
                       : "Delete files"}
                   </button>
                 )}
-                {row.kind === "notebook-media" && <button className="text-button danger" onClick={async () => {
+                {isMediaKind(row.kind) && <button className="text-button danger" onClick={async () => {
                   if (!confirm("Permanently delete this attachment’s original file from this device and cloud storage?")) return;
                   try { await purgeMedia(row.value as NotebookMedia); notify("Attachment file permanently deleted."); }
                   catch (e) { notify(messageOf(e)); }

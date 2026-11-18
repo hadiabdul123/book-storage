@@ -62,10 +62,14 @@ test("paper ink stays with its paragraph, reopens and can be resized", async ({ 
   await page.reload();
   await expect(stroke).toHaveCount(1);
   await expect(anchor).toHaveText("The river runs through the old town.");
-  await page.locator(".notebook-pages nav button[aria-current=page]").click({ button: "right" });
+  const currentPage = page.locator(".notebook-pages nav button[aria-current=page]");
+  if (!(await currentPage.isVisible())) await page.getByRole("button", { name: "Pages", exact: true }).click();
+  await currentPage.click({ button: "right" });
   await page.getByRole("menuitem", { name: "Rename" }).click();
   await page.getByLabel("Name", { exact: true }).fill("River notes");
   await page.getByRole("button", { name: "Save name" }).click();
+  const closeNavigation = page.getByRole("button", { name: "Close notebook navigation" });
+  if (await closeNavigation.isVisible()) await closeNavigation.click();
   await expect(page.getByLabel("Topic note title")).toHaveValue("River notes");
 });
 
@@ -87,7 +91,7 @@ test("audio attachments persist and a clicked timestamp seeks where the codec is
     URL.revokeObjectURL(url);
     return result;
   }, bytes.toString("base64"));
-  await page.getByLabel("Attach video or audio").setInputFiles({ name: "sample.wav", mimeType: "audio/wav", buffer: bytes });
+  await page.getByLabel("Attach image, video or audio").setInputFiles({ name: "sample.wav", mimeType: "audio/wav", buffer: bytes });
   if (!codec) {
     await expect(page.getByText(/This file couldn’t play/)).toBeVisible();
     await page.reload();
@@ -97,7 +101,7 @@ test("audio attachments persist and a clicked timestamp seeks where the codec is
     expect((await download).suggestedFilename()).toBe("sample.wav");
     return;
   }
-  const player = page.locator("audio");
+  const player = page.getByLabel("Topic note content").locator("audio");
   await expect.poll(() => player.evaluate(a => (a as HTMLAudioElement).duration)).toBe(3);
   await player.evaluate(a => { (a as HTMLAudioElement).currentTime = 1.5; });
   await page.getByRole("button", { name: "Insert timestamp", exact: true }).click();
@@ -126,7 +130,53 @@ test("a downloaded video opens in the notebook player", async ({ page, browserNa
     recorder.stop(); stream.getTracks().forEach(track => track.stop());
     return [...new Uint8Array(await (await ready).arrayBuffer())];
   });
-  await page.getByLabel("Attach video or audio").setInputFiles({ name: "sample.webm", mimeType: "video/webm", buffer: Buffer.from(raw) });
-  await expect.poll(() => page.locator("video").evaluate(v => (v as HTMLVideoElement).videoWidth)).toBe(32);
+  await page.getByLabel("Attach image, video or audio").setInputFiles({ name: "sample.webm", mimeType: "video/webm", buffer: Buffer.from(raw) });
+  await expect.poll(() => page.getByLabel("Topic note content").locator("video").evaluate(v => (v as HTMLVideoElement).videoWidth)).toBe(32);
   await expect(page.locator(".note-media-file")).toContainText("sample.webm");
+});
+
+test("dropped images stay in the text flow and move without changing the writing", async ({ page, browserName }, info) => {
+  test.skip(browserName !== "chromium", "External file drag uses Chromium's DataTransfer fixture.");
+  await openNote(page);
+  const editor = page.getByLabel("Topic note content");
+  await editor.evaluate(element => (element as HTMLElement & { editor: import("@tiptap/core").Editor }).editor.commands.setContent({
+    type: "doc", content: ["Before the image", "Keep writing after the image"].map(text => ({ type: "paragraph", content: [{ type: "text", text }] })),
+  }));
+  const png = await page.evaluate(() => {
+    const canvas = document.createElement("canvas"); canvas.width = 16; canvas.height = 12;
+    canvas.getContext("2d")!.fillRect(0, 0, 16, 12);
+    return canvas.toDataURL().split(",")[1];
+  });
+  const transfer = await page.evaluateHandle(base64 => {
+    const bytes = Uint8Array.from(atob(base64), char => char.charCodeAt(0));
+    const data = new DataTransfer();
+    data.items.add(new File([bytes], "diagram.png", { type: "image/png" }));
+    data.items.add(new File([bytes], "detail.png", { type: "image/png" }));
+    return data;
+  }, png);
+  const first = editor.getByText("Before the image", { exact: true });
+  const bounds = (await first.boundingBox())!;
+  const coordinate = { clientX: bounds.x + bounds.width - 2, clientY: bounds.y + bounds.height / 2, dataTransfer: transfer };
+  await first.dispatchEvent("dragover", coordinate);
+  await expect(page.locator(".notebook-drop-line")).toBeVisible();
+  await first.dispatchEvent("drop", coordinate);
+  const blocks = editor.locator(":scope > p, :scope > .notebook-media-widget");
+  await expect(blocks.nth(0)).toHaveText("Before the image");
+  await expect(blocks.nth(1).getByRole("img", { name: "diagram.png" })).toBeVisible();
+  await blocks.nth(2).scrollIntoViewIfNeeded();
+  await expect(blocks.nth(2).getByRole("img", { name: "detail.png" })).toBeVisible();
+  await expect(blocks.nth(3)).toHaveText("Keep writing after the image");
+  await page.getByRole("button", { name: "More actions for detail.png" }).click();
+  await page.getByRole("menuitem", { name: "Move up" }).click();
+  await expect(blocks.nth(1).getByRole("img", { name: "detail.png" })).toBeVisible();
+  await page.reload();
+  await expect(blocks.nth(1).getByRole("img", { name: "detail.png" })).toBeVisible();
+  await expect(blocks.nth(3)).toHaveText("Keep writing after the image");
+  if (info.project.name === "desktop") {
+    const paragraph = editor.getByText("Keep writing after the image", { exact: true });
+    const size = (await paragraph.boundingBox())!;
+    await page.getByRole("button", { name: "diagram.png", exact: true }).dragTo(paragraph, { targetPosition: { x: size.width - 3, y: size.height / 2 } });
+    await expect(blocks.nth(2)).toHaveText("Keep writing after the image");
+    await expect(blocks.nth(3).getByRole("img", { name: "diagram.png" })).toBeVisible();
+  }
 });

@@ -184,11 +184,13 @@ export function AnnotationCard({
   book,
   onOpen,
   onEdit,
+  showTags = true,
 }: {
   annotation: Annotation;
   book?: Book;
   onOpen?: () => void;
   onEdit: () => void;
+  showTags?: boolean;
 }) {
   return (
     <article
@@ -218,7 +220,7 @@ export function AnnotationCard({
         {annotation.sources?.map((source, i) => <SourceLink key={i} source={source} />)}
         <span>
           {new Date(annotation.createdAt).toLocaleDateString()}
-          {annotation.tags.length ? ` · ${annotation.tags.join(", ")}` : ""}
+          {showTags && annotation.tags.length ? ` · ${annotation.tags.join(", ")}` : ""}
         </span>
         {onOpen ? (
           <button className="text-button" onClick={onOpen}>

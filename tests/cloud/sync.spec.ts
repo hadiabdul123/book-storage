@@ -73,7 +73,7 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
       }
       if (p === "/rest/v1/rpc/apply_change") {
         const op = request.postDataJSON().p_operation;
-        if (op.kind === "notebook-media" && !op.deleted)
+        if (["notebook-media", "notebook-image"].includes(op.kind) && !op.deleted)
           expect(objects.get(`${user.id}/${op.value.noteId}/${op.id}.${op.value.extension}`)?.length).toBe(op.value.size);
         if (receipts.has(op.opId)) return json(receipts.get(op.opId));
         const prior = rows.get(op.key);
@@ -164,6 +164,7 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
       if (p.startsWith("/storage/v1/object/notebook-media/") || p.startsWith("/storage/v1/object/sign/notebook-media/")) {
         const data = objects.get(decodeURIComponent(p.split("/notebook-media/")[1]));
         if (!data) return json({ message: "Not found" }, 404);
+        if (p.endsWith(".png")) return route.fulfill({ status: 200, body: data, contentType: "image/png" });
         const range = /^bytes=(\d+)-(\d*)$/.exec(request.headers().range || "");
         if (!range) return route.fulfill({ status: 200, body: data, contentType: "audio/wav", headers: { "Accept-Ranges": "bytes" } });
         const start = Number(range[1]), end = Math.min(range[2] ? Number(range[2]) : data.length - 1, data.length - 1);
@@ -346,7 +347,7 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
     await first.getByRole("button", { name: "Create notebook" }).click();
     await first.getByRole("button", { name: "New note", exact: true }).click();
     await first.getByRole("textbox", { name: "Topic note content" }).fill("Return to this moment. ");
-    await first.getByLabel("Attach video or audio").setInputFiles({ name: "seminar.wav", mimeType: "audio/wav", buffer: wavFixture() });
+    await first.getByLabel("Attach image, video or audio").setInputFiles({ name: "seminar.wav", mimeType: "audio/wav", buffer: wavFixture() });
     await expect.poll(() => [...rows.values()].some(row => row.kind === "notebook-media" && !row.deleted), { timeout: 20000 }).toBe(true);
     expect(interruptedMedia).toBe(true);
     const media = [...rows.values()].find(row => row.kind === "notebook-media").value;
@@ -359,6 +360,41 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
     await expect.poll(() => second.locator("audio").evaluate((element: HTMLAudioElement) => element.currentTime)).toBeCloseTo(1.5, 1);
     await second.getByRole("button", { name: "Keep offline" }).click();
     await expect(second.getByRole("button", { name: "Available offline" })).toBeDisabled();
+
+    const image = await first.evaluate(() => {
+      const canvas = document.createElement("canvas"); canvas.width = 16; canvas.height = 12;
+      canvas.getContext("2d")!.fillRect(0, 0, 16, 12);
+      return canvas.toDataURL().split(",")[1];
+    });
+    await first.getByLabel("Attach image, video or audio").setInputFiles({ name: "diagram.png", mimeType: "image/png", buffer: Buffer.from(image, "base64") });
+    await expect.poll(() => [...rows.values()].some(row => row.kind === "notebook-image" && row.value.placement?.after), { timeout: 20_000 }).toBe(true);
+    await second.reload();
+    const diagram = second.getByRole("figure", { name: "Attachment: diagram.png" });
+    await diagram.scrollIntoViewIfNeeded();
+    await expect(diagram.getByRole("img", { name: "diagram.png" })).toBeVisible();
+    await diagram.getByRole("button", { name: "Keep offline" }).click();
+    await expect(diagram.getByRole("button", { name: "Available offline" })).toBeDisabled();
+
+    const highlightId = await first.evaluate(async () => {
+      const { list, save } = await import("/src/db.ts");
+      const book = (await list("book"))[0];
+      const id = crypto.randomUUID();
+      await save("annotation", { id, bookId: book.id, locator: { v: 1, type: "pdf", page: 1, y: .2, hash: book.hash },
+        text: "A highlight with shared follow-ups", note: "Original note", color: "yellow", tags: [], createdAt: new Date().toISOString() });
+      return id;
+    });
+    await expect.poll(() => rows.has(`annotation:${highlightId}`)).toBe(true);
+    const addFollowup = async (device: typeof first, text: string) => {
+      await device.goto(new URL(`/#/notes?item=${highlightId}`, baseURL!).href);
+      await device.getByRole("button", { name: "Add follow-up note" }).click();
+      await device.getByLabel("New follow-up note").fill(text);
+      await device.getByRole("button", { name: "Save follow-up note" }).click();
+    };
+    await Promise.all([addFollowup(first, "Note written on the PC"), addFollowup(second, "Note written on the phone")]);
+    await expect.poll(() => [...rows.values()].filter(row => row.kind === "highlight-followup" && row.value.annotationId === highlightId).length).toBe(2);
+    await second.reload();
+    await expect(second.getByRole("region", { name: "Follow-up notes" }).locator("article")).toHaveCount(2);
+
     await second.goto(baseURL!);
     await second.locator(".book-cover-link").click();
     // Offline authorization with an expired/missing session; asset persistence
@@ -374,6 +410,9 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
     await expect(
       second.getByRole("button", { name: "Open my library" }),
     ).toHaveCount(0);
+    await second.goto(new URL(`/#/notebooks?note=${media.noteId}`, baseURL!).href);
+    await diagram.scrollIntoViewIfNeeded();
+    await expect(diagram.getByRole("img", { name: "diagram.png" })).toBeVisible();
   } finally {
     await pc.close();
     await phone.close();

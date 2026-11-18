@@ -22,6 +22,18 @@ it("restores drawing-aware annotation backups by edition hash and validates ink 
 });
 beforeEach(async () => { for (const table of db.tables) await table.clear(); });
 
+it("restores highlight follow-ups without overwriting the existing quote, note, or priority", async () => {
+  await save("annotation", { ...annotation, bookId: book.id, note: "My latest note" });
+  await save("highlight-study", { id: annotation.id, priority: "lower" });
+  const followup = { id: "follow-up", annotationId: annotation.id, text: "Study this next", createdAt: annotation.createdAt };
+  const data = { ...backup([annotation]), version: 5, ink: [], study: [{ id: annotation.id, priority: "important" }], followups: [followup] };
+  expect(await restoreAnnotationBackup(data, [book])).toEqual({ restored: 1, skipped: 2 });
+  expect((await list("annotation"))[0].note).toBe("My latest note");
+  expect((await list("highlight-study"))[0].priority).toBe("lower");
+  expect(await list("highlight-followup")).toEqual([followup]);
+  expect(await restoreAnnotationBackup(data, [book])).toEqual({ restored: 0, skipped: 3 });
+});
+
 it("validates the entire backup before writing any notes or pending changes", async () => {
   await expect(restoreAnnotationBackup(backup([annotation, { invalid: true }]), [book])).rejects.toThrow("invalid annotation");
   expect(await db.rows.count()).toBe(0);
