@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useSearchParams } from "react-router-dom";
-import { NotebookPen, Plus, Search, Trash2, Download, Sparkles, PanelLeft, Maximize2, ArrowUp, ArrowDown, Pencil } from "lucide-react";
-import { db, list, save } from "./db";
+import { NotebookPen, Plus, Search, Trash2, Download, Sparkles, PanelLeft, Maximize2, ArrowUp, ArrowDown } from "lucide-react";
+import { db, get, list, save } from "./db";
 import { now, uid } from "./model";
 import { emptyDocument, plainText } from "./richText";
 import { TopicEditor } from "./TopicEditor";
@@ -14,6 +14,8 @@ import { Dialog } from "./components";
 import { exportResearch, restoreResearchBackup } from "./researchBackup";
 import { recoverNotebookNote, flushTopicNote } from "./notebookStore";
 import { defaultSectionId, noteSection, noteOrder, ensureNotebookSection, deleteNotebookSection } from "./notebookSections";
+import { ItemMenu, RenameItem } from "./ItemMenu";
+import type { NotebookNote } from "./researchTypes";
 import "./research.css";
 import "./notebookWorkspace.css";
 
@@ -24,7 +26,7 @@ export function Notebooks() {
   const [params, writeParams] = useSearchParams();
   const research = params.get("view") === "research";
   const setParams = (patch: Record<string, string>) => writeParams(previous => {
-    const next = new URLSearchParams(previous); next.delete("note");
+    const next = new URLSearchParams(previous); next.delete("note"); next.delete("drawing"); next.delete("media"); next.delete("at");
     for (const [k, v] of Object.entries(patch)) v ? next.set(k, v) : next.delete(k);
     return next;
   });
@@ -43,27 +45,51 @@ export function Notebooks() {
   const [notebookQuery, setNotebookQuery] = useState(""), [error, setError] = useState("");
   const [creating, setCreating] = useState(false), [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false), [versionsOpen, setVersionsOpen] = useState(false);
+  const [rename, setRename] = useState<{ label: string; title: string; save: (name: string) => Promise<unknown> }>();
+  const [moving, setMoving] = useState<NotebookNote>();
   const versions = useLiveQuery(() => db.meta.where("key").startsWith(`note-version:${noteId}:`).toArray(), [noteId]) || [];
   const links = activeNote ? documentSources(activeNote.document) : [];
   const run = (action: () => Promise<unknown>) => { setError(""); void action().catch(e => setError(e.message)); };
   useEffect(() => { if (currentId) run(() => ensureNotebookSection(currentId)); }, [currentId]);
   async function flushActive() { if (activeNote && !(await flushTopicNote(activeNote.id))) throw new Error("Save your writing before changing this page."); }
   const selectNote = (id: string) => run(async () => { await flushActive(); setParams({ note: id, view: "notes" }); setNavigator(false); });
-  const swapSection = (delta: number) => run(async () => {
-    const index = currentSections.findIndex(s => s.id === currentSection), other = currentSections[index + delta];
+  const swapSection = (delta: number, section = currentSection) => run(async () => {
+    const index = currentSections.findIndex(s => s.id === section), other = currentSections[index + delta];
     if (!other || index < 0) return;
     await db.transaction("rw", db.rows, db.outbox, db.conflicts, db.meta, async () => {
       for (let i = 0; i < currentSections.length; i++) { const s = currentSections[i]; await save("notebook-section", { ...s, order: i === index ? index + delta : i === index + delta ? index : i }); }
     });
   });
-  const movePage = (delta: number) => run(async () => {
-    if (!activeNote) return; await flushActive();
-    const pages = notes.filter(n => noteSection(n) === currentSection).sort((a, b) => noteOrder(a) - noteOrder(b) || a.id.localeCompare(b.id));
-    const index = pages.findIndex(n => n.id === noteId); if (!pages[index + delta]) return;
+  const movePage = (delta: number, target = activeNote) => run(async () => {
+    if (!target) return; await flushActive();
+    const pages = notes.filter(n => noteSection(n) === noteSection(target)).sort((a, b) => noteOrder(a) - noteOrder(b) || a.id.localeCompare(b.id));
+    const index = pages.findIndex(n => n.id === target.id); if (index < 0 || !pages[index + delta]) return;
     [pages[index], pages[index + delta]] = [pages[index + delta], pages[index]];
     await db.transaction("rw", db.rows, db.outbox, db.conflicts, db.meta, async () => { for (let i = 0; i < pages.length; i++) { const latest = await db.rows.get(`notebook-note:${pages[i].id}`); await save("notebook-note", { ...(latest?.value as typeof activeNote || pages[i]), order: i * 1024 }); } });
     window.dispatchEvent(new CustomEvent("leafmark-clipped", { detail: { id: noteId } }));
   });
+  async function changeNote(id: string, patch: Partial<NotebookNote>, deleted = false) {
+    await flushActive();
+    const latest = await get("notebook-note", id);
+    if (!latest) throw new Error("This page was removed.");
+    await save("notebook-note", { ...latest, ...patch, updatedAt: now() }, deleted);
+    if (deleted && noteId === id) setParams({});
+    else window.dispatchEvent(new CustomEvent("leafmark-clipped", { detail: { id } }));
+  }
+  function trashPage(id: string) {
+    if (confirm("Move this note to trash?")) run(() => changeNote(id, {}, true));
+  }
+  async function trashNotebook(id: string) {
+    const notebook = await get("notebook", id);
+    if (!notebook || !confirm(`Move “${notebook.title}” and its pages to Trash?`)) return;
+    await flushActive();
+    await db.transaction("rw", db.rows, db.outbox, db.conflicts, db.meta, async () => {
+      for (const page of (await list("notebook-note")).filter(page => page.notebookId === id)) await save("notebook-note", page, true);
+      for (const section of (await list("notebook-section")).filter(section => section.notebookId === id)) await save("notebook-section", section, true);
+      await save("notebook", notebook, true);
+    });
+    if (id === currentId) { setNotebookId(""); setSectionId(""); setParams({ notebook: "", section: "", np: "1" }); }
+  }
   const addNote = () => run(async () => {
     if (!current) { setCreating(true); return; }
     await flushActive(); await ensureNotebookSection(current.id);
@@ -73,37 +99,61 @@ export function Notebooks() {
   const filtered = notes.filter(n => n.notebookId === currentId && (query || noteSection(n) === currentSection) && `${n.title} ${plainText(n.document)} ${n.tags.join(" ")}`.toLowerCase().includes(query.toLowerCase())).sort((a, b) => noteOrder(a) - noteOrder(b) || a.id.localeCompare(b.id));
   const page = pageOf(filtered, params.get("np") || "1");
   return <div className={`notebooks-page workspace-notebooks ${navigator ? "navigator-open" : ""} ${focus ? "notebook-focus" : ""} ${activeNote ? "has-open-page" : ""}`}>
-    <header className="page-header"><div><h1>Notebooks<span className="count">{notebooks.length}</span></h1><p className="muted">A place to connect what you read with what you think.</p></div><div className="button-row"><button className="secondary" onClick={() => { setTitle(""); setCreating(true); }}><Plus size={17} />New notebook</button><label className="export-select"><Download size={17} /><select aria-label="Export notebooks" value="" onChange={e => { if (e.target.value) run(() => exportResearch(e.target.value as "md" | "json")); }}><option value="">Export</option><option value="md">Markdown</option><option value="json">JSON backup</option></select></label><label className="text-button notebook-import">Restore backup<input type="file" accept="application/json,.json" aria-label="Restore research backup" onChange={e => { const file = e.target.files?.[0]; if (file) run(async () => { const result = await restoreResearchBackup(JSON.parse(await file.text())); setError(`Restored ${result.restored} records; kept ${result.skipped} existing records.`); }); e.target.value = ""; }} /></label></div></header>
+    <header className="page-header"><div><h1>Notebooks<span className="count">{notebooks.length}</span></h1></div><div className="button-row"><button className="secondary" onClick={() => { setTitle(""); setCreating(true); }}><Plus size={17} />New notebook</button><label className="export-select"><Download size={17} /><select aria-label="Export notebooks" value="" onChange={e => { if (e.target.value) run(() => exportResearch(e.target.value as "md" | "json")); }}><option value="">Export</option><option value="md">Markdown</option><option value="json">JSON backup</option></select></label><label className="text-button notebook-import">Restore backup<input type="file" accept="application/json,.json" aria-label="Restore research backup" onChange={e => { const file = e.target.files?.[0]; if (file) run(async () => { const result = await restoreResearchBackup(JSON.parse(await file.text())); setError(`Restored ${result.restored} records; kept ${result.skipped} existing records.`); }); e.target.value = ""; }} /></label></div></header>
     {error && <p className="notice" role="status">{error}</p>}
     <nav className="workspace-tabs" role="tablist" aria-label="Notebook workspace"><button role="tab" aria-selected={!research} onClick={() => setResearch(false)}>Notes</button><button role="tab" aria-selected={research} onClick={() => setResearch(true)}>Research</button></nav>
     {research ? <ResearchBrowser /> : <div className="notebook-layout">
       <aside className="notebook-list" aria-label="Notebooks and notes">
         {navigator && <button className="text-button" aria-label="Close notebook navigation" onClick={() => setNavigator(false)}>Close navigation</button>}
         <label className="search-field"><Search size={16} /><input aria-label="Find a notebook" placeholder="Find a notebook" value={notebookQuery} onChange={e => setNotebookQuery(e.target.value)} /></label>
-        <label>Notebook<select aria-label="Choose notebook" value={currentId} onChange={e => { const next = e.target.value; run(async () => { await flushActive(); setNotebookId(next); setSectionId(""); setParams({ notebook: next, section: "", np: "1" }); setNavigator(false); }); }}><option value="" disabled>Choose a notebook</option>{notebooks.filter(n => n.id === currentId || n.title.toLowerCase().includes(notebookQuery.toLowerCase())).map(n => <option key={n.id} value={n.id}>{n.title} ({notes.filter(p => p.notebookId === n.id).length})</option>)}</select></label>
-        {current && <div className="notebook-management"><button className="text-button" aria-label="Rename notebook" onClick={() => { const title = prompt("Notebook name", current.title); if (title?.trim()) run(() => save("notebook", { ...current, title: title.trim().slice(0, 200) })); }}><Pencil size={15} />Rename</button></div>}
+        <nav aria-label="Notebook list">{notebooks.filter(n => n.id === currentId || n.title.toLowerCase().includes(notebookQuery.toLowerCase())).map(n => <ItemMenu key={n.id} title={n.title} actions={[
+          { label: "Rename", run: () => setRename({ label: "notebook", title: n.title, save: async title => { await flushActive(); const latest = await get("notebook", n.id); if (latest) await save("notebook", { ...latest, title }); } }) },
+          { label: "Move to Trash", danger: true, run: () => run(() => trashNotebook(n.id)) },
+        ]}><button aria-current={n.id === currentId ? "page" : undefined} onClick={() => run(async () => {
+          await flushActive(); setNotebookId(n.id); setSectionId(""); setParams({ notebook: n.id, section: "", np: "1" }); setNavigator(false);
+        })}><strong>{n.title}</strong></button></ItemMenu>)}</nav>
         <h2 className="navigator-heading">Sections</h2>
-        <nav className="notebook-sections" aria-label="Notebook sections">{currentSections.map(s => <button key={s.id} className={s.id === currentSection ? "active" : ""} aria-current={s.id === currentSection ? "page" : undefined} onClick={() => run(async () => { await flushActive(); setSectionId(s.id); setParams({ section: s.id, np: "1" }); setNavigator(false); })}><span className="section-tab" /><strong>{s.title}</strong><small>{notes.filter(n => noteSection(n) === s.id).length}</small></button>)}</nav>
+        <nav className="notebook-sections" aria-label="Notebook sections">{currentSections.map((section, i) => <ItemMenu key={section.id} title={section.title} actions={[
+          { label: "Rename", run: () => setRename({ label: "section", title: section.title, save: async title => { const latest = await get("notebook-section", section.id); if (latest) await save("notebook-section", { ...latest, title }); } }) },
+          { label: "Move up", disabled: i === 0, run: () => swapSection(-1, section.id) },
+          { label: "Move down", disabled: i === currentSections.length - 1, run: () => swapSection(1, section.id) },
+          { label: "Delete section", danger: true, disabled: section.id === defaultSectionId(currentId), run: () => run(async () => {
+            if (!confirm("Delete this section? Its pages will move to Notes.")) return;
+            await flushActive(); await deleteNotebookSection(section.id);
+            if (section.id === currentSection) { setSectionId(defaultSectionId(currentId)); setParams({ section: defaultSectionId(currentId) }); }
+          }) },
+        ]}><button className={section.id === currentSection ? "active" : ""} aria-current={section.id === currentSection ? "page" : undefined} onClick={() => run(async () => {
+          await flushActive(); setSectionId(section.id); setParams({ section: section.id, np: "1" }); setNavigator(false);
+        })}><span className="section-tab" /><strong>{section.title}</strong><small>{notes.filter(n => noteSection(n) === section.id).length}</small></button></ItemMenu>)}</nav>
         <button className="text-button" disabled={!current} onClick={() => { const title = prompt("Section name"); if (title?.trim() && current) run(async () => { await flushActive(); const section = { id: uid(), notebookId: current.id, title: title.trim().slice(0, 200), order: Math.max(0, ...currentSections.map(s => s.order)) + 1, createdAt: now() }; await save("notebook-section", section); setSectionId(section.id); setParams({ section: section.id, np: "1" }); setNavigator(false); }); }}><Plus size={15} />New section</button>
-        {currentSections.some(s => s.id === currentSection) && <div className="section-actions"><button aria-label="Move section up" onClick={() => swapSection(-1)}><ArrowUp size={16} /></button><button aria-label="Move section down" onClick={() => swapSection(1)}><ArrowDown size={16} /></button><button aria-label="Rename section" onClick={() => { const s = currentSections.find(s => s.id === currentSection)!; const title = prompt("Section name", s.title); if (title?.trim()) run(() => save("notebook-section", { ...s, title: title.trim().slice(0, 200) })); }}><Pencil size={16} /></button><button aria-label="Delete section" disabled={currentSection === defaultSectionId(currentId)} onClick={() => run(async () => { await flushActive(); if (confirm("Delete this section? Its pages will move to Notes.")) { await deleteNotebookSection(currentSection); setSectionId(defaultSectionId(currentId)); setParams({}); } })}><Trash2 size={16} /></button></div>}
-        {current && <button className="text-button danger notebook-trash" onClick={() => run(async () => { if (!confirm(`Move “${current.title}” and its pages to trash?`)) return; await flushActive(); await db.transaction("rw", db.rows, db.outbox, db.conflicts, db.meta, async () => { await save("notebook", current, true); for (const n of notes.filter(n => n.notebookId === current.id)) await save("notebook-note", n, true); for (const s of currentSections) await save("notebook-section", s, true); }); setNotebookId(""); setParams({}); })}>Trash notebook</button>}
       </aside>
       <aside className="notebook-pages" aria-label="Notebook pages">
         <h2 className="navigator-heading">{currentSections.find(s => s.id === currentSection)?.title || "Pages"}</h2>
         <label className="search-field"><Search size={17} /><input aria-label="Search notebook" value={query} onChange={e => setQuery(e.target.value)} placeholder="Search notes or tags" /></label>
         <button className="text-button" onClick={addNote}><Plus size={16} />New note</button>
-        <nav>{page.items.map(n => <button className={n.id === noteId ? "active" : ""} aria-current={n.id === noteId ? "page" : undefined} key={n.id} onClick={() => selectNote(n.id)}><strong>{n.title}</strong><span>{plainText(n.document).slice(0, 90) || "Start writing…"}</span>{n.tags.length > 0 && <small>{n.tags.join(", ")}</small>}</button>)}</nav>
+        <nav>{page.items.map(n => <ItemMenu key={n.id} title={n.title} actions={[
+          { label: "Rename", run: () => setRename({ label: "page", title: n.title, save: title => changeNote(n.id, { title }) }) },
+          { label: "Move to section", disabled: currentSections.length < 2, run: () => setMoving(n) },
+          { label: "Move up", run: () => movePage(-1, n) },
+          { label: "Move down", run: () => movePage(1, n) },
+          { label: "Move to Trash", danger: true, run: () => trashPage(n.id) },
+        ]}><button className={n.id === noteId ? "active" : ""} aria-current={n.id === noteId ? "page" : undefined} onClick={() => selectNote(n.id)}><strong>{n.title}</strong><span>{plainText(n.document).slice(0, 90)}</span></button></ItemMenu>)}</nav>
         <BrowsePages {...page} label="Pages" onChange={n => writeParams(previous => { const next = new URLSearchParams(previous); next.set("np", String(n)); return next; })} />
         {!filtered.length && <p className="muted">{query ? "No matching pages." : "Create a page in this section."}</p>}
       </aside>
       <main className="notebook-detail">
         <div className="notebook-detail-actions"><button className="text-button notebook-navigator-toggle" aria-expanded={navigator} onClick={() => { setFocus(false); setNavigator(!navigator); }}><PanelLeft size={17} />Pages</button><span>{current?.title || "Your ideas, together"} / {currentSections.find(s => s.id === currentSection)?.title || "Notes"}</span><div className="button-row"><button className="text-button" aria-label="Focus notebook page" aria-pressed={focus} onClick={() => { setFocus(!focus); setNavigator(false); }}><Maximize2 size={17} /></button><button className="text-button" aria-pressed={research} onClick={() => run(async () => { await flushActive(); const existing = (await list("research-thread")).filter(t => t.notebookId === currentId && !t.bookId && !t.selection).sort((a,b) => b.createdAt.localeCompare(a.createdAt))[0]; const thread = existing || { id: uid(), title: current?.title || "Research", notebookId: currentId || undefined, createdAt: now() }; if (!existing) await save("research-thread", thread); writeParams(previous => { const next = new URLSearchParams(previous); next.set("view", "research"); next.set("researchNotebook", currentId); next.set("thread", thread.id); return next; }); })}><Sparkles size={17} />Research</button></div></div>
         {activeNote && <div className="page-organization"><label>Section<select aria-label="Move page to section" value={currentSection} onChange={e => { const next = e.target.value; run(async () => { await flushActive(); const latest = await db.rows.get(`notebook-note:${noteId}`); await save("notebook-note", { ...(latest?.value as typeof activeNote || activeNote), sectionId: next }); window.dispatchEvent(new CustomEvent("leafmark-clipped", { detail: { id: noteId } })); }); }}>{currentSections.map(s => <option key={s.id} value={s.id}>{s.title}</option>)}</select></label><button aria-label="Move page up" onClick={() => movePage(-1)}><ArrowUp size={16} /></button><button aria-label="Move page down" onClick={() => movePage(1)}><ArrowDown size={16} /></button></div>}
-        {activeNote ? <><TopicEditor key={activeNote.id} note={activeNote} /><div className="notebook-note-actions"><button className="text-button" disabled={!versions.length} onClick={() => setVersionsOpen(true)}>Recover other versions ({versions.length})</button><button className="text-button danger" onClick={() => run(async () => { if (!confirm("Move this note to trash?")) return; if (!(await flushTopicNote(activeNote.id))) throw new Error("Save your writing before moving this note to trash."); const latest = await db.rows.get(`notebook-note:${activeNote.id}`); await save("notebook-note", (latest?.value || activeNote) as typeof activeNote, true); setParams({}); })}><Trash2 size={15} />Trash note</button></div>
+        {activeNote ? <><TopicEditor key={activeNote.id} note={activeNote} /><div className="notebook-note-actions"><button className="text-button" disabled={!versions.length} onClick={() => setVersionsOpen(true)}>Recover other versions ({versions.length})</button><button className="text-button danger" onClick={() => trashPage(activeNote.id)}><Trash2 size={15} />Trash note</button></div>
           {links.length > 0 && <details className="note-backlinks"><summary>Connected sources ({links.length})</summary>{links.map((s, i) => <SourceLink key={i} source={s} />)}</details>}
         </> : <div className="notebook-welcome"><NotebookPen size={34} /><h2>{current ? "Make room for an idea" : "Your first topic notebook"}</h2><p>Write freely, collect passages from different books, and keep useful research with its sources.</p><button className="primary" onClick={addNote}>{current ? "Create a note" : "Create a notebook"}</button></div>}
       </main>
     </div>}
+    {rename && <RenameItem value={rename.title} label={rename.label} onSave={rename.save} onClose={() => setRename(undefined)} />}
+    {moving && <Dialog title="Move page to section" onClose={() => setMoving(undefined)}><div className="clip-form">{currentSections.map(section =>
+      <button key={section.id} className="secondary" disabled={section.id === noteSection(moving)} onClick={() => run(async () => {
+        await changeNote(moving.id, { sectionId: section.id }); setMoving(undefined);
+      })}>{section.title}</button>)}</div></Dialog>}
     {creating && <Dialog title="New notebook" onClose={() => setCreating(false)}><form className="clip-form" onSubmit={async e => {
       e.preventDefault(); setBusy(true);
       try { const n = { id: uid(), title: title.trim(), createdAt: now() }; await save("notebook", n); setNotebookId(n.id); setParams({ notebook: n.id, section: "", view: "notes" }); setCreating(false); }

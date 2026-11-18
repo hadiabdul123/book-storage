@@ -10,3 +10,8 @@
 .notes-back-list { display:none; }.drawing-detail { display:grid; gap:16px; }.drawing-detail .primary { justify-self:start; }
 .notes-browser .filter-row { flex-wrap:wrap; }.notes-browser .filter-row > select { max-width:200px; }
 @media(max-width:700px) { .notes-browser-layout { display:block; }.notes-preview-pane { display:none; padding:20px 14px; }.notes-detail-open .notes-preview-pane { display:block; }.notes-detail-open .notes-passage-list { display:none; }.notes-back-list { display:block; margin-bottom:20px; min-height:44px; }.notes-passage-list { max-height:none; border:0; }.notes-browser .filter-row > select { max-width:calc(50% - 6px); min-height:44px; }.notes-preview-pane .annotation-card blockquote { font-size:18px; } }
+.notes-reference-bar { display:flex; flex-wrap:wrap; gap:8px 12px; align-items:center; padding-bottom:12px; margin-bottom:20px; border-bottom:1px solid #dce4ec; }
+.notes-reference-bar strong { color:#293541; }.notes-reference-bar > span { color:#526578; font-size:14px; }
+.notes-reference-bar button { margin-left:auto; color:#315c86; }
+.notes-browser .notes-passage-list { padding-block:10px; }
+.notes-browser .notes-passage-list section button { min-height:54px; padding:8px 12px; }

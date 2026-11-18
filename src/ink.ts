@@ -69,6 +69,7 @@ export async function recoverInkDrafts() {
 export function bindInkSurface(svg: SVGSVGElement, options: {
   target: InkTarget; strokes: () => InkStroke[]; style: () => InkStyle; enabled: () => boolean;
   project?: InkProjection; unproject?: InkProjection;
+  retainCommitted?: boolean;
   commit: (stroke: InkStroke, deleted?: boolean) => Promise<void>;
   error: (message: string) => void;
 }) {
@@ -92,7 +93,7 @@ export function bindInkSurface(svg: SVGSVGElement, options: {
     return [x, y, event.pointerType === "pen" && event.pressure > 0 ? event.pressure : .5];
   };
   const commit = (stroke: InkStroke, deleted = false) => {
-    if (deleted) hidden.add(stroke.id); else pending.set(stroke.id, stroke);
+    if (deleted) hidden.add(stroke.id); else if (options.retainCommitted !== false) pending.set(stroke.id, stroke);
     schedule();
     void options.commit(stroke, deleted).catch(error => { options.error(`Could not save drawing: ${error instanceof Error ? error.message : String(error)}. Keep this page open and retry saving.`); schedule(); });
   };

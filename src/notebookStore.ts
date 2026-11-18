@@ -27,8 +27,15 @@ export async function saveNotebookNote(note: NotebookNote, expectedUpdatedAt?: s
 export async function recoverNotebookNote(note: NotebookNote, notebookId: string) {
   const section = note.sectionId ? await get("notebook-section", note.sectionId) : undefined;
   const recovered = await saveNotebookNote({ ...note, id: uid(), notebookId, sectionId: section?.notebookId === notebookId ? section.id : undefined, title: `${note.title} (recovered)`.slice(0, 200), createdAt: now(), updatedAt: now() });
-  for (const stroke of (await list("ink-stroke")).filter(s => s.target.type === "notebook" && s.target.noteId === note.id))
-    await save("ink-stroke", { ...stroke, id: uid(), target: { ...stroke.target, type: "notebook", noteId: recovered.id, blockId: stroke.target.type === "notebook" ? stroke.target.blockId : "" } });
+  const groups = new Map<string, string>();
+  for (const drawing of (await list("notebook-overlay")).filter(d => d.noteId === note.id)) {
+    const id = uid(); groups.set(drawing.id, id);
+    await save("notebook-overlay", { ...drawing, id, noteId: recovered.id });
+  }
+  for (const stroke of await list("ink-stroke")) {
+    if (stroke.target.type !== "notebook" || stroke.target.noteId !== note.id) continue;
+    await save("ink-stroke", { ...stroke, id: uid(), target: { ...stroke.target, noteId: recovered.id, blockId: groups.get(stroke.target.blockId) || stroke.target.blockId } });
+  }
   return recovered;
 }
 export type ClipTarget = { kind: "note"; noteId: string } |

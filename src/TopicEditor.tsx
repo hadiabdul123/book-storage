@@ -12,18 +12,38 @@ import { noteFormatting } from "./noteFormatting";
 import { NoteFormatButtons } from "./NoteFormatButtons";
 import { DrawingExtension } from "./NotebookDrawing";
 import { uid } from "./model";
+import { Paperclip, PenLine, MousePointer2, Type } from "lucide-react";
+import { InkToolbar } from "./InkToolbar";
+import { defaultInkStyle } from "./inkTypes";
+import { InkHistory, type bindInkSurface } from "./ink";
+import { NotebookInkAnchors, NotebookPaperInk, type PaperTool } from "./NotebookPaperInk";
+import { NotebookMedia, mediaLabel, cueHref, readCue, type MediaCue } from "./NotebookMedia";
+import { attachMedia } from "./notebookMediaStore";
+import { useSearchParams } from "react-router-dom";
 
 export function TopicEditor({ note }: { note: NotebookNote }) {
   const [title, setTitle] = useState(note.title), [tags, setTags] = useState(note.tags.join(", "));
   const [status, setStatus] = useState("Opening note…");
   const [loaded, setLoaded] = useState(false);
   const [tab, setTab] = useState("home");
+  const [params] = useSearchParams();
+  const drawing = params.get("drawing") || undefined;
+  const [paperTool, setPaperTool] = useState<PaperTool>(drawing ? "select" : "write");
+  const [inkStyle, setInkStyle] = useState(defaultInkStyle);
+  const [inkHistory] = useState(() => new InkHistory());
+  const [notice, setNotice] = useState("");
+  const [attaching, setAttaching] = useState(false);
+  const [cue, setCue] = useState<MediaCue | undefined>(() => readCue(location.href, note.id));
+  const paper = useRef<HTMLDivElement>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const inkBinding = useRef<ReturnType<typeof bindInkSurface> | undefined>(undefined);
+  const inkWrites = useRef(new Set<Promise<void>>());
   const value = useRef({ note, revision: 0, saved: 0 });
   const active = useRef(true), timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const pending = useRef<Promise<boolean> | null>(null);
   const draftKey = `topic-draft:${note.id}`;
   const editor = useEditor({
-    extensions: [CitationExtension, DrawingExtension.configure({ noteId: note.id }), ...noteFormatting(), StarterKit.configure({ heading: { levels: [1, 2, 3] }, blockquote: false, code: false, codeBlock: false, horizontalRule: false, link: { openOnClick: false, autolink: false, linkOnPaste: false }, strike: false }), TaskList, TaskItem.configure({ nested: true })],
+    extensions: [NotebookInkAnchors, CitationExtension, DrawingExtension.configure({ noteId: note.id }), ...noteFormatting(), StarterKit.configure({ heading: { levels: [1, 2, 3] }, blockquote: false, code: false, codeBlock: false, horizontalRule: false, link: { openOnClick: false, autolink: false, linkOnPaste: false }, strike: false }), TaskList, TaskItem.configure({ nested: true })],
     content: note.document, editable: false,
     editorProps: { attributes: { role: "textbox", "aria-label": "Topic note content", "aria-multiline": "true", class: "notebook-writing" } },
     onUpdate: ({ editor }) => change({ document: editor.getJSON() as RichNode }),
@@ -53,7 +73,11 @@ export function TopicEditor({ note }: { note: NotebookNote }) {
     })();
     return pending.current;
   }
-  useEffect(() => registerNoteFlusher(note.id, flush), [note.id, editor]);
+  useEffect(() => registerNoteFlusher(note.id, async () => {
+    inkBinding.current?.flush();
+    const inkSaved = Promise.all([...inkWrites.current]).then(() => true, () => false);
+    return (await flush()) && await inkSaved && !inkHistory.pending.size;
+  }), [note.id, editor]);
   useEffect(() => {
     if (!editor) return;
     let cancelled = false; active.current = true;
@@ -78,8 +102,14 @@ export function TopicEditor({ note }: { note: NotebookNote }) {
     window.addEventListener("beforeunload", leave); document.addEventListener("visibilitychange", hide);
     return () => { cancelled = true; active.current = false; clearTimeout(timer.current); void flush(); window.removeEventListener("leafmark-clipped", clipped); window.removeEventListener("beforeunload", leave); document.removeEventListener("visibilitychange", hide); };
   }, [editor, note.id]);
+  function switchTool(tool: PaperTool) {
+    inkBinding.current?.flush(); setPaperTool(tool);
+    if (tool === "write") editor?.commands.focus();
+  }
+  const mediaParam = params.get("media"), timeParam = params.get("at");
+  useEffect(() => { const next = readCue(location.href, note.id); if (next) setCue(next); }, [mediaParam, timeParam, note.id]);
+  useEffect(() => { if (drawing) setPaperTool("select"); }, [drawing]);
   return <section className="topic-editor" onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) void flush(); }}>
-    <label className="topic-title-label">Title<input aria-label="Topic note title" maxLength={200} disabled={!loaded} value={title} onChange={e => { setTitle(e.target.value); change({ title: e.target.value }); }} /></label>
     <div className="notebook-ribbon"><div className="ribbon-tabs" role="tablist" aria-label="Notebook tools">{["home", "insert", "draw"].map(t => <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>{t[0].toUpperCase() + t.slice(1)}</button>)}</div>
     <div className={`notebook-toolbar ribbon-${tab}`} role="toolbar" aria-label="Topic note formatting" onMouseDown={e => { if (!(e.target as Element).closest("input,select")) e.preventDefault(); }}>
       {tab === "home" && <>
@@ -91,12 +121,45 @@ export function TopicEditor({ note }: { note: NotebookNote }) {
       <button aria-label="Numbered list" onClick={() => editor?.chain().focus().toggleOrderedList().run()}>1. List</button>
       <button aria-label="Checklist" onClick={() => editor?.chain().focus().toggleTaskList().run()}>☑</button>
       <button aria-label="Undo" onClick={() => editor?.chain().focus().undo().run()}>↶</button><button aria-label="Redo" onClick={() => editor?.chain().focus().redo().run()}>↷</button>
+      <button type="button" aria-pressed={paperTool === "draw"} disabled={!loaded} onClick={() => switchTool(paperTool === "draw" ? "write" : "draw")}><PenLine size={17} />Pen</button>
+      <button type="button" disabled={!loaded || attaching} onClick={() => fileInput.current?.click()}><Paperclip size={17} />Attach media</button>
       </>}
       {tab === "insert" && <><button onClick={() => editor?.chain().focus().insertContent({ type: "drawing", attrs: { blockId: uid(), height: 300 } }).run()}>Insert drawing</button><NoteFormatButtons editor={editor} /></>}
       {tab === "draw" && <><button onClick={() => editor?.chain().focus().insertContent({ type: "drawing", attrs: { blockId: uid(), height: 300 } }).run()}>New drawing</button><span className="muted">Choose Edit drawing on a canvas to use pens and highlighters.</span></>}
-    </div></div>
-    <EditorContent editor={editor} />
-    <label>Tags<input aria-label="Topic note tags" maxLength={500} disabled={!loaded} value={tags} onChange={e => { setTags(e.target.value); change({ tags: e.target.value.split(",").map(t => t.trim()).filter(Boolean) }); }} placeholder="science, questions, ideas" /></label>
+    </div>
+    {paperTool !== "write" && <div className="paper-ink-tools">
+      <button className="text-button" aria-pressed={paperTool === "draw"} onClick={() => switchTool("draw")}><PenLine size={16} />Draw</button>
+      <button className="text-button" aria-pressed={paperTool === "select"} onClick={() => switchTool("select")}><MousePointer2 size={16} />Select drawing</button>
+      <button className="text-button" onClick={() => switchTool("write")}><Type size={16} />Write</button>
+      <InkToolbar style={inkStyle} change={style => { inkBinding.current?.flush(); setInkStyle(style); switchTool("draw"); }} undo={() => void inkHistory.move().catch(e => setNotice(e.message))} redo={() => void inkHistory.move(true).catch(e => setNotice(e.message))} />
+    </div>}</div>
+    <input ref={fileInput} type="file" accept=".mp4,.webm,.mp3,.m4a,.wav,.ogg" aria-label="Attach video or audio" hidden onChange={async e => {
+      const file = e.currentTarget.files?.[0]; e.currentTarget.value = "";
+      if (!file || attaching) return;
+      setAttaching(true); setNotice("");
+      try { const media = await attachMedia(note.id, file); setCue({ id: media.id, time: 0 }); }
+      catch (e) { setNotice(e instanceof Error ? e.message : String(e)); }
+      finally { setAttaching(false); }
+    }} />
+    {attaching && <p role="status">Saving attachment…</p>}
+    {notice && <p className="notice" role="status">{notice} {inkHistory.pending.size > 0 && <button className="text-button" onClick={() => void inkHistory.retry().then(() => setNotice("Drawing saved."), e => setNotice(e.message))}>Retry drawing save</button>}</p>}
+    <div className="note-paper-layout">
+      <NotebookMedia noteId={note.id} cue={cue} onTimestamp={value => {
+        switchTool("write");
+        editor?.chain().focus().insertContent([{ type: "text", text: mediaLabel(value.time), marks: [{ type: "link", attrs: { href: cueHref(note.id, value), target: "_self", rel: null, class: null } }] }, { type: "text", text: " " }]).run();
+      }} />
+      <div className="note-paper-column">
+        <label className="topic-title-label"><input aria-label="Topic note title" maxLength={200} disabled={!loaded} value={title} onChange={e => { setTitle(e.target.value); change({ title: e.target.value }); }} /></label>
+        <div ref={paper} className="notebook-paper">
+          <EditorContent editor={editor} onClickCapture={event => {
+            const link = (event.target as Element).closest("a"); const next = link && readCue(link.href, note.id);
+            if (next) { event.preventDefault(); event.stopPropagation(); setCue(next); }
+          }} />
+          {editor && loaded && <NotebookPaperInk editor={editor} noteId={note.id} paper={paper} mode={paperTool} style={inkStyle} history={inkHistory} notice={setNotice} saveNote={flush} bindingRef={inkBinding} writes={inkWrites} openDrawing={drawing} />}
+        </div>
+      </div>
+    </div>
+    <label className="note-tags">Tags<input aria-label="Topic note tags" maxLength={500} disabled={!loaded} value={tags} onChange={e => { setTags(e.target.value); change({ tags: e.target.value.split(",").map(t => t.trim()).filter(Boolean) }); }} placeholder="Add tags" /></label>
     <div className="topic-save-status"><span role="status">{status}</span><button className="text-button" disabled={!loaded} onClick={() => void flush()}>Save now</button></div>
   </section>;
 }

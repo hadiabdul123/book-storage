@@ -5,7 +5,7 @@ export function validRichMark(m: any) {
   if (!m || typeof m !== "object") return false;
   if (["bold", "italic", "underline"].includes(m.type)) return m.attrs === undefined;
   if (m.type === "highlight" || m.type === "textStyle") return !!m.attrs && Object.keys(m.attrs).every(k => k === "color") && safeColor(m.attrs.color);
-  if (m.type === "link") return !!m.attrs && typeof m.attrs.href === "string" && m.attrs.href.length <= 4000 && /^(https?:\/\/|mailto:)[^\s]+$/i.test(m.attrs.href) && Object.keys(m.attrs).every(k => ["href", "target", "rel", "class"].includes(k)) && (m.attrs.target == null || ["_blank", "_self"].includes(m.attrs.target)) && m.attrs.class == null;
+  if (m.type === "link") return !!m.attrs && typeof m.attrs.href === "string" && m.attrs.href.length <= 4000 && /^(https?:\/\/|mailto:)[^\s]+$/i.test(m.attrs.href) && Object.keys(m.attrs).every(k => ["href", "target", "rel", "class", "title"].includes(k)) && (m.attrs.target == null || ["_blank", "_self"].includes(m.attrs.target)) && m.attrs.class == null && (m.attrs.title == null || (typeof m.attrs.title === "string" && m.attrs.title.length <= 200));
   return false;
 }
 export const emptyDocument = (): RichNode => ({
@@ -108,12 +108,14 @@ export function validRichDocument(value: unknown): value is RichNode {
       if (!n.attrs || typeof n.attrs !== "object" || Array.isArray(n.attrs))
         return false;
       const keys: Record<string, string[]> = {
-        heading: ["level"],
+        paragraph: ["inkAnchor"],
+        heading: ["level", "inkAnchor"],
         orderedList: ["start", "type"],
         taskItem: ["checked"],
       };
       if (Object.keys(n.attrs).some((k) => !(keys[n.type] || []).includes(k)))
         return false;
+      if (n.attrs.inkAnchor != null && (typeof n.attrs.inkAnchor !== "string" || !/^[a-zA-Z0-9-]{1,100}$/.test(n.attrs.inkAnchor))) return false;
       if (n.type === "heading" && ![1, 2, 3].includes(n.attrs.level))
         return false;
       if (n.type === "taskItem" && typeof n.attrs.checked !== "boolean")

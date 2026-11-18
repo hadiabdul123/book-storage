@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { Upload } from "tus-js-client";
 import { db, acceptRemote, resolveStoredConflicts, saveBookFile } from "./db";
 import { type Book, type Row } from "./model";
+import { mediaObjectPath, mediaTypes, type NotebookMedia } from "./notebookAssets";
 
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined;
@@ -72,6 +73,7 @@ async function upload(
   path: string,
   file: Blob,
   progress: (sent: number) => void,
+  bucket = "library",
 ) {
   if (!cloud || !url) return;
   if (file.size > uploadLimitBytes)
@@ -91,7 +93,7 @@ async function upload(
         "x-upsert": "true",
       },
       metadata: {
-        bucketName: "library",
+        bucketName: bucket,
         objectName: path,
         contentType: file.type || "application/octet-stream",
         cacheControl: "3600",
@@ -100,7 +102,7 @@ async function upload(
       retryDelays: [0, 1500, 3000, 6000],
       removeFingerprintOnSuccess: true,
       fingerprint: async () =>
-        `leafmark:${session.user.id}:${path}:${file.size}`,
+        `leafmark:${session.user.id}:${bucket === "library" ? "" : `${bucket}:`}${path}:${file.size}`,
       onError: reject,
       onProgress: (sent) => progress(sent),
       onSuccess: () => resolve(),
@@ -197,6 +199,22 @@ async function runSync() {
               "The original file is missing on this device. Import it again before syncing.",
             );
         }
+        if (operation.kind === "notebook-media" && !operation.deleted) {
+          const media = operation.value as NotebookMedia;
+          const local = await db.mediaFiles.get(media.id);
+          const path = mediaObjectPath(session.user.id, media);
+          if (local && !local.uploaded) {
+            const blob = new Blob([local.bytes], { type: mediaTypes[media.extension] });
+            transferStatus(media.id, { state: "uploading", percent: 0 });
+            await upload(path, blob, sent => transferStatus(media.id, {
+              state: "uploading", percent: Math.round(100 * sent / media.size),
+            }), "notebook-media");
+            await db.mediaFiles.update(media.id, { uploaded: true });
+          } else if (!local && operation.baseRevision === 0) {
+            const { error } = await cloud.storage.from("notebook-media").createSignedUrl(path, 60);
+            if (error) throw new Error("The original attachment is unavailable. Restore the file to sync this attachment.");
+          }
+        }
         // Earlier operations for the same record may have advanced its revision.
         const latest = await db.outbox.get(operation.opId);
         if (!latest) continue;
@@ -210,9 +228,9 @@ async function runSync() {
           continue;
         }
         await acceptRemote(remote, operation.opId);
-        if (operation.kind === "book") transferStatus(operation.id);
+        if (operation.kind === "book" || operation.kind === "notebook-media") transferStatus(operation.id);
       } catch (error: any) {
-        if (operation.kind === "book")
+        if (operation.kind === "book" || operation.kind === "notebook-media")
           transferStatus(operation.id, {
             state: "error",
             message: error.message || String(error),

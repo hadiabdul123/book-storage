@@ -86,7 +86,7 @@ test("selection research saves a partial cited answer into a chosen PDF page and
   await page.getByRole("button", { name: "Save excerpt", exact: true }).click(); await expect(page.getByRole("dialog")).toContainText("Excerpt and sources saved"); await page.getByRole("button", { name: "Done", exact: true }).click();
   await page.screenshot({ path: `.local/research-${info.project.name}.png` });
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth); expect(overflow).toBe(false);
-  await page.goto("/#/notebooks"); await page.getByRole("button", { name: /Universe research/ }).click();
+  await page.goto("/#/notebooks"); await page.locator(".notebook-pages .workspace-item > button:first-child").filter({ hasText: "Universe research" }).click();
   await expect(page.getByRole("textbox", { name: "Topic note content" })).toContainText("hot, dense");
   await expect(page.getByRole("link", { name: /NASA cosmology/ }).first()).toHaveAttribute("href", "https://science.nasa.gov/universe/");
 });
@@ -103,7 +103,7 @@ test("topic writing autosaves and remains editable after reload, with valid JSON
   page.once("dialog", d => d.accept()); await page.getByRole("button", { name: "Trash note", exact: true }).click();
   await expect(page.getByRole("textbox", { name: "Topic note content" })).toHaveCount(0);
   await page.goto("/#/settings"); const row = page.locator(".trash-row").filter({ hasText: "Questions about the universe" }); await row.getByRole("button", { name: "Restore" }).click();
-  await page.goto("/#/notebooks"); await page.getByRole("button", { name: /Questions about the universe/ }).click(); await expect(page.getByRole("textbox", { name: "Topic note content" })).toContainText("survive a restart");
+  await page.goto("/#/notebooks"); await page.locator(".notebook-pages .workspace-item > button:first-child").filter({ hasText: "Questions about the universe" }).click(); await expect(page.getByRole("textbox", { name: "Topic note content" })).toContainText("survive a restart");
 });
 test("chosen-source research indexes text locally and offline questions preserve their passage", async ({ page, context }) => {
   await open(page); await select(page);

@@ -55,13 +55,13 @@ it("keeps existing note content when creating and deleting sections", async () =
   await deleteNotebookSection("s"); expect(await get("notebook-note", "page")).toMatchObject({ sectionId: defaultSectionId("n"), document });
   await expect(deleteNotebookSection(defaultSectionId("n"))).rejects.toThrow("cannot be deleted");
 });
-it("round-trips sections, formatting, notebook ink and remapped PDF ink in v2 backups", async () => {
+it("restores legacy v2 notebook ink and round-trips new v3 assets", async () => {
   const book = { id: "old", hash: "a".repeat(64), title: "Book", format: "pdf", sourcePath: "old/source.pdf" } as const;
   await save("book", book as any); await save("notebook", { id: "n", title: "Ideas", createdAt: stamp }); await ensureNotebookSection("n");
   const document = { type: "doc", content: [{ type: "drawing", attrs: { blockId: "canvas", height: 300 } }] };
   await save("notebook-note", { id: "page", notebookId: "n", sectionId: defaultSectionId("n"), title: "Page", document, tags: [], createdAt: stamp, updatedAt: stamp });
   await save("ink-stroke", stroke()); await save("ink-stroke", { ...stroke("pdf-ink"), target: { type: "pdf", bookId: "old", hash: book.hash, page: 2 } });
-  const backup = await researchBackup(); expect(backup.version).toBe(2);
+  const backup = { ...await researchBackup(), version: 2 };
   for (const table of db.tables) await table.clear();
   await save("book", { ...book, id: "new", sourcePath: "new/source.pdf" } as any);
   expect((await restoreResearchBackup(backup)).restored).toBe(5);
@@ -70,6 +70,17 @@ it("round-trips sections, formatting, notebook ink and remapped PDF ink in v2 ba
   expect((await restoreResearchBackup(backup)).skipped).toBe(5);
   const legacy = { schema: "leafmark.research", version: 1, books: [], records: [{ kind: "notebook", value: { id: "legacy", title: "Legacy", createdAt: stamp } }] };
   expect((await restoreResearchBackup(legacy)).restored).toBe(1);
+  const overlay = { id: "overlay", noteId: "page", anchor: "paper", x: 20, y: 10, scale: 1.5, createdAt: stamp };
+  const media = { id: "audio", noteId: "page", extension: "wav" as const, title: "Talk.wav", size: 48044, hash: "b".repeat(64), createdAt: stamp };
+  await save("notebook-overlay", overlay); await save("notebook-media", media);
+  await db.mediaFiles.add({ id: "audio", bytes: new ArrayBuffer(48044), uploaded: false });
+  const current = await researchBackup(); expect(current.version).toBe(3);
+  expect(JSON.stringify(current)).not.toContain("bytes");
+  for (const table of db.tables) await table.clear();
+  await restoreResearchBackup(current);
+  expect(await get("notebook-overlay", "overlay")).toEqual(overlay);
+  expect(await get("notebook-media", "audio")).toEqual(media);
+  expect(await db.mediaFiles.get("audio")).toBeUndefined();
 });
 it("preserves rich marks and rejects executable links or malformed drawing nodes", () => {
   const doc = emptyDocument(); doc.content = [{ type: "paragraph", content: [{ type: "text", text: "Keep", marks: [{ type: "underline" }, { type: "highlight", attrs: { color: "#f4cc60" } }, { type: "textStyle", attrs: { color: "#315c86" } }, { type: "link", attrs: { href: "https://example.com" } }] }] }];

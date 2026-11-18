@@ -1,0 +1,132 @@
+import { expect, test, type Page } from "@playwright/test";
+import { wavFixture } from "../helpers/audio-fixture";
+
+async function openNote(page: Page) {
+  await page.goto("/#/notebooks");
+  await page.getByRole("button", { name: "New notebook" }).click();
+  await page.getByLabel("Notebook name").fill("Field journal");
+  await page.getByRole("button", { name: "Create notebook" }).click();
+  await expect(page.getByRole("dialog").filter({ has: page.getByRole("heading", { name: "New notebook" }) })).toBeHidden();
+  await expect(page.locator(".notebook-detail-actions")).toContainText("Field journal");
+  await page.getByRole("button", { name: "New note", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "Topic note content" })).toHaveAttribute("contenteditable", "true");
+}
+
+
+test("paper ink stays with its paragraph, reopens and can be resized", async ({ page }, info) => {
+  test.skip(info.project.name === "mobile-layout", "Mouse drawing and context menu regression.");
+  await openNote(page);
+  const editor = page.getByRole("textbox", { name: "Topic note content" });
+  await editor.fill("The river runs through the old town.");
+  await page.getByRole("button", { name: "Pen", exact: true }).click();
+  const bounds = (await editor.locator("p").boundingBox())!;
+  const y = bounds.y + bounds.height / 2;
+  await page.mouse.move(bounds.x + 20, y);
+  await page.mouse.down();
+  await page.mouse.move(bounds.x + 105, y + 8, { steps: 8 });
+  await page.mouse.up();
+  const stroke = page.locator(".paper-ink-art path");
+  await expect(stroke).toHaveCount(1);
+  const anchor = editor.locator("[data-ink-anchor]");
+  await expect(anchor).toHaveText("The river runs through the old town.");
+  await expect(page.locator(".paper-ink-frame")).toHaveCount(0);
+  await page.getByRole("button", { name: "Select drawing", exact: true }).click();
+  const point = await stroke.evaluate(element => {
+    const path = element as SVGPathElement;
+    const p = path.getPointAtLength(path.getTotalLength() / 4);
+    const screen = new DOMPoint(p.x, p.y).matrixTransform(path.getScreenCTM()!);
+    return { x: screen.x, y: screen.y };
+  });
+  await page.mouse.click(point.x, point.y);
+  const handle = page.getByRole("button", { name: "Resize drawing" });
+  await expect(handle).toBeVisible();
+  if (info.project.name === "desktop") {
+    const resize = (await handle.boundingBox())!;
+    await page.mouse.move(resize.x + resize.width / 2, resize.y + resize.height / 2);
+    await page.mouse.down(); await page.mouse.move(resize.x + 24, resize.y + 6, { steps: 6 }); await page.mouse.up();
+    await expect.poll(() => page.evaluate(async () => (await (await import("/src/db.ts")).list("notebook-overlay"))[0].scale)).toBeGreaterThan(1.1);
+  }
+  const scale = await page.evaluate(async () => (await (await import("/src/db.ts")).list("notebook-overlay"))[0].scale);
+  await handle.focus(); await page.keyboard.press("+");
+  await expect.poll(() => page.evaluate(async () => (await (await import("/src/db.ts")).list("notebook-overlay"))[0].scale)).toBeCloseTo(scale * 1.1);
+  await page.getByRole("button", { name: "Write", exact: true }).click();
+  // Insert a paragraph before the anchored block without splitting its identity.
+  const paperOffset = () => stroke.evaluate(path => path.getBoundingClientRect().top - path.closest(".notebook-paper")!.getBoundingClientRect().top);
+  const before = await paperOffset();
+  await editor.evaluate(element => (element as HTMLElement & { editor: import("@tiptap/core").Editor }).editor.commands.insertContentAt(0, {
+    type: "paragraph", content: [{ type: "text", text: "Field notes" }],
+  }));
+  await expect(editor.locator("p").first()).toHaveText("Field notes");
+  await expect.poll(paperOffset).toBeGreaterThan(before + 10);
+  await expect(page.locator(".topic-save-status")).toContainText("Saved on this device");
+  await page.reload();
+  await expect(stroke).toHaveCount(1);
+  await expect(anchor).toHaveText("The river runs through the old town.");
+  await page.locator(".notebook-pages nav button[aria-current=page]").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Rename" }).click();
+  await page.getByLabel("Name", { exact: true }).fill("River notes");
+  await page.getByRole("button", { name: "Save name" }).click();
+  await expect(page.getByLabel("Topic note title")).toHaveValue("River notes");
+});
+
+test("audio attachments persist and a clicked timestamp seeks where the codec is available", async ({ page, browserName }) => {
+  await openNote(page);
+  await page.getByRole("textbox", { name: "Topic note content" }).fill("Listen for the change. ");
+  const bytes = wavFixture();
+  // Some Playwright WebKit builds advertise WAV but fail a plain media
+  // element decoder. Verify attachment retention and download in that case.
+  const codec = browserName !== "webkit" || await page.evaluate(async base64 => {
+    const raw = Uint8Array.from(atob(base64), char => char.charCodeAt(0));
+    const url = URL.createObjectURL(new Blob([raw], { type: "audio/wav" }));
+    const element = new Audio();
+    const playable = new Promise<boolean>(resolve => {
+      element.onloadedmetadata = () => resolve(true); element.onerror = () => resolve(false);
+    });
+    element.src = url; element.load();
+    const result = await Promise.race([playable, new Promise<boolean>(resolve => setTimeout(() => resolve(false), 3000))]);
+    URL.revokeObjectURL(url);
+    return result;
+  }, bytes.toString("base64"));
+  await page.getByLabel("Attach video or audio").setInputFiles({ name: "sample.wav", mimeType: "audio/wav", buffer: bytes });
+  if (!codec) {
+    await expect(page.getByText(/This file couldn’t play/)).toBeVisible();
+    await page.reload();
+    await page.getByRole("button", { name: "sample.wav", exact: true }).click();
+    const download = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Download original" }).click();
+    expect((await download).suggestedFilename()).toBe("sample.wav");
+    return;
+  }
+  const player = page.locator("audio");
+  await expect.poll(() => player.evaluate(a => (a as HTMLAudioElement).duration)).toBe(3);
+  await player.evaluate(a => { (a as HTMLAudioElement).currentTime = 1.5; });
+  await page.getByRole("button", { name: "Insert timestamp", exact: true }).click();
+  const timestamp = page.getByRole("link", { name: "0:01" });
+  await expect(timestamp).toBeVisible();
+  await expect(page.locator(".topic-save-status")).toContainText("Saved on this device");
+  await page.reload();
+  await timestamp.click();
+  await expect.poll(() => player.evaluate(a => (a as HTMLAudioElement).currentTime)).toBeCloseTo(1.5, 1);
+  await expect(page.getByRole("button", { name: "Available offline" })).toBeDisabled();
+});
+
+test("a downloaded video opens in the notebook player", async ({ page, browserName }) => {
+  test.skip(browserName !== "chromium", "The fixture uses Chromium's WebM recorder.");
+  await openNote(page);
+  const raw = await page.evaluate(async () => {
+    const canvas = document.createElement("canvas"); canvas.width = canvas.height = 32;
+    const stream = canvas.captureStream(15), recorder = new MediaRecorder(stream, { mimeType: "video/webm" });
+    const ready = new Promise<Blob>(resolve => { recorder.ondataavailable = event => resolve(event.data); });
+    const paint = canvas.getContext("2d")!;
+    recorder.start();
+    for (const color of ["#315c86", "#8abde8", "#293541"]) {
+      paint.fillStyle = color; paint.fillRect(0, 0, 32, 32);
+      await new Promise(resolve => setTimeout(resolve, 70));
+    }
+    recorder.stop(); stream.getTracks().forEach(track => track.stop());
+    return [...new Uint8Array(await (await ready).arrayBuffer())];
+  });
+  await page.getByLabel("Attach video or audio").setInputFiles({ name: "sample.webm", mimeType: "video/webm", buffer: Buffer.from(raw) });
+  await expect.poll(() => page.locator("video").evaluate(v => (v as HTMLVideoElement).videoWidth)).toBe(32);
+  await expect(page.locator(".note-media-file")).toContainText("sample.webm");
+});

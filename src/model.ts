@@ -1,5 +1,6 @@
 import type { Notebook, NotebookSection, NotebookNote, ResearchThread, ResearchMessage, SourceRef } from "./researchTypes";
 import type { InkStroke } from "./inkTypes";
+import type { NotebookMedia, NotebookOverlay } from "./notebookAssets";
 export type Format = "epub" | "pdf" | "docx";
 export type Color = "yellow" | "green" | "blue" | "pink" | "purple";
 export const colors: Record<Color, string> = {
@@ -138,6 +139,8 @@ export const defaults: Preferences = {
   spread: false,
 };
 export interface EntityMap {
+  "notebook-media": NotebookMedia;
+  "notebook-overlay": NotebookOverlay;
   "ink-stroke": InkStroke;
   "notebook-section": NotebookSection;
   notebook: Notebook;

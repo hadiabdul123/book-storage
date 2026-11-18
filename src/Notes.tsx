@@ -2,18 +2,26 @@ import { lazy, Suspense, useMemo, useState } from "react";
 import { BrowsePages, SourceNavigator, pageOf, useBrowseState } from "./browse";
 import { Link } from "react-router-dom";
 import { useLiveQuery } from "dexie-react-hooks";
-import { Search, Download, Highlighter } from "lucide-react";
+import { Search, Download, Highlighter, Copy } from "lucide-react";
 import { list } from "./db";
-import { type Annotation, colors } from "./model";
+import { type Annotation, type Locator, colors } from "./model";
 import { AnnotationCard, EditAnnotation, Empty } from "./components";
 import { exportAnnotations } from "./export";
 import type { InkStroke } from "./inkTypes";
 import "./notesBrowser.css";
 const InkPreview = lazy(() => import("./InkPreview").then(m => ({ default: m.InkPreview })));
+function readingOrder(a: Locator, b: Locator) {
+  if (a.type === "pdf" && b.type === "pdf") return a.page - b.page ||
+    (b.regions?.[0]?.rects[0]?.[3] ?? b.point?.[1] ?? -b.y) - (a.regions?.[0]?.rects[0]?.[3] ?? a.point?.[1] ?? -a.y);
+  if (a.type === "epub" && b.type === "epub") return a.cfi.localeCompare(b.cfi, undefined, { numeric: true });
+  if (a.type === "docx" && b.type === "docx") return a.start - b.start;
+  return 0;
+}
 export function Notes() {
   const annotations = useLiveQuery(() => list("annotation"), []) || [],
     books = useLiveQuery(() => list("book"), []) || [];
   const ink = useLiveQuery(() => list("ink-stroke"), []) || [];
+  const overlays = useLiveQuery(() => list("notebook-overlay"), []) || [];
   const notebookPages = useLiveQuery(() => list("notebook-note"), []) || [];
   const notebooks = useLiveQuery(() => list("notebook"), []) || [];
   const browse = useBrowseState();
@@ -22,6 +30,7 @@ export function Notes() {
   const change = (key: string, value: string) => browse.update({ [key]: value, page: "1" });
   const setQuery = (v: string) => change("q", v), setBookId = (v: string) => browse.update({ book: v, notebook: "", page: "1", item: "" }), setColor = (v: string) => change("color", v), setSort = (v: string) => change("sort", v), setType = (v: string) => change("type", v), setTag = (v: string) => change("tag", v);
   const [editing, setEditing] = useState<Annotation>();
+  const [clipboard, setClipboard] = useState("");
   const bookMap = useMemo(() => new Map(books.map(b => [b.id, b])), [books]);
   const filtered = annotations
     .filter(
@@ -36,7 +45,7 @@ export function Notes() {
           .includes(query.toLowerCase()),
     )
     .sort((a, b) =>
-      sort === "oldest"
+      sort === "reading" ? (bookMap.get(a.bookId)?.title || "").localeCompare(bookMap.get(b.bookId)?.title || "") || a.bookId.localeCompare(b.bookId) || readingOrder(a.locator, b.locator) : sort === "oldest"
         ? a.createdAt.localeCompare(b.createdAt)
         : b.createdAt.localeCompare(a.createdAt),
     );
@@ -50,9 +59,10 @@ export function Notes() {
       drawingGroups.get(key)!.strokes.push(s);
     } else {
       const note = notebookPages.find(n => n.id === t.noteId), notebook = note && notebooks.find(n => n.id === note.notebookId);
-      if (!note || !notebook || !JSON.stringify(note.document).includes(t.blockId)) continue;
+      const overlay = overlays.some(d => d.id === t.blockId && d.noteId === t.noteId);
+      if (!note || !notebook || (!overlay && !JSON.stringify(note.document).includes(t.blockId))) continue;
       const key = `drawing:${note.id}:${t.blockId}`;
-      if (!drawingGroups.has(key)) drawingGroups.set(key, { sourceId: `notebook:${notebook.id}`, title: notebook.title, subtitle: `Drawing · ${note.title}`, href: `/notebooks?note=${note.id}`, strokes: [] });
+      if (!drawingGroups.has(key)) drawingGroups.set(key, { sourceId: `notebook:${notebook.id}`, title: notebook.title, subtitle: `Drawing · ${note.title}`, href: `/notebooks?note=${encodeURIComponent(note.id)}${overlay ? `&drawing=${encodeURIComponent(t.blockId)}` : ""}`, strokes: [] });
       drawingGroups.get(key)!.strokes.push(s);
     }
   }
@@ -153,6 +163,7 @@ export function Notes() {
           onChange={(e) => setSort(e.target.value)}
         >
           <option value="newest">Newest first</option>
+          <option value="reading">Reading order</option>
           <option value="oldest">Oldest first</option>
         </select>
         <select aria-label="Filter by tag" value={tag} onChange={e => setTag(e.target.value)}><option value="">Every tag</option>{[...new Set(annotations.flatMap(a => a.tags))].sort().map(t => <option key={t}>{t}</option>)}</select>
@@ -163,7 +174,16 @@ export function Notes() {
         <div className="notes-browser-layout">
           <nav className="notes-passage-list" aria-label="Saved passages and drawings"><p className="notes-result-count">{rows.length} saved {rows.length === 1 ? "item" : "items"}</p>{grouped.map(source => <section key={source}><h2>{page.items.find(r => r.sourceId === source)?.title}</h2>{page.items.filter(r => r.sourceId === source).map(r => <button key={r.id} aria-current={active?.id === r.id ? "page" : undefined} style={{ borderLeftColor: r.color }} onClick={() => browse.update({ item: r.id }, false)}><small>{r.subtitle}</small><span>{r.text.slice(0, 150)}</span>{r.annotation?.note && <em>{r.annotation.note.slice(0, 80)}</em>}</button>)}</section>)}</nav>
           <div className="notes-preview-pane"><button className="text-button notes-back-list" onClick={() => browse.update({ item: "" })}>Back to saved items</button>
-          {active?.annotation && <AnnotationCard annotation={active.annotation} book={bookMap.get(active.annotation.bookId)} onEdit={() => setEditing(active.annotation)} />}
+          {active?.annotation && <><div className="notes-reference-bar"><strong>{active.title}</strong><span>{active.subtitle}</span><button className="text-button" onClick={async () => {
+            try {
+              const url = new URL(location.href); url.search = "";
+              url.hash = `/read/${encodeURIComponent(active.annotation!.bookId)}?annotation=${encodeURIComponent(active.id)}`;
+              await navigator.clipboard.writeText(`${active.annotation!.text || active.annotation!.note}\n\n${active.title}, ${active.subtitle}\n${url.href}`);
+              setClipboard("Copied quote and source.");
+            } catch { setClipboard("Clipboard unavailable. You can select and copy the quote."); }
+          }}><Copy size={15} />Copy quote and source</button></div>
+          {clipboard && <small role="status">{clipboard}</small>}
+          <AnnotationCard annotation={active.annotation} book={bookMap.get(active.annotation.bookId)} onEdit={() => setEditing(active.annotation)} /></>}
           {active?.drawing && <article className="drawing-detail"><h2>{active.title}</h2><p>{active.subtitle}</p><Suspense fallback={<p>Opening drawing preview…</p>}><InkPreview strokes={active.drawing.strokes} /></Suspense><Link className="primary" to={active.drawing.href}>Open drawing</Link><p className="muted">Use Draw to edit or erase strokes. Drawings sync with your library.</p></article>}
           </div>
         </div>

@@ -3,6 +3,7 @@ import { openTools, clickTool } from "../e2e/controls";
 import { expect, test, type BrowserContext } from "@playwright/test";
 import { scanPdf } from "../helpers/scanned-pdf";
 import { createHash } from "node:crypto";
+import { wavFixture } from "../helpers/audio-fixture";
 
 // This is a transport-contract test, not a substitute for live Supabase/RLS tests.
 // Both browser contexts use separate IndexedDB stores; no real service is contacted.
@@ -28,8 +29,9 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
   const rows = new Map<string, any>(),
     receipts = new Map<string, any>();
   const objects = new Map<string, Buffer>(),
-    uploads = new Map<string, { path: string; bytes: Buffer }>();
+    uploads = new Map<string, { path: string; bytes: Buffer; length: string }>();
   let revision = 0;
+  let interruptedMedia = false;
   const install = async (context: BrowserContext) => {
     await context.addInitScript(
       ({ session }) => {
@@ -71,6 +73,8 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
       }
       if (p === "/rest/v1/rpc/apply_change") {
         const op = request.postDataJSON().p_operation;
+        if (op.kind === "notebook-media" && !op.deleted)
+          expect(objects.get(`${user.id}/${op.value.noteId}/${op.id}.${op.value.extension}`)?.length).toBe(op.value.size);
         if (receipts.has(op.opId)) return json(receipts.get(op.opId));
         const prior = rows.get(op.key);
         const candidate = { ...op, editedAt: op.createdAt, editId: op.opId, updatedAt: op.createdAt };
@@ -99,7 +103,7 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
         const headers = {
           "Tus-Resumable": "1.0.0",
           "Access-Control-Expose-Headers":
-            "Location, Upload-Offset, Tus-Resumable",
+            "Location, Upload-Offset, Upload-Length, Tus-Resumable",
         };
         if (request.method() === "POST") {
           const meta = Object.fromEntries(
@@ -111,7 +115,7 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
               }),
           );
           const id = String(uploads.size + 1);
-          uploads.set(id, { path: meta.objectName, bytes: Buffer.alloc(0) });
+          uploads.set(id, { path: meta.objectName, bytes: Buffer.alloc(0), length: request.headers()["upload-length"] });
           return route.fulfill({
             status: 201,
             headers: {
@@ -124,6 +128,10 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
         const upload = uploads.get(p.split("/").pop()!);
         if (!upload) return json({ message: "Not found" }, 404);
         if (request.method() === "PATCH") {
+          if (upload.path.endsWith(".wav") && !interruptedMedia) {
+            interruptedMedia = true;
+            return route.fulfill({ status: 503, headers });
+          }
           expect(Number(request.headers()["upload-offset"])).toBe(
             upload.bytes.length,
           );
@@ -135,7 +143,7 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
         }
         return route.fulfill({
           status: request.method() === "HEAD" ? 200 : 204,
-          headers: { ...headers, "Upload-Offset": String(upload.bytes.length) },
+          headers: { ...headers, "Upload-Offset": String(upload.bytes.length), "Upload-Length": upload.length },
         });
       }
       if (p.startsWith("/storage/v1/object/library/")) {
@@ -148,6 +156,19 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
               contentType: "application/pdf",
             })
           : json({ message: "Not found" }, 404);
+      }
+      if (p.startsWith("/storage/v1/object/sign/notebook-media/") && request.method() === "POST") {
+        const path = decodeURIComponent(p.split("/notebook-media/")[1]);
+        return objects.has(path) ? json({ signedURL: `/object/sign/notebook-media/${path}?token=test` }) : json({ message: "Not found" }, 404);
+      }
+      if (p.startsWith("/storage/v1/object/notebook-media/") || p.startsWith("/storage/v1/object/sign/notebook-media/")) {
+        const data = objects.get(decodeURIComponent(p.split("/notebook-media/")[1]));
+        if (!data) return json({ message: "Not found" }, 404);
+        const range = /^bytes=(\d+)-(\d*)$/.exec(request.headers().range || "");
+        if (!range) return route.fulfill({ status: 200, body: data, contentType: "audio/wav", headers: { "Accept-Ranges": "bytes" } });
+        const start = Number(range[1]), end = Math.min(range[2] ? Number(range[2]) : data.length - 1, data.length - 1);
+        return route.fulfill({ status: 206, body: data.subarray(start, end + 1), contentType: "audio/wav",
+          headers: { "Accept-Ranges": "bytes", "Content-Range": `bytes ${start}-${end}/${data.length}` } });
       }
       return json({ message: `Unexpected request: ${p}` }, 500);
     });
@@ -319,6 +340,26 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
         }, id)).toEqual({ deleted: true, conflicts: 0 });
       }
     }
+    await first.goto(new URL("/#/notebooks", baseURL!).href);
+    await first.getByRole("button", { name: "New notebook", exact: true }).click();
+    await first.getByLabel("Notebook name").fill("Shared seminar");
+    await first.getByRole("button", { name: "Create notebook" }).click();
+    await first.getByRole("button", { name: "New note", exact: true }).click();
+    await first.getByRole("textbox", { name: "Topic note content" }).fill("Return to this moment. ");
+    await first.getByLabel("Attach video or audio").setInputFiles({ name: "seminar.wav", mimeType: "audio/wav", buffer: wavFixture() });
+    await expect.poll(() => [...rows.values()].some(row => row.kind === "notebook-media" && !row.deleted), { timeout: 20000 }).toBe(true);
+    expect(interruptedMedia).toBe(true);
+    const media = [...rows.values()].find(row => row.kind === "notebook-media").value;
+    await expect.poll(() => first.locator("audio").evaluate((element: HTMLAudioElement) => element.duration)).toBe(3);
+    await first.locator("audio").evaluate((element: HTMLAudioElement) => { element.currentTime = 1.5; });
+    await first.getByRole("button", { name: "Insert timestamp", exact: true }).click();
+    await expect.poll(() => JSON.stringify(rows.get(`notebook-note:${media.noteId}`)?.value.document)).toContain("&at=1.5");
+    await second.goto(new URL(`/#/notebooks?note=${media.noteId}`, baseURL!).href);
+    await second.getByRole("link", { name: "0:01" }).click();
+    await expect.poll(() => second.locator("audio").evaluate((element: HTMLAudioElement) => element.currentTime)).toBeCloseTo(1.5, 1);
+    await second.getByRole("button", { name: "Keep offline" }).click();
+    await expect(second.getByRole("button", { name: "Available offline" })).toBeDisabled();
+    await second.goto(baseURL!);
     await second.locator(".book-cover-link").click();
     // Offline authorization with an expired/missing session; asset persistence
     // across a real offline browser restart is covered separately by test:pwa.

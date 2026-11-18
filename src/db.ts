@@ -21,6 +21,7 @@ class LibraryDB extends Dexie {
   meta!: Table<{ key: string; value: string }, string>;
   researchJobs!: Table<ResearchJob, string>;
   chunks!: Table<IndexedChunk, string>;
+  mediaFiles!: Table<{ id: string; bytes: ArrayBuffer; uploaded: boolean }, string>;
   constructor() {
     super("leafmark-v1");
     this.version(1).stores({
@@ -34,6 +35,7 @@ class LibraryDB extends Dexie {
       researchJobs: "&id, state, threadId, createdAt",
       chunks: "&id, bookId, [bookId+unit]",
     });
+    this.version(3).stores({ mediaFiles: "&id" });
     this.files.hook("reading", decodeBookFile);
   }
 }
