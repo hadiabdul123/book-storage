@@ -3,6 +3,7 @@ import base from "./playwright.config";
 
 export default defineConfig({
   ...base,
+  retries: process.env.CI ? 1 : 0,
   // Real PDF fits, decoded previews and a curl can queue on WebKit in CI.
   // Share the existing PDF-render budget; timing-specific checks stay explicit.
   expect: { ...base.expect, timeout: 15_000 },
