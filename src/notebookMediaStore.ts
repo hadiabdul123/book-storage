@@ -1,6 +1,6 @@
 import { db, get, list, save } from "./db";
 import { now, uid } from "./model";
-import { mediaKind, mediaLimitBytes, mediaObjectPath, mediaTypes, validMedia, type MediaExtension, type MediaPlacement, type NotebookMedia } from "./notebookAssets";
+import { mediaKind, mediaLimitBytes, mediaObjectPath, mediaTypes, validFreeMedia, validMedia, type FreeMediaPosition, type MediaExtension, type MediaPlacement, type NotebookMedia } from "./notebookAssets";
 import { cloud, synchronize, uploadLimitBytes } from "./sync";
 
 async function mediaHash(bytes: ArrayBuffer) {
@@ -37,9 +37,42 @@ export async function placeMedia(noteId: string, after: string, orderedIds: stri
   await db.transaction("rw", [db.rows, db.outbox, db.conflicts, db.meta], async () => {
     for (const [order, id] of orderedIds.entries()) {
       const media = await get("notebook-media", id) || await get("notebook-image", id);
-      if (media?.noteId === noteId && (media.placement?.after !== after || media.placement.order !== order)) {
+      if (media?.noteId === noteId && (media.placement?.after !== after || media.placement.order !== order || media.placement.free)) {
         await save(mediaKind(media), { ...media, placement: { after, order } });
       }
+    }
+  });
+}
+
+export async function positionMedia(noteId: string, positions: Map<string, FreeMediaPosition | undefined>) {
+  await db.transaction("rw", [db.rows, db.outbox, db.conflicts, db.meta], async () => {
+    for (const [id, free] of positions) {
+      const media = await get("notebook-media", id) || await get("notebook-image", id);
+      if (media?.noteId !== noteId) continue;
+      if (free && !validFreeMedia(free)) throw new Error("This attachment is outside the notebook page.");
+      const placement = { ...(media.placement || { after: "end", order: 0 }), free };
+      await save(mediaKind(media), { ...media, placement });
+    }
+  });
+}
+
+// A pasted group gets new attachment IDs and its own originals. Commit the
+// group together so a failed fetch cannot leave half a copy on the new page.
+export async function copyMediaToNote(noteId: string, ids: string[], after: string, order: number) {
+  const copies: { media: NotebookMedia; bytes: ArrayBuffer }[] = [];
+  let size = 0;
+  for (const id of ids) {
+    const original = await get("notebook-media", id) || await get("notebook-image", id);
+    if (!original) throw new Error("An attachment from the copied group is unavailable.");
+    size += original.size;
+    if (size > 100 * 1024 * 1024) throw new Error("Copy attachments in batches of up to 100 MB.");
+    copies.push({ media: { ...original, id: uid(), noteId, createdAt: now(), placement: { after, order: order++ } }, bytes: await originalMediaBytes(original) });
+  }
+  await db.transaction("rw", [db.mediaFiles, db.rows, db.outbox, db.conflicts, db.meta], async () => {
+    if (!(await get("notebook-note", noteId))) throw new Error("This notebook page has been removed.");
+    for (const { media, bytes } of copies) {
+      await db.mediaFiles.add({ id: media.id, bytes, uploaded: false });
+      await save(mediaKind(media), media);
     }
   });
 }

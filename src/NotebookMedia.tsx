@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { Clock3, Download, GripVertical } from "lucide-react";
+import { GripVertical } from "lucide-react";
+import type { DragEvent, PointerEvent } from "react";
 import { db, get, save } from "./db";
 import { cloud, subscribeSync, syncSnapshot, synchronize } from "./sync";
 import { mediaKind, mediaTypes } from "./notebookAssets";
@@ -32,7 +33,11 @@ export function cueHref(noteId: string, cue: MediaCue) {
   return link.href;
 }
 
-export function NotebookMedia({ media, cue, onTimestamp, onMove }: { media: Media; cue?: MediaCue; onTimestamp: (cue: MediaCue) => void; onMove: (direction: -1 | 1) => void }) {
+export function NotebookMedia({ media, cue, selected, onTimestamp, onMove, onSelect, onFree, onDrag }: {
+  media: Media; cue?: MediaCue; selected: boolean;
+  onTimestamp: (cue: MediaCue) => void; onMove: (direction: -1 | 1) => void;
+  onSelect: () => void; onFree: () => void; onDrag: (event: PointerEvent<HTMLButtonElement>) => void;
+}) {
   const [rename, setRename] = useState(false);
   const [visible, setVisible] = useState(false);
   const [source, setSource] = useState("");
@@ -106,32 +111,40 @@ export function NotebookMedia({ media, cue, onTimestamp, onMove }: { media: Medi
     await save(kind, { ...latest, ...patch }, deleted);
   }
 
-  return <figure className="note-media" ref={block} aria-label={`Attachment: ${media.title}`} data-media-id={media.id}>
-    <ItemMenu title={media.title} actions={[
-      { label: "Move up", run: () => onMove(-1) },
-      { label: "Move down", run: () => onMove(1) },
+  async function downloadOriginal() {
+    const bytes = await originalMediaBytes(media);
+    const url = URL.createObjectURL(new Blob([bytes], { type: mediaTypes[media.extension] }));
+    const a = document.createElement("a"); a.href = url; a.download = media.title; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  }
+
+  const floating = !!media.placement?.free;
+  function startDrag(event: DragEvent<HTMLElement>) {
+    event.dataTransfer.setData(mediaDragType, media.id);
+    event.dataTransfer.effectAllowed = "move";
+  }
+  return <figure className={`note-media${selected ? " is-selected" : ""}`} ref={block} aria-label={`Attachment: ${media.title}`} data-media-id={media.id}>
+    <ItemMenu title={media.title} className="notebook-media-menu" touch actions={[
+      { label: selected ? "Deselect attachment" : "Select attachment", run: onSelect },
+      { label: floating ? "Return to text flow" : "Move freely", run: onFree },
+      ...(!floating ? [{ label: "Move up", run: () => onMove(-1) }, { label: "Move down", run: () => onMove(1) }] : []),
+      ...(!image ? [{ label: `Play ${Player}`, disabled: !source || !!error, run: () => { if (player.current) void run(() => player.current!.play()); } }] : []),
+      ...(!image ? [{ label: "Insert timestamp", disabled: !source || !!error, run: () => onTimestamp({ id: media.id, time: player.current?.currentTime ?? 0 }) }] : []),
+      { label: local ? "Available offline" : "Keep offline", disabled: busy || !!local, run: () => void run(() => {
+        pendingSeek.current = player.current?.currentTime;
+        return keepMediaOffline(media);
+      }) },
+      { label: "Download original", disabled: busy, run: () => void run(downloadOriginal) },
       { label: "Rename", run: () => setRename(true) },
       { label: "Move to Trash", danger: true, run: () => { if (confirm(`Move “${media.title}” to Trash?`)) void run(() => change({}, true)); } },
-    ]}><button className="note-media-file" type="button" draggable onClick={() => setVisible(true)} onDragStart={e => {
-      e.dataTransfer.setData(mediaDragType, media.id);
-      e.dataTransfer.effectAllowed = "move";
-    }}><GripVertical size={17} /><span>{media.title}</span></button></ItemMenu>
-    <div className="note-media-player">
-      {source && (image ? <img key={source} src={source} alt={media.title} draggable={false} onError={failedPreview} /> :
+    ]}><div className="note-media-player">
+      {source && (image ? <img key={source} src={source} alt={media.title} draggable={!floating} onDragStart={startDrag} onError={failedPreview} /> :
         <Player key={source} ref={element => { player.current = element; }} controls preload="metadata" src={source} onLoadedMetadata={seek} onCanPlay={seek} onError={failedPreview} />)}
-      <div className="note-media-actions">
-        {!image && <button className="text-button" disabled={!source || !!error} onMouseDown={e => e.preventDefault()} onClick={() => onTimestamp({ id: media.id, time: player.current?.currentTime ?? 0 })}><Clock3 size={16} />Insert timestamp</button>}
-        <button className="text-button" disabled={busy || !!local} onClick={() => void run(() => {
-          pendingSeek.current = player.current?.currentTime;
-          return keepMediaOffline(media);
-        })}>{local ? "Available offline" : "Keep offline"}</button>
-        <button className="text-button" disabled={busy} onClick={() => void run(async () => {
-          const bytes = await originalMediaBytes(media);
-          const url = URL.createObjectURL(new Blob([bytes], { type: mediaTypes[media.extension] }));
-          const a = document.createElement("a"); a.href = url; a.download = media.title; a.click();
-          setTimeout(() => URL.revokeObjectURL(url), 60_000);
-        })}><Download size={16} />Download original</button>
-      </div>
+      {!source && visible && !error && <p role="status">Opening attachment…</p>}
+      <button className="note-media-handle" type="button" aria-label={`Drag ${media.title}`}
+        onPointerDown={onDrag} onClick={e => { e.stopPropagation(); if (!e.detail) onSelect(); }}><GripVertical size={17} /></button>
+    </div></ItemMenu>
+    <div className="note-media-status">
       {transfer?.state === "uploading" && <progress aria-label="Attachment upload" value={transfer.percent} max={100} />}
       {transfer?.state === "error" && <p role="status">{transfer.message} <button className="text-button" onClick={() => void run(synchronize)}>Retry sync</button></p>}
       {cloud && local && !local.uploaded && !transfer && <small>Saved on this device. Upload pending.</small>}

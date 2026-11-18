@@ -5,7 +5,8 @@ import { saveResearchClip, saveNotebookNote } from "../src/notebookStore";
 import { citationNode, documentSources, sourceHref } from "../src/sourceReferences";
 import { plainText, validRichDocument, markdown, paragraph } from "../src/richText";
 import { researchBackup, restoreResearchBackup } from "../src/researchBackup";
-import { rankChunks, splitUnit, surroundingText } from "../src/sourceIndex";
+import { rankChunks, retrieveSources, sectionIndexKey, splitUnit, surroundingText } from "../src/sourceIndex";
+import { planBookReview } from "../src/bookReview";
 import type { SourceRef } from "../src/researchTypes";
 import type { Book } from "../src/model";
 const book: Book = { id: "book", title: "Universe", author: "Author", hash: "a".repeat(64), format: "pdf", bytes: 100, filename: "universe.pdf", description: "", tags: [], status: "reading", addedAt: "2026-01-01T00:00:00Z", sourcePath: "book/source.pdf" };
@@ -56,4 +57,35 @@ it("retrieves matching chunks and handles whitespace around a selected phrase", 
   const chunks = splitUnit(book, { unit: 1, text: "Big Bang theory explains the expansion of the universe.", title: book.title, locator: source.locator! });
   expect(rankChunks("Big Bang evidence", chunks)[0].bookId).toBe(book.id); expect(rankChunks("unrelated elephant", chunks)).toHaveLength(0);
   expect(surroundingText("The Big\nBang theory describes expansion.", "Big Bang")).toContain("describes expansion");
+});
+
+it("keeps a source slot for every compared book and includes a chosen highlight's follow-ups", async () => {
+  const other = { ...book, id: "other", title: "Another view", hash: "b".repeat(64) };
+  await save("book", other);
+  const first = splitUnit(book, { unit: 1, text: "Expansion ".repeat(1500), title: book.title, locator: source.locator! });
+  const second = splitUnit(other, { unit: 1, text: "The second author writes about gravity.", title: other.title, locator: { ...source.locator!, hash: other.hash } });
+  await db.chunks.bulkPut([...first, ...second]);
+  await save("annotation", { id: "quote", bookId: other.id, locator: { ...source.locator!, hash: other.hash }, text: "The exception is important", note: "Consider the conditions", color: "yellow", tags: [], createdAt: "2026-01-01T00:00:00Z" });
+  await save("highlight-followup", { id: "follow", annotationId: "quote", text: "Check the next chapter", createdAt: "2026-01-01T00:01:00Z" });
+  const result = await retrieveSources("Expansion", [book.id, other.id], [], ["quote"]);
+  expect(result.slice(0, 2).map(ref => ref.bookId)).toEqual([book.id, other.id]);
+  expect(result[2].excerpt).toContain("Check the next chapter");
+  expect(sourceHref(result[2])).toBe("#/notes?item=quote");
+  expect(result.length).toBeLessThanOrEqual(7);
+});
+
+it("samples a marked chapter in order and reports sections without cached text", async () => {
+  const markers = [{ start: 1, title: "A beginning" }, { start: 5, title: "An empty chapter" }, { start: 8, title: "More evidence" }];
+  await db.meta.bulkPut([
+    { key: `text-index:${book.id}`, value: JSON.stringify({ hash: book.hash, version: 2, complete: true, missing: 0 }) },
+    { key: `pdf-page-count:${book.hash}`, value: "12" },
+    { key: sectionIndexKey(book), value: JSON.stringify(markers) },
+  ]);
+  for (const unit of [1, 2, 3, 4, 8, 10, 12]) await db.chunks.bulkPut(splitUnit(book, { unit, text: `Page ${unit} has evidence `.repeat(100), title: book.title, locator: { v: 1, type: "pdf", hash: book.hash, page: unit, y: 0 } }));
+  const sections = await planBookReview([book], new AbortController().signal, () => {});
+  expect(sections.map(section => section.label)).toEqual(markers.map(marker => marker.title));
+  expect(sections[0].sources).toHaveLength(7);
+  expect(sections[0].sources.at(-1)?.locator).toMatchObject({ page: 4 });
+  expect(sections[1].sources).toEqual([]);
+  expect(sections[2].sources.at(-1)?.locator).toMatchObject({ page: 12 });
 });

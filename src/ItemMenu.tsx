@@ -6,11 +6,16 @@ import "./itemMenu.css";
 
 export type ItemAction = { label: string; run: () => void; danger?: boolean; disabled?: boolean };
 
-export function ItemMenu({ title, children, actions }: { title: string; children: ReactNode; actions: ItemAction[] }) {
+export function ItemMenu({ title, children, actions, className, touch = false }: { title: string; children: ReactNode; actions: ItemAction[]; className?: string; touch?: boolean }) {
   const [point, setPoint] = useState<{ x: number; y: number }>();
   const trigger = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
+  const hold = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const finger = useRef<{ x: number; y: number } | undefined>(undefined);
+  const suppressClick = useRef(false);
+  function stopHold() { clearTimeout(hold.current); finger.current = undefined; }
+  useEffect(() => stopHold, []);
   function open(x: number, y: number, focus: HTMLElement | null) {
     returnFocus.current = focus;
     setPoint({ x, y });
@@ -34,9 +39,21 @@ export function ItemMenu({ title, children, actions }: { title: string; children
     window.addEventListener("resize", leave);
     return () => { document.removeEventListener("pointerdown", outside, true); window.removeEventListener("resize", leave); };
   }, [point]);
-  return <div className="workspace-item" onContextMenu={event => {
+  return <div className={`workspace-item${className ? ` ${className}` : ""}`} onContextMenu={event => {
     event.preventDefault();
+    stopHold();
     open(event.clientX, event.clientY, event.currentTarget.querySelector("button"));
+  }} onPointerDown={event => {
+    if (!touch || event.pointerType !== "touch" || !event.isPrimary || (event.target as Element).closest(".workspace-more, .workspace-menu")) return;
+    const x = event.clientX, y = event.clientY;
+    suppressClick.current = false; finger.current = { x, y };
+    hold.current = setTimeout(() => { suppressClick.current = true; open(x, y, trigger.current); }, 520);
+  }} onPointerMove={event => {
+    const start = finger.current;
+    if (start && Math.hypot(event.clientX - start.x, event.clientY - start.y) > 10) stopHold();
+  }} onPointerCancel={stopHold} onPointerLeave={stopHold} onPointerUp={stopHold} onClickCapture={event => {
+    if (!suppressClick.current || (event.target as Element).closest(".workspace-menu,.workspace-more")) return;
+    suppressClick.current = false; event.preventDefault(); event.stopPropagation();
   }} onKeyDown={event => {
     if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
     event.preventDefault();
@@ -61,7 +78,7 @@ export function ItemMenu({ title, children, actions }: { title: string; children
         (index + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length;
       buttons[next]?.focus();
     }}>
-      {actions.map(action => <button key={action.label} type="button" role="menuitem" disabled={action.disabled} className={action.danger ? "danger" : undefined} onClick={() => { close(true); action.run(); }}>{action.label}</button>)}
+      {actions.map(action => <button key={action.label} type="button" role="menuitem" disabled={action.disabled} className={action.danger ? "danger" : undefined} onClick={() => { suppressClick.current = false; close(true); action.run(); }}>{action.label}</button>)}
     </div>, document.body)}
   </div>;
 }

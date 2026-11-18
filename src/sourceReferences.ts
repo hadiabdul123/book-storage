@@ -8,6 +8,7 @@ export function validSourceRef(value: unknown): value is SourceRef {
     ["book", "note", "web"].includes(s.kind) && typeof s.title === "string" && s.title.length <= 1000 &&
     typeof s.excerpt === "string" && s.excerpt.length <= 20000 &&
     (s.bookId === undefined || typeof s.bookId === "string") &&
+    (s.annotationId === undefined || (s.kind === "book" && typeof s.annotationId === "string" && s.annotationId.length <= 100)) &&
     (s.noteId === undefined || typeof s.noteId === "string") &&
     (s.locator === undefined || validLocator(s.locator)) &&
     (s.retrievedAt === undefined || (typeof s.retrievedAt === "string" && Number.isFinite(Date.parse(s.retrievedAt)))) &&
@@ -18,6 +19,7 @@ export function sourceHref(source: SourceRef): string {
   if (!validSourceRef(source)) return "#";
   if (source.kind === "web") return source.url!;
   if (source.kind === "note") return `#/notebooks?note=${encodeURIComponent(source.noteId!)}`;
+  if (source.annotationId) return `#/notes?item=${encodeURIComponent(source.annotationId)}`;
   return `#/read/${encodeURIComponent(source.bookId!)}?source=${encodeURIComponent(JSON.stringify(source.locator))}`;
 }
 export function sourceLabel(source: SourceRef) {

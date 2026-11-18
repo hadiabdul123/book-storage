@@ -26,10 +26,10 @@ export function ResearchBrowser() {
     }
     return map;
   }, [messages]);
-  const filtered = threads.filter(t => (!book || t.bookId === book) && (!notebook || t.notebookId === notebook) && `${t.title} ${summaries.get(t.id)?.text || ""}`.toLowerCase().includes(query.toLowerCase())).sort((a, b) => (summaries.get(b.id)?.updated || b.createdAt).localeCompare(summaries.get(a.id)?.updated || a.createdAt));
+  const filtered = threads.filter(t => (!book || t.bookId === book || t.scope?.bookIds.includes(book)) && (!notebook || t.notebookId === notebook) && `${t.title} ${summaries.get(t.id)?.text || ""}`.toLowerCase().includes(query.toLowerCase())).sort((a, b) => (summaries.get(b.id)?.updated || b.createdAt).localeCompare(summaries.get(a.id)?.updated || a.createdAt));
   const page = pageOf(filtered, browse.value("rpage"));
   const active = threads.find(t => t.id === selected);
-  const sources = [...books.map(b => ({ id: `book:${b.id}`, title: b.title, detail: b.author, count: threads.filter(t => t.bookId === b.id).length })), ...notebooks.map(n => ({ id: `notebook:${n.id}`, title: n.title, detail: "Notebook", count: threads.filter(t => t.notebookId === n.id).length }))];
+  const sources = [...books.map(b => ({ id: `book:${b.id}`, title: b.title, detail: b.author, count: threads.filter(t => t.bookId === b.id || t.scope?.bookIds.includes(b.id)).length })), ...notebooks.map(n => ({ id: `notebook:${n.id}`, title: n.title, detail: "Notebook", count: threads.filter(t => t.notebookId === n.id).length }))];
   async function trash(thread: ResearchThread) {
     if (!confirm(`Move “${thread.title}” to Trash?`)) return;
     try {
@@ -52,7 +52,7 @@ export function ResearchBrowser() {
       { label: "Rename", run: () => setRename(t) },
       { label: "Move to Trash", danger: true, run: () => void trash(t) },
     ]}><button aria-current={selected === t.id ? "page" : undefined} onClick={() => browse.update({ thread: t.id }, false)}><strong>{t.title}</strong><span>{summaries.get(t.id)?.preview}</span><small>{books.find(b => b.id === t.bookId)?.title || notebooks.find(n => n.id === t.notebookId)?.title || "General research"} · {summaries.get(t.id)?.count || 0} answers</small></button></ItemMenu>)}</nav>{!filtered.length && <p>No matching conversations.</p>}<BrowsePages {...page} label="Conversations" onChange={n => browse.update({ rpage: String(n) })} /></aside>
-    <main className="research-browser-detail">{active ? <><div className="research-browser-actions"><button className="text-button" onClick={() => browse.update({ thread: "" })}>Back to conversations</button><button className="text-button" onClick={() => setRename(active)}>Rename conversation</button></div><ResearchPanel key={active.id} initialThreadId={active.id} book={books.find(b => b.id === active.bookId)} notebookId={active.notebookId} onThreadChange={id => browse.update({ thread: id }, false)} /></> : <div className="research-browser-welcome"><h2>Open a conversation</h2><p>Choose a saved conversation or start new research.</p></div>}</main></div></div>
+    <main className="research-browser-detail">{active ? <><div className="research-browser-actions"><button className="text-button" onClick={() => browse.update({ thread: "" })}>Back to conversations</button><button className="text-button" onClick={() => setRename(active)}>Rename conversation</button></div><ResearchPanel key={active.id} initialThreadId={active.id} libraryFirst book={books.find(b => b.id === active.bookId)} notebookId={active.notebookId} onThreadChange={id => browse.update({ thread: id }, false)} /></> : <div className="research-browser-welcome"><h2>Study your books</h2><p>Start a chapter review, compare selected books, or build on your saved highlights.</p></div>}</main></div></div>
     {rename && <RenameItem label="conversation" value={rename.title} onClose={() => setRename(undefined)} onSave={async title => {
       const latest = await get("research-thread", rename.id);
       if (!latest) throw new Error("The conversation was removed.");

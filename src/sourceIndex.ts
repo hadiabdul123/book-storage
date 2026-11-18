@@ -2,9 +2,12 @@ import { db, list } from "./db";
 import { quoteAt, textNodes } from "./anchors";
 import type { Book, Locator } from "./model";
 import type { IndexedChunk, SourceRef } from "./researchTypes";
+import { downloadBook } from "./sync";
 
 export type TextUnit = { unit: number; text: string; locator: Locator; title: string; missing?: boolean };
-const extractionVersion = 1;
+const extractionVersion = 2;
+export type SectionMarker = { start: number; title: string };
+export const sectionIndexKey = (book: Book) => `research-sections:${book.id}:${book.hash}`;
 export function splitUnit(book: Book, unit: TextUnit): IndexedChunk[] {
   const result: IndexedChunk[] = [];
   for (let start = 0; start < unit.text.length; start += 1000) {
@@ -24,8 +27,12 @@ export function surroundingText(text: string, selected: string, fallback = "") {
 
 /** Extract without a rendition or OCR job. Read just one page/section per turn. */
 export async function* extractBookText(book: Book, signal: AbortSignal, startUnit = 0): AsyncGenerator<TextUnit> {
-  const file = await db.files.get(book.id);
-  if (!file) throw new Error(`Download “${book.title}” before researching its text.`);
+  let file = await db.files.get(book.id);
+  if (!file) {
+    try { file = await downloadBook(book); }
+    catch { throw new Error(`Download “${book.title}” before researching its text.`); }
+  }
+  signal.throwIfAborted();
   if (book.format === "pdf") {
     const { pdfLibrary, pdfOptions } = await import("./pdf");
     const pdf = await pdfLibrary();
@@ -35,6 +42,20 @@ export async function* extractBookText(book: Book, signal: AbortSignal, startUni
     try {
       const doc = await task.promise;
       await db.meta.put({ key: `pdf-page-count:${book.hash}`, value: String(doc.numPages) });
+      const markers: SectionMarker[] = [];
+      try {
+        const outline = await doc.getOutline() || [];
+        const entries = outline.length === 1 && outline[0].items.length ? outline[0].items : outline;
+        for (const item of entries) {
+          signal.throwIfAborted();
+          const dest = typeof item.dest === "string" ? await doc.getDestination(item.dest) : item.dest;
+          const target = dest?.[0];
+          if (target == null) continue;
+          const start = 1 + (typeof target === "number" ? target : await doc.getPageIndex(target));
+          if (start <= doc.numPages && item.title.trim()) markers.push({ start, title: item.title.trim().slice(0, 200) });
+        }
+      } catch (e) { if (signal.aborted) throw e; }
+      await db.meta.put({ key: sectionIndexKey(book), value: JSON.stringify(markers) });
       for (let n = Math.max(1, startUnit); n <= doc.numPages; n++) {
         signal.throwIfAborted();
         const page = await doc.getPage(n);
@@ -59,7 +80,16 @@ export async function* extractBookText(book: Book, signal: AbortSignal, startUni
     const { sanitize } = await import("./import");
     const root = document.createElement("article");
     root.innerHTML = sanitize(await file.derived.text());
-    const text = textNodes(root).map(n => n.data).join("");
+    const nodes = textNodes(root), markers: SectionMarker[] = [];
+    let offset = 0, previous: Element | null | undefined;
+    for (const node of nodes) {
+      const heading = node.parentElement?.closest("h1,h2,h3");
+      if (heading && heading !== previous && heading.textContent?.trim()) markers.push({ start: offset, title: heading.textContent.trim().slice(0, 200) });
+      previous = heading;
+      offset += node.length;
+    }
+    await db.meta.put({ key: sectionIndexKey(book), value: JSON.stringify(markers) });
+    const text = nodes.map(n => n.data).join("");
     yield { unit: 0, text, title: book.title, locator: { v: 1, type: "docx", hash: book.hash, start: 0, end: Math.min(100, text.length) } };
   } else {
     const { default: ePub } = await import("epubjs");
@@ -68,12 +98,16 @@ export async function* extractBookText(book: Book, signal: AbortSignal, startUni
       await epub.ready;
       const sections: any[] = [];
       epub.spine.each((section: any) => sections.push(section));
+      const markers: SectionMarker[] = startUnit ? JSON.parse((await db.meta.get(sectionIndexKey(book)))?.value || "[]") : [];
       for (let i = startUnit; i < sections.length; i++) {
         signal.throwIfAborted();
         const section = sections[i];
         await section.load(epub.load.bind(epub));
         const root = section.document.body as HTMLElement;
         root.querySelectorAll("script,style,iframe,object,embed,form").forEach(el => el.remove());
+        const heading = root.querySelector("h1,h2,h3")?.textContent?.trim();
+        markers[i] = { start: i, title: heading?.slice(0, 200) || `Section ${i + 1}` };
+        await db.meta.put({ key: sectionIndexKey(book), value: JSON.stringify(markers) });
         const nodes = textNodes(root);
         const text = nodes.map(n => n.data).join("");
         const range = section.document.createRange() as Range;
@@ -138,15 +172,34 @@ export function rankChunks(query: string, chunks: IndexedChunk[], limit = 6): So
     id: `S${i + 1}`, kind: "book", title: chunk.title, excerpt: chunk.text, bookId: chunk.bookId, locator: chunk.locator,
   }));
 }
-export async function retrieveSources(query: string, bookIds: string[], noteIds: string[] = []) {
+export async function retrieveSources(query: string, bookIds: string[], noteIds: string[] = [], highlightIds: string[] = []) {
   const chunks = await db.chunks.where("bookId").anyOf(bookIds).toArray();
   const notes = (await list("notebook-note")).filter(n => noteIds.includes(n.id));
   const { plainText } = await import("./richText");
-  const ranked = rankChunks(query, chunks);
+  const selected = new Set(highlightIds);
+  const annotated = await list("annotation");
+  const followups = selected.size ? await list("highlight-followup") : [];
   const terms = query.toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) || [];
-  const refs: SourceRef[] = notes.slice(0, 3)
+  const refs: SourceRef[] = notes
     .map(n => ({ id: `N${n.id}`, kind: "note", noteId: n.id, title: n.title, excerpt: plainText(n.document).slice(0, 1500) }));
-  const annotations: SourceRef[] = (await list("annotation")).filter(a => bookIds.includes(a.bookId) && a.note && terms.some(t => `${a.text} ${a.note}`.toLowerCase().includes(t))).slice(0, 2)
+  const highlights: SourceRef[] = annotated.filter(a => selected.has(a.id) && a.type !== "page-note")
+    .map(a => ({ id: `A${a.id}`, kind: "book", bookId: a.bookId, annotationId: a.id, title: `Highlight: ${a.text.slice(0, 80)}`,
+      excerpt: [a.text, a.note, ...followups.filter(note => note.annotationId === a.id).map(note => note.text)].filter(Boolean).join("\n\n").slice(0, 1800), locator: a.locator }));
+  const annotations: SourceRef[] = annotated.filter(a => !selected.has(a.id) && bookIds.includes(a.bookId) && a.note && terms.some(t => `${a.text} ${a.note}`.toLowerCase().includes(t))).slice(0, 2)
     .map(a => ({ id: `A${a.id}`, kind: "book", bookId: a.bookId, title: `Reader note: ${a.text.slice(0, 80)}`, excerpt: `${a.text}\n${a.note}`.slice(0, 1500), locator: a.locator }));
-  return [...refs, ...annotations, ...ranked].slice(0, 7);
+  const books = bookIds.map(bookId => {
+    const local = chunks.filter(chunk => chunk.bookId === bookId);
+    const ranked = rankChunks(query, local, 7);
+    if (ranked.length || !local.length) return ranked;
+    const middle = Math.floor(local.length / 2);
+    return [...new Set([middle, Math.floor(local.length / 5), Math.floor(local.length * .8)])].map(index => chunkSource(local[index]));
+  });
+  const first = books.flatMap(refs => refs.slice(0, 1));
+  const more = books.flatMap(refs => refs.slice(1));
+  return [...first, ...highlights, ...refs, ...annotations, ...more].filter(ref => !!ref.excerpt.trim()).slice(0, 7)
+    .map((ref, i) => ({ ...ref, id: `S${i + 1}` }));
+}
+
+export function chunkSource(chunk: IndexedChunk): SourceRef {
+  return { id: chunk.id.slice(0, 200), kind: "book", bookId: chunk.bookId, title: chunk.title, locator: chunk.locator, excerpt: chunk.text };
 }

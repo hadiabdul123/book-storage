@@ -357,13 +357,16 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
     const media = [...rows.values()].find(row => row.kind === "notebook-media").value;
     await expect.poll(() => first.locator("audio").evaluate((element: HTMLAudioElement) => element.duration)).toBe(3);
     await first.locator("audio").evaluate((element: HTMLAudioElement) => { element.currentTime = 1.5; });
-    await first.getByRole("button", { name: "Insert timestamp", exact: true }).click();
+    await first.getByRole("button", { name: "More actions for seminar.wav" }).click();
+    await first.getByRole("menuitem", { name: "Insert timestamp", exact: true }).click();
     await expect.poll(() => JSON.stringify(rows.get(`notebook-note:${media.noteId}`)?.value.document)).toContain("&at=1.5");
     await second.goto(new URL(`/#/notebooks?note=${media.noteId}`, baseURL!).href);
     await second.getByRole("link", { name: "0:01" }).click();
     await expect.poll(() => second.locator("audio").evaluate((element: HTMLAudioElement) => element.currentTime)).toBeCloseTo(1.5, 1);
-    await second.getByRole("button", { name: "Keep offline" }).click();
-    await expect(second.getByRole("button", { name: "Available offline" })).toBeDisabled();
+    const seminarMenu = second.getByRole("button", { name: "More actions for seminar.wav" });
+    await seminarMenu.click();
+    await second.getByRole("menuitem", { name: "Keep offline" }).click();
+    await expect.poll(() => second.evaluate(async id => Boolean(await (await import("/src/db.ts")).db.mediaFiles.get(id)), media.id)).toBe(true);
 
     const image = await first.evaluate(() => {
       const canvas = document.createElement("canvas"); canvas.width = 16; canvas.height = 12;
@@ -372,12 +375,18 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
     });
     await first.getByLabel("Attach image, video or audio").setInputFiles({ name: "diagram.png", mimeType: "image/png", buffer: Buffer.from(image, "base64") });
     await expect.poll(() => [...rows.values()].some(row => row.kind === "notebook-image" && row.value.placement?.after), { timeout: 20_000 }).toBe(true);
+    await first.getByRole("button", { name: "More actions for diagram.png" }).click();
+    await first.getByRole("menuitem", { name: "Move freely" }).click();
+    await expect.poll(() => [...rows.values()].find(row => row.kind === "notebook-image")?.value.placement?.free?.width).toBe(.45);
     await second.reload();
     const diagram = second.getByRole("figure", { name: "Attachment: diagram.png" });
     await diagram.scrollIntoViewIfNeeded();
     await expect(diagram.getByRole("img", { name: "diagram.png" })).toBeVisible();
-    await diagram.getByRole("button", { name: "Keep offline" }).click();
-    await expect(diagram.getByRole("button", { name: "Available offline" })).toBeDisabled();
+    await expect(second.locator(".notebook-free-media").getByRole("figure", { name: "Attachment: diagram.png" })).toBeVisible();
+    await diagram.getByRole("button", { name: "More actions for diagram.png" }).click();
+    await second.getByRole("menuitem", { name: "Keep offline" }).click();
+    const imageId = [...rows.values()].find(row => row.kind === "notebook-image").id;
+    await expect.poll(() => second.evaluate(async id => Boolean(await (await import("/src/db.ts")).db.mediaFiles.get(id)), imageId)).toBe(true);
 
     const highlightId = await first.evaluate(async () => {
       const { list, save } = await import("/src/db.ts");

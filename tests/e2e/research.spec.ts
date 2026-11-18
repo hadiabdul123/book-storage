@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { textPdf } from "../helpers/text-pdf";
+import { PDFDocument } from "pdf-lib";
 import { clickTool, showPassageAction } from "./controls";
 import JSZip from "jszip";
 import path from "node:path";
@@ -117,6 +118,39 @@ test("chosen-source research indexes text locally and offline questions preserve
   await page.getByRole("button", { name: "Save question for later" }).click();
   await expect.poll(() => page.evaluate(async () => (await (await import("/src/db.ts")).db.researchJobs.toArray()).filter(j => j.state === "queued").length)).toBe(1);
   await page.screenshot({ path: `.local/research-offline-${test.info().project.name}.png` });
+});
+
+test("book study queues separate cited reviews and compares evidence from every selected book", async ({ page }) => {
+  const alpha = await PDFDocument.create();
+  for (const text of ["River ecology depends on biodiversity.", "River restoration adds habitat."])
+    alpha.addPage([500, 650]).drawText(text, { x: 40, y: 580, size: 20 });
+  await page.goto("/");
+  await page.locator("input[type=file]").setInputFiles([
+    { name: "Study Alpha.pdf", mimeType: "application/pdf", buffer: Buffer.from(await alpha.save()) },
+    { name: "Study Beta.pdf", mimeType: "application/pdf", buffer: textPdf(["River restoration also needs community support."]) },
+  ]);
+  await expect(page.getByRole("heading", { name: "Study Alpha", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Study Beta", exact: true })).toBeVisible();
+  await page.goto("/#/notebooks?view=research");
+  await page.getByRole("button", { name: "New research", exact: true }).click();
+  await page.getByText("Choose books and notes", { exact: true }).click();
+  await page.getByRole("checkbox", { name: "Study Alpha", exact: true }).check();
+  await page.getByRole("checkbox", { name: "Study Beta", exact: true }).check();
+  await page.getByText("Choose books and notes", { exact: true }).click();
+  await page.getByRole("button", { name: "Review chapters" }).click();
+  await expect(page.getByRole("dialog")).toContainText("Pages 1–2");
+  await page.getByRole("button", { name: "Review 2 sections" }).click();
+  await expect(page.getByRole("dialog")).toContainText("2 sections queued");
+  await page.getByRole("button", { name: "Back to conversation", exact: true }).click();
+  await page.getByRole("button", { name: "Compare books", exact: true }).click();
+  await expect(page.getByLabel("Research question")).toHaveValue(/where they agree/);
+  await page.getByRole("button", { name: "Research", exact: true }).click();
+  await expect.poll(async () => page.evaluate(async () => {
+    const { db } = await import("/src/db.ts");
+    const jobs = await db.researchJobs.toArray();
+    return { reviews: jobs.filter(job => job.request.question.startsWith("Review ")).length,
+      books: new Set(jobs.find(job => job.request.question.startsWith("Compare "))?.request.sources.map(source => source.bookId)).size };
+  })).toEqual({ reviews: 2, books: 2 });
 });
 
 for (const format of ["epub", "docx"] as const) test(`${format} contextual research retains a navigable source and locally indexes its text`, async ({ page }) => {

@@ -154,6 +154,35 @@ test("pointer and trail are independent and failed settings saves stay usable", 
   await expect(pointer(page)).not.toBeVisible();
 });
 
+test("the reading ring stays visible in a narrow Reading mode window and in fullscreen", async ({ page }, info) => {
+  test.skip(info.project.name !== "desktop");
+  await openPdf(page);
+  await enable(page);
+  await page.getByLabel("Pointer shape", { exact: true }).selectOption("ring");
+  await page.getByRole("button", { name: "Close panel" }).click();
+  await page.setViewportSize({ width: 640, height: 540 });
+  await clickTool(page, "Reading mode");
+  await expect(page.locator(".reader-header")).toBeHidden();
+  await expect(page.locator(".reader-host")).toHaveAttribute("aria-busy", "false");
+  await moveOnPage(page);
+  await expect(pointer(page)).toBeVisible();
+  // The ring can cross the paper edge, while the trail stays on the paper.
+  expect(await pointer(page).evaluate(el => el.closest("[clip-path]"))).toBeNull();
+  await expect(overlay(page).locator("g[clip-path]")).toHaveCount(1);
+
+  if (await page.evaluate(() => document.fullscreenEnabled)) {
+    await clickTool(page, "Enter fullscreen reading");
+    await expect(page.locator(":fullscreen > .reading-pointer-overlay:not(.is-preview)")).toBeAttached();
+    await expect(page.locator(".reader-host")).toHaveAttribute("aria-busy", "false");
+    await moveOnPage(page);
+    await expect(pointer(page)).toBeVisible();
+    await page.evaluate(() => document.exitFullscreen());
+    await expect(page.locator(":fullscreen")).toHaveCount(0);
+    await moveOnPage(page);
+    await expect(pointer(page)).toBeVisible();
+  }
+});
+
 test("touch reading does not show a mouse guide even when enabled", async ({ page }, info) => {
   test.skip(info.project.name !== "mobile-layout");
   await openPdf(page); await enable(page);

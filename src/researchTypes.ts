@@ -6,6 +6,7 @@ export type SourceRef = {
   title: string;
   excerpt: string;
   bookId?: string;
+  annotationId?: string;
   locator?: Locator;
   noteId?: string;
   url?: string;
@@ -19,8 +20,10 @@ export type NotebookNote = {
   tags: string[]; createdAt: string; updatedAt: string;
 };
 export type ResearchMode = "explain" | "sources" | "web";
+export type ResearchScope = { bookIds: string[]; noteIds: string[]; highlightIds: string[] };
 export type ResearchThread = {
   id: string; title: string; bookId?: string; notebookId?: string;
+  scope?: ResearchScope;
   selection?: SourceRef; createdAt: string;
 };
 export type ResearchMessage = {

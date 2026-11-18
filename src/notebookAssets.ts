@@ -15,7 +15,8 @@ export const mediaTypes = {
 } as const;
 export type MediaExtension = keyof typeof mediaTypes;
 export const mediaLimitBytes = 50 * 1024 * 1024;
-export type MediaPlacement = { after: string; order: number };
+export type FreeMediaPosition = { x: number; y: number; width: number };
+export type MediaPlacement = { after: string; order: number; free?: FreeMediaPosition };
 export type NotebookMedia = {
   id: string;
   noteId: string;
@@ -36,8 +37,13 @@ export const validMedia = (value: NotebookMedia) => assetId(value.noteId) && ass
   Object.hasOwn(mediaTypes, value.extension) && Number.isInteger(value.size) && value.size > 0 && value.size <= mediaLimitBytes &&
   typeof value.hash === "string" && /^[a-f0-9]{64}$/.test(value.hash) &&
   (value.placement === undefined || (value.placement && assetId(value.placement.after) &&
-    Number.isSafeInteger(value.placement.order) && value.placement.order >= 0)) &&
+    Number.isSafeInteger(value.placement.order) && value.placement.order >= 0 &&
+    (value.placement.free === undefined || validFreeMedia(value.placement.free)))) &&
   (value.purgedAt === undefined || (typeof value.purgedAt === "string" && Number.isFinite(Date.parse(value.purgedAt))));
 export const mediaObjectPath = (owner: string, media: NotebookMedia) => `${owner}/${media.noteId}/${media.id}.${media.extension}`;
 export const mediaKind = (media: NotebookMedia) => mediaTypes[media.extension].startsWith("image/") ? "notebook-image" : "notebook-media";
 export const isMediaKind = (kind: string): kind is ReturnType<typeof mediaKind> => kind === "notebook-media" || kind === "notebook-image";
+
+export function validFreeMedia(value: FreeMediaPosition) {
+  return !!value && [value.x, value.y, value.width].every(Number.isFinite) && value.x >= 0 && value.y >= 0 && value.y <= 100 && value.width >= .16 && value.width <= 1 && value.x + value.width <= 1.00001;
+}

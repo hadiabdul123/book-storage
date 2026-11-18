@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { DragEvent } from "react";
+import type { DragEvent, PointerEvent } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { useLiveQuery } from "dexie-react-hooks";
 import StarterKit from "@tiptap/starter-kit";
@@ -13,16 +13,17 @@ import { registerNoteFlusher, saveNotebookNote } from "./notebookStore";
 import { noteFormatting } from "./noteFormatting";
 import { NoteFormatButtons } from "./NoteFormatButtons";
 import { DrawingExtension } from "./NotebookDrawing";
-import { Paperclip, PenLine, MousePointer2, Type } from "lucide-react";
+import { Paperclip, PenLine, MousePointer2, Type, ScanLine } from "lucide-react";
 import { InkToolbar } from "./InkToolbar";
 import { defaultInkStyle } from "./inkTypes";
 import { InkHistory, type bindInkSurface } from "./ink";
 import { NotebookInkAnchors, NotebookPaperInk, type PaperTool } from "./NotebookPaperInk";
 import { mediaLabel, cueHref, readCue, type MediaCue } from "./NotebookMedia";
 import { NotebookMediaLayer } from "./NotebookMediaLayer";
-import { attachmentExtension, attachMedia, notebookMediaList, placeMedia } from "./notebookMediaStore";
+import { attachmentExtension, attachMedia, copyMediaToNote, notebookMediaList, placeMedia, positionMedia } from "./notebookMediaStore";
 import { adjacentMediaGap, InlineMediaExtension, mediaDragType, mediaFlow, mediaPosition, reserveMediaGap } from "./inlineMedia";
-import { mediaTypes, type NotebookMedia } from "./notebookAssets";
+import { mediaTypes, type FreeMediaPosition, type NotebookMedia } from "./notebookAssets";
+import { copiedMediaIds, decodeMediaSelection, encodeMediaSelection, useMediaSelection } from "./mediaSelection";
 import { useSearchParams } from "react-router-dom";
 
 const noMedia: NotebookMedia[] = [];
@@ -39,9 +40,12 @@ export function TopicEditor({ note }: { note: NotebookNote }) {
   const [notice, setNotice] = useState("");
   const [attaching, setAttaching] = useState(false);
   const [dropLine, setDropLine] = useState<number>();
+  const [selectingMedia, setSelectingMedia] = useState(false);
+  const [selectedMedia, setSelectedMedia] = useState<Set<string>>(() => new Set());
   const [cue, setCue] = useState<MediaCue | undefined>(() => readCue(location.href, note.id));
   const files = useLiveQuery(async () => (await notebookMediaList()).filter(media => media.noteId === note.id), [note.id]);
   const paper = useRef<HTMLDivElement>(null);
+  const lasso = useMediaSelection(paper, selectingMedia, ids => setSelectedMedia(new Set(ids)));
   const fileInput = useRef<HTMLInputElement>(null);
   const inkBinding = useRef<ReturnType<typeof bindInkSurface> | undefined>(undefined);
   const inkWrites = useRef(new Set<Promise<void>>());
@@ -49,6 +53,8 @@ export function TopicEditor({ note }: { note: NotebookNote }) {
   const active = useRef(true), timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const pending = useRef<Promise<boolean> | null>(null);
   const mediaWrite = useRef<Promise<void> | undefined>(undefined);
+  const cleanupDrag = useRef<(() => void) | undefined>(undefined);
+  useEffect(() => () => cleanupDrag.current?.(), []);
   const draftKey = `topic-draft:${note.id}`;
   const editor = useEditor({
     extensions: [NotebookInkAnchors, InlineMediaExtension, CitationExtension, DrawingExtension.configure({ noteId: note.id }), ...noteFormatting(), StarterKit.configure({ heading: { levels: [1, 2, 3] }, blockquote: false, code: false, codeBlock: false, horizontalRule: false, link: { openOnClick: false, autolink: false, linkOnPaste: false }, strike: false }), TaskList, TaskItem.configure({ nested: true })],
@@ -113,6 +119,7 @@ export function TopicEditor({ note }: { note: NotebookNote }) {
   }, [editor, note.id]);
   function switchTool(tool: PaperTool) {
     inkBinding.current?.flush(); setPaperTool(tool);
+    if (tool !== "write") { setSelectingMedia(false); setSelectedMedia(new Set()); }
     if (tool === "write") editor?.commands.focus();
   }
 
@@ -137,7 +144,7 @@ export function TopicEditor({ note }: { note: NotebookNote }) {
       if (!accepted.length) { setNotice(errors.join(" ")); return; }
       const gap = reserveMediaGap(editor, position);
       if (!(await flush())) throw new Error("Save the note and try attaching the files again.");
-      const before = mediaFlow(editor.state.doc, files || noMedia).filter(item => item.position === gap.position).map(item => item.media.id);
+      const before = inlineFlow().filter(item => item.position === gap.position).map(item => item.media.id);
       const saved: string[] = [];
       for (const file of accepted) {
         try { saved.push((await attachMedia(note.id, file, { after: gap.after, order: before.length + saved.length })).id); }
@@ -148,52 +155,144 @@ export function TopicEditor({ note }: { note: NotebookNote }) {
     });
   }
 
-  function moveMedia(id: string, position: number, direction: -1 | 1, reference?: string, split = false) {
+  function inlineFlow() { return editor ? mediaFlow(editor.state.doc, (files || noMedia).filter(media => !media.placement?.free)) : []; }
+
+  function moveMedia(ids: string[], position: number, direction: -1 | 1, reference?: string, split = false) {
     if (!editor || !loaded) return;
     updateMedia(async () => {
       const gap = reserveMediaGap(editor, position, split);
       if (!(await flush())) throw new Error("Save the note before moving attachments.");
-      const target = mediaFlow(editor.state.doc, files || noMedia).filter(item => item.position === gap.position && item.media.id !== id).map(item => item.media.id);
+      const target = inlineFlow().filter(item => item.position === gap.position && !ids.includes(item.media.id)).map(item => item.media.id);
       const index = reference ? target.indexOf(reference) : -1;
-      target.splice(index < 0 ? (direction < 0 ? target.length : 0) : index + (direction > 0 ? 1 : 0), 0, id);
+      target.splice(index < 0 ? (direction < 0 ? target.length : 0) : index + (direction > 0 ? 1 : 0), 0, ...ids);
       await placeMedia(note.id, gap.after, target);
     });
   }
 
   function bumpMedia(id: string, direction: -1 | 1) {
     if (!editor) return;
-    const flow = mediaFlow(editor.state.doc, files || noMedia);
+    const flow = inlineFlow();
     const index = flow.findIndex(item => item.media.id === id);
     const current = flow[index], neighbor = flow[index + direction];
     if (!current) return;
-    if (neighbor?.position === current.position) moveMedia(id, current.position, direction, neighbor.media.id);
+    if (neighbor?.position === current.position) moveMedia([id], current.position, direction, neighbor.media.id);
     else {
       const target = adjacentMediaGap(editor.state.doc, current.position, direction);
-      if (target !== undefined) moveMedia(id, target, direction);
+      if (target !== undefined) moveMedia([id], target, direction);
     }
+  }
+
+  function selectedIds() {
+    if (!editor) return [];
+    return mediaFlow(editor.state.doc, files || noMedia).filter(item => selectedMedia.has(item.media.id)).map(item => item.media.id);
+  }
+
+  function toggleMedia(id: string) {
+    setSelectingMedia(true);
+    setSelectedMedia(previous => {
+      const next = new Set(previous);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleFree(id?: string) {
+    const root = paper.current;
+    if (!root) return;
+    const target = id && files?.find(media => media.id === id);
+    const ids = id ? [id] : selectedIds();
+    const bounds = root.getBoundingClientRect();
+    if (!bounds.width) return;
+    const positions = new Map<string, FreeMediaPosition | undefined>();
+    for (const mediaId of ids) {
+      const media = files?.find(item => item.id === mediaId);
+      if (!media) continue;
+      if (target && target.placement?.free) { positions.set(mediaId, undefined); continue; }
+      if (media.placement?.free) continue;
+      const block = root.querySelector(`[data-media-id="${CSS.escape(mediaId)}"]`)?.getBoundingClientRect();
+      if (block) positions.set(mediaId, { x: 0, y: Math.max(0, Math.min(100, (block.top - bounds.top) / bounds.width)), width: .45 });
+    }
+    if (positions.size) updateMedia(() => positionMedia(note.id, positions));
+  }
+
+  function pasteMedia(ids: string[]) {
+    if (!editor || !loaded || !ids.length) return;
+    updateMedia(async () => {
+      const gap = reserveMediaGap(editor, editor.state.selection.to);
+      if (!(await flush())) throw new Error("Save the note before pasting attachments.");
+      const order = Math.max(-1, ...inlineFlow().filter(item => item.position === gap.position).map(item => item.media.placement?.order ?? 0)) + 1;
+      await copyMediaToNote(note.id, ids, gap.after, order);
+      setNotice(`${ids.length} ${ids.length === 1 ? "attachment" : "attachments"} pasted.`);
+    });
+  }
+
+  function dropTarget(x: number, y: number, element: Element | null) {
+    if (!editor) return;
+    const block = element?.closest<HTMLElement>("[data-media-id]");
+    const target = files?.find(media => media.id === block?.dataset.mediaId && !media.placement?.free);
+    const rect = block?.getBoundingClientRect();
+    const position = target ? mediaPosition(editor.state.doc, target) : editor.view.posAtCoords({ left: x, top: y })?.pos ?? editor.state.doc.content.size;
+    const before = rect ? y < rect.top + rect.height / 2 : false;
+    return { target, position, before, top: rect ? (before ? rect.top : rect.bottom) : editor.view.coordsAtPos(position).top };
+  }
+
+  function moveInlineGroup(id: string, destination: ReturnType<typeof dropTarget>) {
+    if (!destination || !files?.some(media => media.id === id)) return;
+    const ids = selectedMedia.has(id) ? selectedIds() : [id];
+    const { target, position, before } = destination;
+    if (!target || !ids.includes(target.id)) moveMedia(ids, position, before ? -1 : 1, target?.id, !target);
+  }
+
+  function dragInline(event: PointerEvent<HTMLButtonElement>, id: string) {
+    if (event.button !== 0 || cleanupDrag.current) return;
+    const handle = event.currentTarget, pointer = event.pointerId, x = event.clientX, y = event.clientY;
+    let moved = false;
+    event.preventDefault(); event.stopPropagation();
+    handle.setPointerCapture(pointer);
+    function locate(e: globalThis.PointerEvent) {
+      const hit = document.elementFromPoint(e.clientX, e.clientY);
+      return paper.current?.contains(hit) ? dropTarget(e.clientX, e.clientY, hit) : undefined;
+    }
+    function move(e: globalThis.PointerEvent) {
+      if (e.pointerId !== pointer || (!moved && Math.hypot(e.clientX - x, e.clientY - y) < 6)) return;
+      moved = true;
+      const target = locate(e);
+      setDropLine(target && paper.current ? Math.max(0, target.top - paper.current.getBoundingClientRect().top) : undefined);
+    }
+    function finish(e: globalThis.PointerEvent) {
+      if (e.pointerId !== pointer) return;
+      clean(); setDropLine(undefined);
+      if (e.type !== "pointerup") return;
+      if (moved) moveInlineGroup(id, locate(e));
+      else toggleMedia(id);
+    }
+    function clean() {
+      handle.removeEventListener("pointermove", move); handle.removeEventListener("pointerup", finish);
+      handle.removeEventListener("pointercancel", finish); handle.removeEventListener("lostpointercapture", finish);
+      cleanupDrag.current = undefined;
+    }
+    handle.addEventListener("pointermove", move); handle.addEventListener("pointerup", finish);
+    handle.addEventListener("pointercancel", finish); handle.addEventListener("lostpointercapture", finish);
+    cleanupDrag.current = clean;
   }
 
   function handleDrop(event: DragEvent<HTMLDivElement>, commit: boolean) {
     const types = event.dataTransfer.types;
     if (!editor || !loaded || (!types.includes("Files") && !types.includes(mediaDragType))) return;
-    event.preventDefault();
-    event.stopPropagation();
+    event.preventDefault(); event.stopPropagation();
     event.dataTransfer.dropEffect = types.includes(mediaDragType) ? "move" : "copy";
-    const block = (event.target as Element).closest<HTMLElement>("[data-media-id]");
-    const target = files?.find(media => media.id === block?.dataset.mediaId);
-    const rect = block?.getBoundingClientRect();
-    const position = target ? mediaPosition(editor.state.doc, target) : editor.view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos ?? editor.state.doc.content.size;
-    const before = rect ? event.clientY < rect.top + rect.height / 2 : false;
+    const destination = dropTarget(event.clientX, event.clientY, event.target as Element);
+    if (!destination) return;
     if (!commit && paper.current) {
-      const top = rect ? (before ? rect.top : rect.bottom) : editor.view.coordsAtPos(position).top;
+      const { top } = destination;
       setDropLine(Math.max(0, top - paper.current.getBoundingClientRect().top));
     }
     if (!commit) return;
     setDropLine(undefined);
     switchTool("write");
     const id = event.dataTransfer.getData(mediaDragType);
-    if (id && files?.some(media => media.id === id) && target?.id !== id) moveMedia(id, position, before ? -1 : 1, target?.id, !target);
-    else if (!id) addFiles(Array.from(event.dataTransfer.files), position);
+    if (id) moveInlineGroup(id, destination);
+    else addFiles(Array.from(event.dataTransfer.files), destination.position);
   }
   const mediaParam = params.get("media"), timeParam = params.get("at");
   useEffect(() => { const next = readCue(location.href, note.id); if (next) setCue(next); }, [mediaParam, timeParam, note.id]);
@@ -203,6 +302,7 @@ export function TopicEditor({ note }: { note: NotebookNote }) {
     <div className="notebook-toolbar" role="toolbar" aria-label="Topic note formatting" onMouseDown={e => { if (!(e.target as Element).closest("input,select")) e.preventDefault(); }}>
       <button type="button" aria-pressed={paperTool === "draw"} disabled={!loaded} onClick={() => switchTool(paperTool === "draw" ? "write" : "draw")}><PenLine size={17} />Pen</button>
       <button type="button" disabled={!loaded || attaching} onClick={() => fileInput.current?.click()}><Paperclip size={17} />Attach media</button>
+      <button type="button" aria-pressed={selectingMedia} disabled={!loaded || !files?.length} onClick={() => { switchTool("write"); setSelectingMedia(!selectingMedia); setSelectedMedia(new Set()); }}><ScanLine size={16} />Select media</button>
       <button aria-label="Bold" aria-pressed={editor?.isActive("bold") || false} onClick={() => editor?.chain().focus().toggleBold().run()}><b>B</b></button>
       <button aria-label="Italic" onClick={() => editor?.chain().focus().toggleItalic().run()}><i>I</i></button>
       <NoteFormatButtons editor={editor} />
@@ -212,6 +312,19 @@ export function TopicEditor({ note }: { note: NotebookNote }) {
       <button aria-label="Checklist" onClick={() => editor?.chain().focus().toggleTaskList().run()}>☑</button>
       <button aria-label="Undo" onClick={() => editor?.chain().focus().undo().run()}>↶</button><button aria-label="Redo" onClick={() => editor?.chain().focus().redo().run()}>↷</button>
     </div>
+    {selectingMedia && <div className="notebook-media-tools">
+      <span role="status">{selectedMedia.size ? `${selectedMedia.size} selected` : "Tap attachments or drag a box around them"}</span>
+      <button className="text-button" disabled={!selectedMedia.size} onClick={() => {
+        const ids = selectedIds();
+        if (!decodeMediaSelection(`leafmark:attachments:${ids.join(",")}`)) { setNotice("Select up to 30 attachments at a time."); return; }
+        const text = encodeMediaSelection(ids);
+        void navigator.clipboard?.writeText(text).catch(() => {});
+        setNotice("Attachments copied. Paste on a notebook page.");
+      }}>Copy attachments</button>
+      <button className="text-button" disabled={!selectedMedia.size} onClick={() => toggleFree()}>Move selection freely</button>
+      <button className="text-button" onClick={() => { setSelectingMedia(false); setSelectedMedia(new Set()); }}>Done</button>
+    </div>}
+    {copiedMediaIds().length > 0 && <div className="notebook-media-tools"><button className="text-button" onClick={() => pasteMedia(copiedMediaIds())}>Paste attachments</button></div>}
     {paperTool !== "write" && <div className="paper-ink-tools">
       <button className="text-button" aria-pressed={paperTool === "draw"} onClick={() => switchTool("draw")}><PenLine size={16} />Draw</button>
       <button className="text-button" aria-pressed={paperTool === "select"} onClick={() => switchTool("select")}><MousePointer2 size={16} />Select drawing</button>
@@ -231,14 +344,28 @@ export function TopicEditor({ note }: { note: NotebookNote }) {
       {cue && files && !files.some(media => media.id === cue.id) && <p role="status">This attachment is unavailable. Check sync or restore it from Trash.</p>}
       <div className="note-paper-column">
         <label className="topic-title-label"><input aria-label="Topic note title" maxLength={200} disabled={!loaded} value={title} onChange={e => { setTitle(e.target.value); change({ title: e.target.value }); }} /></label>
-        <div ref={paper} className="notebook-paper" onDragOverCapture={event => handleDrop(event, false)} onDropCapture={event => handleDrop(event, true)}
+        <div ref={paper} className="notebook-paper" data-media-select={selectingMedia} data-writing-tool={paperTool} {...lasso.handlers}
+          onClickCapture={event => {
+            const target = event.target as Element;
+            const id = target.closest<HTMLElement>("[data-media-id]")?.dataset.mediaId;
+            if (id && (selectingMedia || event.shiftKey || event.ctrlKey || event.metaKey) && !target.closest("button, dialog, .workspace-menu")) { event.preventDefault(); event.stopPropagation(); toggleMedia(id); }
+          }} onCopyCapture={event => {
+            if (!selectingMedia) return;
+            const ids = selectedIds();
+            if (!ids.length || ids.length > 30) return;
+            event.preventDefault(); event.clipboardData.setData("text/plain", encodeMediaSelection(ids)); setNotice("Attachments copied. Paste on a notebook page.");
+          }} onPasteCapture={event => {
+            const ids = decodeMediaSelection(event.clipboardData.getData("text/plain"));
+            if (ids) { event.preventDefault(); event.stopPropagation(); pasteMedia(ids); }
+          }} onDragOverCapture={event => handleDrop(event, false)} onDropCapture={event => handleDrop(event, true)}
           onDragLeave={event => { if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setDropLine(undefined); }} onDragEnd={() => setDropLine(undefined)}>
           <EditorContent editor={editor} onClickCapture={event => {
             const link = (event.target as Element).closest("a"); const next = link && readCue(link.href, note.id);
             if (next) { event.preventDefault(); event.stopPropagation(); setCue(next); }
           }} />
           {dropLine !== undefined && <div className="notebook-drop-line" style={{ top: dropLine }} aria-hidden="true" />}
-          {editor && loaded && <NotebookMediaLayer editor={editor} files={files || noMedia} cue={cue} onMove={bumpMedia} onTimestamp={value => {
+          {lasso.box && <div className="notebook-media-lasso" style={lasso.box} aria-hidden="true" />}
+          {editor && loaded && <NotebookMediaLayer editor={editor} files={files || noMedia} cue={cue} paper={paper} selected={selectedMedia} onSelect={toggleMedia} onFree={toggleFree} onDragInline={dragInline} onMoveFree={positions => updateMedia(() => positionMedia(note.id, positions))} onMove={bumpMedia} onTimestamp={value => {
             switchTool("write");
             editor.chain().focus().insertContent([{ type: "text", text: mediaLabel(value.time), marks: [{ type: "link", attrs: { href: cueHref(note.id, value), target: "_self", rel: null, class: null } }] }, { type: "text", text: " " }]).run();
           }} />}

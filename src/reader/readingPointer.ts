@@ -5,6 +5,7 @@ let sequence = 0;
 export function bindReadingPointer(host: HTMLElement, settings: ReadingPointerSettings, preview = false) {
   if (!settings.pointer && !settings.trail) return () => {};
   const doc = host.ownerDocument, win = doc.defaultView!;
+  const shell = host.closest(".reader-shell");
   const svg = doc.createElementNS(ns, "svg");
   svg.classList.add("reading-pointer-overlay");
   if (preview) svg.classList.add("is-preview");
@@ -13,10 +14,12 @@ export function bindReadingPointer(host: HTMLElement, settings: ReadingPointerSe
   const clipId = `reading-pointer-clip-${++sequence}`;
   const defs = doc.createElementNS(ns, "defs"), clip = doc.createElementNS(ns, "clipPath");
   clip.id = clipId;
+  const rect = doc.createElementNS(ns, "rect");
+  clip.append(rect);
   defs.append(clip);
   const drawing = doc.createElementNS(ns, "g");
-  drawing.setAttribute("clip-path", `url(#${clipId})`);
   const trail = doc.createElementNS(ns, "g"), pointer = doc.createElementNS(ns, "g");
+  trail.setAttribute("clip-path", `url(#${clipId})`);
   pointer.dataset.readingPointer = settings.shape;
   pointer.style.display = "none";
   // All markup is fixed; user settings only enter validated DOM attributes.
@@ -34,7 +37,8 @@ export function bindReadingPointer(host: HTMLElement, settings: ReadingPointerSe
     path.setAttribute("stroke-linecap", "round");
     pointer.append(path);
   }
-  drawing.append(trail, pointer); svg.append(defs, drawing); doc.body.append(svg);
+  // Fullscreen only paints the fullscreen element and its descendants.
+  drawing.append(trail, pointer); svg.append(defs, drawing); (shell ?? doc.body).append(svg);
   let points: TrailPoint[] = [], frame = 0, activePage: HTMLElement | null = null;
   let last: TrailPoint | undefined;
   const clear = () => {
@@ -69,8 +73,8 @@ export function bindReadingPointer(host: HTMLElement, settings: ReadingPointerSe
   const blocked = (target: Element) => !preview && (
     host.matches(".region-mode,.pdf-zooming") ||
     !!target.closest("button,a,input,textarea,select,[contenteditable],.passage-popup,.pdf-selection-handle") ||
-    !!host.closest(".reader-shell")?.querySelector(".passage-popup") ||
-    !doc.getSelection()?.isCollapsed
+    !!shell?.querySelector(".passage-popup") ||
+    doc.getSelection()?.isCollapsed === false
   );
   const move = (event: PointerEvent) => {
     if (event.pointerType !== "mouse" || event.buttons || doc.hidden) { clear(); return; }
@@ -79,15 +83,18 @@ export function bindReadingPointer(host: HTMLElement, settings: ReadingPointerSe
     if (!page || !host.contains(page) || blocked(target)) { clear(); return; }
     if (page !== activePage) {
       clear(); activePage = page;
-      const box = page.getBoundingClientRect(), viewport = host.getBoundingClientRect();
-      const rect = doc.createElementNS(ns, "rect");
-      const x = Math.max(box.left, viewport.left, 0), y = Math.max(box.top, viewport.top, 0);
-      rect.setAttribute("x", String(x)); rect.setAttribute("y", String(y));
-      rect.setAttribute("width", String(Math.max(0, Math.min(box.right, viewport.right, win.innerWidth) - x)));
-      rect.setAttribute("height", String(Math.max(0, Math.min(box.bottom, viewport.bottom, win.innerHeight) - y)));
-      clip.replaceChildren(rect);
     }
     const point = { x: event.clientX, y: event.clientY, time: win.performance.now() };
+    if (settings.trail) {
+      const box = page.getBoundingClientRect(), viewport = host.getBoundingClientRect();
+      const x = Math.max(box.left, viewport.left, 0), y = Math.max(box.top, viewport.top, 0);
+      const width = Math.max(0, Math.min(box.right, viewport.right, win.innerWidth) - x);
+      const height = Math.max(0, Math.min(box.bottom, viewport.bottom, win.innerHeight) - y);
+      if (rect.x.baseVal.value !== x) rect.x.baseVal.value = x;
+      if (rect.y.baseVal.value !== y) rect.y.baseVal.value = y;
+      if (rect.width.baseVal.value !== width) rect.width.baseVal.value = width;
+      if (rect.height.baseVal.value !== height) rect.height.baseVal.value = height;
+    }
     if (settings.pointer) {
       activePage.classList.add("reading-pointer-active");
       pointer.style.display = "";
@@ -100,7 +107,7 @@ export function bindReadingPointer(host: HTMLElement, settings: ReadingPointerSe
     }
     last = point;
   };
-  const selection = () => { if (!preview && !doc.getSelection()?.isCollapsed) clear(); };
+  const selection = () => { if (!preview && doc.getSelection()?.isCollapsed === false) clear(); };
   const scroll = (event: Event) => {
     const target = event.target;
     if (target === doc || (activePage && target instanceof Element && target.contains(activePage))) clear();
@@ -116,6 +123,7 @@ export function bindReadingPointer(host: HTMLElement, settings: ReadingPointerSe
   doc.addEventListener("wheel", clear, { passive: true });
   doc.addEventListener("keydown", clear);
   doc.addEventListener("selectionchange", selection);
+  doc.addEventListener("fullscreenchange", clear);
   doc.addEventListener("visibilitychange", clear);
   win.addEventListener("blur", clear);
   win.addEventListener("resize", clear);
@@ -125,6 +133,7 @@ export function bindReadingPointer(host: HTMLElement, settings: ReadingPointerSe
     host.removeEventListener("pointerdown", clear); doc.removeEventListener("scroll", scroll, true);
     doc.removeEventListener("wheel", clear); doc.removeEventListener("keydown", clear);
     doc.removeEventListener("selectionchange", selection); doc.removeEventListener("visibilitychange", clear);
+    doc.removeEventListener("fullscreenchange", clear);
     win.removeEventListener("blur", clear); win.removeEventListener("resize", clear);
   };
 }

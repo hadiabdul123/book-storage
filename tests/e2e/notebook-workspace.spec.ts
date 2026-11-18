@@ -95,23 +95,25 @@ test("audio attachments persist and a clicked timestamp seeks where the codec is
   if (!codec) {
     await expect(page.getByText(/This file couldn’t play/)).toBeVisible();
     await page.reload();
-    await page.getByRole("button", { name: "sample.wav", exact: true }).click();
+    await page.getByRole("button", { name: "More actions for sample.wav" }).click();
     const download = page.waitForEvent("download");
-    await page.getByRole("button", { name: "Download original" }).click();
+    await page.getByRole("menuitem", { name: "Download original" }).click();
     expect((await download).suggestedFilename()).toBe("sample.wav");
     return;
   }
   const player = page.getByLabel("Topic note content").locator("audio");
   await expect.poll(() => player.evaluate(a => (a as HTMLAudioElement).duration)).toBe(3);
   await player.evaluate(a => { (a as HTMLAudioElement).currentTime = 1.5; });
-  await page.getByRole("button", { name: "Insert timestamp", exact: true }).click();
+  await page.getByRole("button", { name: "More actions for sample.wav" }).click();
+  await page.getByRole("menuitem", { name: "Insert timestamp", exact: true }).click();
   const timestamp = page.getByRole("link", { name: "0:01" });
   await expect(timestamp).toBeVisible();
   await expect(page.locator(".topic-save-status")).toContainText("Saved on this device");
   await page.reload();
   await timestamp.click();
   await expect.poll(() => player.evaluate(a => (a as HTMLAudioElement).currentTime)).toBeCloseTo(1.5, 1);
-  await expect(page.getByRole("button", { name: "Available offline" })).toBeDisabled();
+  await page.getByRole("button", { name: "More actions for sample.wav" }).click();
+  await expect(page.getByRole("menuitem", { name: "Available offline" })).toBeDisabled();
 });
 
 test("a downloaded video opens in the notebook player", async ({ page, browserName }) => {
@@ -132,7 +134,7 @@ test("a downloaded video opens in the notebook player", async ({ page, browserNa
   });
   await page.getByLabel("Attach image, video or audio").setInputFiles({ name: "sample.webm", mimeType: "video/webm", buffer: Buffer.from(raw) });
   await expect.poll(() => page.getByLabel("Topic note content").locator("video").evaluate(v => (v as HTMLVideoElement).videoWidth)).toBe(32);
-  await expect(page.locator(".note-media-file")).toContainText("sample.webm");
+  await expect(page.getByRole("figure", { name: "Attachment: sample.webm" })).not.toContainText("sample.webm");
 });
 
 test("dropped images stay in the text flow and move without changing the writing", async ({ page, browserName }, info) => {
@@ -174,9 +176,74 @@ test("dropped images stay in the text flow and move without changing the writing
   await expect(blocks.nth(3)).toHaveText("Keep writing after the image");
   if (info.project.name === "desktop") {
     const paragraph = editor.getByText("Keep writing after the image", { exact: true });
+    const handle = page.getByRole("button", { name: "Drag diagram.png", exact: true });
+    await paragraph.scrollIntoViewIfNeeded();
+    await handle.hover();
     const size = (await paragraph.boundingBox())!;
-    await page.getByRole("button", { name: "diagram.png", exact: true }).dragTo(paragraph, { targetPosition: { x: size.width - 3, y: size.height / 2 } });
+    await page.mouse.down(); await page.mouse.move(size.x + size.width - 3, size.y + size.height / 2, { steps: 12 }); await page.mouse.up();
     await expect(blocks.nth(2)).toHaveText("Keep writing after the image");
     await expect(blocks.nth(3).getByRole("img", { name: "diagram.png" })).toBeVisible();
   }
+});
+
+test("a group of attachments can move freely and be copied to a different page", async ({ page }, info) => {
+  test.skip(info.project.name !== "desktop", "Exercises desktop marquee and pointer dragging.");
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await openNote(page);
+  const writing = page.getByRole("textbox", { name: "Topic note content" });
+  await writing.fill("A caption before the diagrams.");
+  const base64 = await page.evaluate(() => {
+    const canvas = document.createElement("canvas"); canvas.width = 220; canvas.height = 100;
+    canvas.getContext("2d")!.fillRect(0, 0, 220, 100);
+    return canvas.toDataURL().split(",")[1];
+  });
+  const uploads = ["first.png", "second.png"].map(name => ({ name, mimeType: "image/png", buffer: Buffer.from(base64, "base64") }));
+  await page.getByLabel("Attach image, video or audio").setInputFiles(uploads);
+  const media = page.locator(".notebook-paper .note-media");
+  await expect(media).toHaveCount(2);
+  const sheet = (await page.locator(".note-paper-column").boundingBox())!;
+  expect(sheet.width).toBeLessThanOrEqual(768);
+  await media.last().scrollIntoViewIfNeeded();
+  const top = (await media.first().boundingBox())!, bottom = (await media.last().boundingBox())!;
+  await page.getByRole("button", { name: "Select media" }).click();
+  const paper = (await page.locator(".notebook-paper").boundingBox())!;
+  await page.mouse.move(paper.x + paper.width - 10, top.y - 4); await page.mouse.down();
+  await page.mouse.move(paper.x + 4, bottom.y + bottom.height + 3, { steps: 12 }); await page.mouse.up();
+  await expect(page.getByText("2 selected", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Move selection freely" }).click();
+  const floated = page.locator(".notebook-free-media .is-free");
+  await expect(floated).toHaveCount(2);
+  const before = (await floated.first().boundingBox())!.x;
+  const handle = (await page.getByRole("button", { name: "Drag first.png" }).boundingBox())!;
+  await page.mouse.move(handle.x + 17, handle.y + 17); await page.mouse.down();
+  await page.mouse.move(handle.x + 117, handle.y + 17, { steps: 10 }); await page.mouse.up();
+  await expect.poll(async () => (await floated.first().boundingBox())!.x).toBeGreaterThan(before + 70);
+  const left = (await floated.last().boundingBox())!.x;
+  expect(left).toBeGreaterThan(before + 70);
+  await page.getByRole("button", { name: "Copy attachments" }).click();
+  await page.getByRole("button", { name: "New note", exact: true }).click();
+  await expect(writing).toHaveAttribute("contenteditable", "true");
+  await page.getByRole("button", { name: "Paste attachments" }).click();
+  await expect(writing.locator(".note-media")).toHaveCount(2);
+  await expect(writing.getByRole("img", { name: "first.png" })).toBeVisible();
+  await page.reload(); await expect(writing.locator(".note-media")).toHaveCount(2);
+});
+
+test("holding a notebook image on a phone opens attachment actions", async ({ page }, info) => {
+  test.skip(info.project.name !== "mobile-layout", "Exercises a native Chromium touch hold.");
+  await openNote(page);
+  const png = await page.evaluate(() => {
+    const canvas = document.createElement("canvas"); canvas.width = 120; canvas.height = 70;
+    canvas.getContext("2d")!.fillRect(0, 0, 120, 70);
+    return canvas.toDataURL().split(",")[1];
+  });
+  await page.getByLabel("Attach image, video or audio").setInputFiles({ name: "study.png", mimeType: "image/png", buffer: Buffer.from(png, "base64") });
+  const image = page.getByRole("img", { name: "study.png" });
+  await image.scrollIntoViewIfNeeded();
+  const bounds = (await image.boundingBox())!;
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: bounds.x + 60, y: bounds.y + 35 }] });
+  await expect(page.getByRole("menuitem", { name: "Download original" })).toBeVisible();
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await expect(page.getByRole("menuitem", { name: "Move to Trash" })).toBeVisible();
 });

@@ -1,10 +1,10 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { BrowsePages, SourceNavigator, pageOf, useBrowseState } from "./browse";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Search, Download, Highlighter, Copy, FileText } from "lucide-react";
-import { list } from "./db";
-import { type Annotation, type Locator, colors } from "./model";
+import { list, save } from "./db";
+import { type Annotation, type Locator, colors, now, uid } from "./model";
 import { AnnotationCard, EditAnnotation, Empty } from "./components";
 import { exportAnnotations } from "./export";
 import type { InkStroke } from "./inkTypes";
@@ -30,6 +30,7 @@ export function Notes() {
   const notebooks = useLiveQuery(() => list("notebook"), []) || [];
   const study = useLiveQuery(highlightStudyData, []);
   const browse = useBrowseState();
+  const navigate = useNavigate();
   const selected = browse.value("item");
   const query = browse.value("q"), bookId = browse.value("book"), notebookSource = browse.value("notebook"), color = browse.value("color"), sort = browse.value("sort", "newest"), type = browse.value("type", "all"), tag = browse.value("tag");
   const priority = browse.value("priority");
@@ -57,6 +58,12 @@ export function Notes() {
       void setHighlightPriority(annotation.id, next).catch(error => setActionError(error.message));
     };
     return [
+      { label: "Research this highlight", run: () => {
+        const id = uid();
+        void save("research-thread", { id, title: annotation.text.slice(0, 100).trim() || "Highlight research", bookId: annotation.bookId,
+          scope: { bookIds: [], noteIds: [], highlightIds: [annotation.id] }, createdAt: now() })
+          .then(() => navigate(`/notebooks?view=research&thread=${encodeURIComponent(id)}`), error => setActionError(error.message));
+      } },
       { label: "Edit tags", run: () => setEditingTags(annotation.id) },
       { label: "Mark important", disabled: priorityMap.get(annotation.id) === "important", run: () => changePriority("important") },
       { label: "Mark lower priority", disabled: priorityMap.get(annotation.id) === "lower", run: () => changePriority("lower") },
