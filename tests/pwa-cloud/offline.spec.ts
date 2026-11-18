@@ -49,7 +49,7 @@ test("an authenticated production install opens offline with an expired session 
     await offlinePage.goto(baseURL!); await expect(offlinePage.locator(".library-page")).toBeVisible(); await expect(offlinePage.locator(".book-card")).toHaveCount(1);
     await expect(offlinePage.getByRole("button", { name: "Open my library" })).toHaveCount(0);
     await offlinePage.locator(".book-cover-link").click(); await expect(offlinePage.locator(".textLayer")).toContainText("universe");
-    await offlinePage.goto(new URL("#/notebooks", baseURL!).href); await offlinePage.getByRole("button", { name: /Offline writing/ }).click();
+    await offlinePage.goto(new URL("#/notebooks", baseURL!).href); await offlinePage.getByRole("button", { name: /^Offline writing/ }).click();
     await expect(offlinePage.getByRole("textbox", { name: "Topic note content" })).toContainText("before the offline restart");
     await offlinePage.getByRole("textbox", { name: "Topic note content" }).fill("Edited while fully offline."); await offlinePage.getByRole("button", { name: "Save now", exact: true }).click(); await expect(offlinePage.locator(".topic-save-status")).toContainText("Saved on this device");
     await offlinePage.getByRole("button", { name: "Research", exact: true }).click(); await offlinePage.getByRole("tab", { name: "Web", exact: true }).click();

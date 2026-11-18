@@ -301,7 +301,7 @@ test("saved PDF notes and rendering assets survive a full offline browser restar
       { timeout: 30000 },
     );
     await page.goto(new URL("#/notebooks", baseURL!).href);
-    await page.getByRole("button", { name: /Ideas kept offline/ }).click();
+    await page.getByRole("button", { name: /^Ideas kept offline/ }).click();
     await expect(page.getByRole("textbox", { name: "Topic note content" })).toContainText("full offline restart");
     await page.getByRole("button", { name: "Research", exact: true }).click();
     await expect(page.locator(".research-pending")).toContainText("cosmic expansion");
