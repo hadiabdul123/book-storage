@@ -11,6 +11,9 @@ on:
         default: false
 permissions:
   contents: read
+env:
+  # Read-along uses ONNX Runtime's browser WASM backend.
+  ONNXRUNTIME_NODE_INSTALL_CUDA: skip
 concurrency:
   group: pages-${{ github.ref }}
   cancel-in-progress: true
