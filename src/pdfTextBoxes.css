@@ -16,6 +16,9 @@
 .reader-shell.pdf-text-box-active .reader-host {
   border-top: calc(var(--reader-header-height, 66px) + var(--text-box-toolbar-height)) solid transparent;
 }
+.reader-shell.pdf-text-box-active:not(.hide-page-controls) .reader-host {
+  border-bottom: var(--reader-footer-height, 60px) solid transparent;
+}
 .reader-shell > .pdf-text-box-tools {
   top: var(--reader-header-height, 66px); height: var(--text-box-toolbar-height);
   flex-wrap: nowrap; max-width: 100%; box-sizing: border-box;

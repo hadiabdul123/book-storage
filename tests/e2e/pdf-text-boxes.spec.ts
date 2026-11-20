@@ -32,6 +32,18 @@ test("PDF text box stays on its page through editing, zoom, rotation and a sprea
   await expect.poll(() => draft.evaluate(el => el.style.transform)).not.toBe(beforeMove);
   await page.getByRole("button", { name: "Resize text box", exact: true }).press("ArrowDown");
   await expect(draft).toHaveCSS("height", "86px");
+  if (info.project.name === "desktop") {
+    const grip = page.getByRole("button", { name: "Resize text box", exact: true });
+    await grip.scrollIntoViewIfNeeded();
+    const target = (await grip.boundingBox())!;
+    const x = target.x + target.width / 2, y = target.y + target.height / 2;
+    const width = await draft.evaluate(el => Number.parseFloat(el.style.width));
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + 25, y + 18, { steps: 5 });
+    await page.mouse.up();
+    await expect.poll(() => draft.evaluate(el => Number.parseFloat(el.style.width))).toBeGreaterThan(width);
+  }
   await page.getByRole("button", { name: "Tint", exact: true }).click();
   await page.getByRole("button", { name: "Save text box", exact: true }).click();
   await expect(box).toContainText("Second line α.");
