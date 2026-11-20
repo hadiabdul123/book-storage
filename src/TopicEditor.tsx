@@ -36,7 +36,7 @@ import { useSearchParams } from "react-router-dom";
 
 const noMedia: NotebookMedia[] = [];
 
-export function TopicEditor({ note, toolbarHost }: { note: NotebookNote; toolbarHost?: HTMLElement | null }) {
+export function TopicEditor({ note, headerHost, toolbarHost }: { note: NotebookNote; headerHost: HTMLElement | null; toolbarHost?: HTMLElement | null }) {
   const [title, setTitle] = useState(note.title), [tags, setTags] = useState(note.tags.join(", "));
   const [status, setStatus] = useState("Opening note…");
   const [loaded, setLoaded] = useState(false);
@@ -339,11 +339,6 @@ export function TopicEditor({ note, toolbarHost }: { note: NotebookNote; toolbar
         const position = $to.depth === 1 && validTextBox($to.parent.attrs.textBox) ? $to.after() : $to.pos;
         setQuoteAnchor({ doc: editor.state.doc, position });
       }}><Quote size={17} />Insert quote</button>
-      <button type="button" disabled={!loaded || !editor} onClick={() => {
-        if (!editor) return;
-        switchTool("write"); setSelectingMedia(false);
-        insertTextBox(editor);
-      }}><SquarePen size={17} />Text box</button>
       <button type="button" aria-pressed={selectingMedia} disabled={!loaded || !files?.length} onClick={() => { switchTool("write"); setSelectingMedia(!selectingMedia); setSelectedMedia(new Set()); }}><ScanLine size={16} />Select media</button>
       <button aria-label="Bold" aria-pressed={editor?.isActive("bold") || false} onClick={() => editor?.chain().focus().toggleBold().run()}><b>B</b></button>
       <button aria-label="Italic" onClick={() => editor?.chain().focus().toggleItalic().run()}><i>I</i></button>
@@ -377,8 +372,14 @@ export function TopicEditor({ note, toolbarHost }: { note: NotebookNote; toolbar
   </div>;
   return <section className="topic-editor" onBlur={e => {
     const target = e.relatedTarget as Node | null;
-    if (!e.currentTarget.contains(target) && !toolbarHost?.contains(target)) void flush();
+    if (!e.currentTarget.contains(target) && !headerHost?.contains(target) && !toolbarHost?.contains(target)) void flush();
   }}>
+    {headerHost && createPortal(<button className="secondary notebook-insert-text-box" type="button" disabled={!loaded || !editor}
+      onMouseDown={event => event.preventDefault()} onClick={() => {
+        if (!editor) return;
+        switchTool("write"); setSelectingMedia(false);
+        insertTextBox(editor);
+      }}><SquarePen size={17} aria-hidden="true" />Text box</button>, headerHost)}
     {toolbarHost ? createPortal(ribbon, toolbarHost) : ribbon}
     <input ref={fileInput} type="file" multiple accept={Object.keys(mediaTypes).map(ext => `.${ext}`).join(",")} aria-label="Attach image, video or audio" hidden onChange={e => {
       const input = Array.from(e.currentTarget.files || []);

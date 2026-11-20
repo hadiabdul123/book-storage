@@ -17,7 +17,9 @@ test("notebook text boxes resize, move freely and reopen with their text", async
   await openNote(page);
   const editor = page.getByRole("textbox", { name: "Topic note content" });
   await editor.fill("A normal paragraph.");
-  await page.getByRole("button", { name: "Text box", exact: true }).click();
+  const insertBox = page.locator("header.notebook-detail-actions").getByRole("button", { name: "Text box", exact: true });
+  await expect(insertBox).toBeInViewport({ ratio: 1 });
+  await insertBox.click();
   const box = editor.locator("[data-notebook-text-box]");
   await expect(box).toBeVisible();
   await page.keyboard.insertText("A box with my own words.");

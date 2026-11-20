@@ -79,6 +79,7 @@ export function Notebooks() {
   const sectionDrag = useReorderDrag(true, (id, target) => order("notebook-section", id, target));
   const pageDrag = useReorderDrag(!query, (id, target) => order("notebook-note", id, target));
   const detailScroll = useRef<HTMLDivElement>(null);
+  const [headerHost, setHeaderHost] = useState<HTMLDivElement | null>(null);
   const [toolbarHost, setToolbarHost] = useState<HTMLDivElement | null>(null);
   const scrollMemory = useRef(new Map<string, number>());
   useLayoutEffect(() => {
@@ -157,11 +158,19 @@ export function Notebooks() {
         {!filtered.length && <p className="muted">{query ? "No matching pages." : "Create a page in this section."}</p>}
       </aside>
       <main className="notebook-detail">
-        <div className="notebook-detail-actions"><button className="text-button notebook-navigator-toggle" aria-expanded={navigator} onClick={() => { setFocus(false); setNavigator(!navigator); }}><PanelLeft size={17} />Pages</button><span>{current?.title || "Your ideas, together"} / {currentSections.find(s => s.id === currentSection)?.title || "Notes"}</span><div className="button-row"><button className="text-button" aria-label="Focus notebook page" aria-pressed={focus} onClick={() => { setFocus(!focus); setNavigator(false); }}><Maximize2 size={17} /></button><button className="text-button" aria-pressed={research} onClick={() => run(openPageStudy)}><Sparkles size={17} />Research</button></div></div>
+        <header className="notebook-detail-actions">
+          <button className="text-button notebook-navigator-toggle" aria-expanded={navigator} onClick={() => { setFocus(false); setNavigator(!navigator); }}><PanelLeft size={17} />Pages</button>
+          <span>{current?.title || "Your ideas, together"} / {currentSections.find(s => s.id === currentSection)?.title || "Notes"}</span>
+          <div className="button-row">
+            <button className="text-button" aria-label="Focus notebook page" aria-pressed={focus} onClick={() => { setFocus(!focus); setNavigator(false); }}><Maximize2 size={17} /></button>
+            <button className="text-button" aria-pressed={research} onClick={() => run(openPageStudy)}><Sparkles size={17} />Research</button>
+            {activeNote && <div ref={setHeaderHost} />}
+          </div>
+        </header>
         {activeNote && <div className="page-organization"><label>Section<select aria-label="Move page to section" value={currentSection} onChange={e => run(() => changeNote(noteId, { sectionId: e.target.value }))}>{currentSections.map(s => <option key={s.id} value={s.id}>{s.title}</option>)}</select></label><button aria-label="Move page up" onClick={() => order("notebook-note", noteId, -1)}><ArrowUp size={16} /></button><button aria-label="Move page down" onClick={() => order("notebook-note", noteId, 1)}><ArrowDown size={16} /></button></div>}
         {activeNote && <div className="notebook-toolbar-host" ref={setToolbarHost} />}
         <div className="notebook-page-scroll" ref={detailScroll} onScroll={e => { if (!navigator) scrollMemory.current.set(noteId, e.currentTarget.scrollTop); }}>
-        {activeNote ? <><TopicEditor key={activeNote.id} note={activeNote} toolbarHost={toolbarHost} /><div className="notebook-note-actions"><button className="text-button" disabled={!versions.length} onClick={() => setVersionsOpen(true)}>Recover other versions ({versions.length})</button><button className="text-button danger" onClick={() => trashPage(activeNote.id)}><Trash2 size={15} />Trash note</button></div>
+        {activeNote ? <><TopicEditor key={activeNote.id} note={activeNote} headerHost={headerHost} toolbarHost={toolbarHost} /><div className="notebook-note-actions"><button className="text-button" disabled={!versions.length} onClick={() => setVersionsOpen(true)}>Recover other versions ({versions.length})</button><button className="text-button danger" onClick={() => trashPage(activeNote.id)}><Trash2 size={15} />Trash note</button></div>
           {links.length > 0 && <details className="note-backlinks"><summary>Connected sources ({links.length})</summary>{links.map((s, i) => <SourceLink key={i} source={s} />)}</details>}
         </> : <div className="notebook-welcome"><NotebookPen size={34} /><h2>{current ? "Make room for an idea" : "Your first topic notebook"}</h2><p>Write freely, collect passages from different books, and keep useful research with its sources.</p><button className="primary" onClick={addNote}>{current ? "Create a note" : "Create a notebook"}</button></div>}
         </div>
