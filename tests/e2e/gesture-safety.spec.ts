@@ -76,7 +76,8 @@ test("stylus wins over a resting palm and unrelated palm cancellation at zoom", 
 test("zoom finishes an active pen stroke in the old coordinates before redrawing", async ({ page, browserName }) => {
   test.skip(browserName !== "chromium", "Native stylus injection requires CDP.");
   await open(page); await clickTool(page, "Draw on PDF"); await drawingReady(page);
-  const host = (await page.locator(".reader-host").boundingBox())!, x = host.x + host.width * .4, y = host.y + Math.min(260, host.height * .4);
+  const paper = (await page.locator('.pdf-page[data-page="1"] .pdf-ink-layer').boundingBox())!;
+  const x = paper.x + paper.width * .4, y = paper.y + Math.min(160, paper.height * .3);
   const cdp = await page.context().newCDPSession(page);
   await cdp.send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", buttons: 1, pointerType: "pen", force: .5 });
   await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: x + 30, y: y + 20, button: "left", buttons: 1, pointerType: "pen", force: .7 });
