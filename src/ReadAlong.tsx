@@ -15,7 +15,6 @@ type Session = {
   abort: AbortController; source: AsyncGenerator<NarrationItem>; items: Map<number, NarrationItem>;
   next: number; ended: boolean; loading?: Promise<void>;
   cached: Map<string, ReturnType<NarrationAudio["generate"]>>;
-  ready: boolean;
 };
 const defaultSettings: Settings = { voice: "af_heart", speed: 1, follow: true };
 const settingsKey = "narration-settings:v1";
@@ -119,7 +118,7 @@ export function ReadAlong({ book, adapter, host, controls, start, selected }: {
     previous?.abort.abort();
     void previous?.source.return(undefined).catch(() => {});
     audio.current?.halt();
-    audio.current?.closeWorker();
+    audio.current?.cancelPending();
     setPart(undefined); setDownload(undefined);
   }
 
@@ -172,15 +171,16 @@ export function ReadAlong({ book, adapter, host, controls, start, selected }: {
       if (device && !voice) throw new Error("Choose an installed voice available on this device.");
       const samples = !device ? await buffer(current, item, at, config, token) : undefined;
       if (!playing()) return;
-      const next = !device && itemAt(current, at + 1).then(part => playing() && part && !part.missing ? buffer(current, part, at + 1, config, token) : undefined);
-      const prefetched = next && next.catch(() => undefined);
-      if (!current.ready) { await prefetched; current.ready = true; }
-      if (!playing()) return;
+      // Generate ahead while this sentence plays. A slow next page (including
+      // OCR or model inference) must never hold back audio already available.
+      if (!device) void itemAt(current, at + 1).then(part =>
+        playing() && part && !part.missing ? buffer(current, part, at + 1, config, token) : undefined
+      ).catch(() => {});
       if (preferences.current.follow) {
         const viewport = host.current?.getBoundingClientRect();
         const top = viewport?.top ?? 0;
         if (!viewport || !reader.bounds(item.locator).some(rect => rect.top >= top && rect.bottom <= viewport.bottom - 64))
-          await reader.goTo(item.locator);
+          void reader.goTo(item.locator).catch(() => {});
       }
       if (!playing()) return;
       setPart(item); setSaved(item.locator); setDownload(undefined);
@@ -202,7 +202,7 @@ export function ReadAlong({ book, adapter, host, controls, start, selected }: {
     if (!reader) return;
     cancel();
     const abort = new AbortController();
-    session.current = { abort, source: reader.narration(locator, abort.signal), items: new Map(), cached: new Map(), next: 0, ended: false, ready: false };
+    session.current = { abort, source: reader.narration(locator, abort.signal), items: new Map(), cached: new Map(), next: 0, ended: false };
     play(0, true);
   }
 
@@ -224,8 +224,20 @@ export function ReadAlong({ book, adapter, host, controls, start, selected }: {
   const paused = status === "paused";
   const playing = status === "playing";
   const deviceVoice = settings.voice.startsWith("device:");
+  const instantVoice = voices.find(v => /^en(?:-|$)/i.test(v.lang) && v.default)
+    || voices.find(v => /^en(?:-|$)/i.test(v.lang)) || voices.find(v => v.default) || voices[0];
+  function playInstalled() {
+    if (!instantVoice) return;
+    const next = { ...preferences.current, voice: "device:" + instantVoice.voiceURI };
+    change(next);
+    if (session.current && status !== "complete") {
+      request.current++;
+      audio.current?.cancelPending();
+      play(cursor.current, true);
+    } else begin();
+  }
   const ui = <div className="read-along">
-    <label>Voice<select value={settings.voice} onChange={event => {
+    <label>Voice<select aria-label="Voice" value={settings.voice} onChange={event => {
       if (active) { cancel(); setStatus("idle"); }
       change({ ...settings, voice: event.target.value });
     }}>
@@ -239,6 +251,8 @@ export function ReadAlong({ book, adapter, host, controls, start, selected }: {
         key={settings.voice} controls preload="none" aria-label="Preview Kokoro voice"
         src={`${import.meta.env.BASE_URL}voice-previews/${settings.voice}.wav`} />}
     {!deviceVoice && status === "idle" && <p>First use downloads the 90 MB model and its runtime. Leafmark generates speech on this device.</p>}
+    {!deviceVoice && instantVoice && ["idle", "complete", "buffering", "error"].includes(status) &&
+      <button className="text-button" onClick={playInstalled}>Play now with {instantVoice.name}</button>}
     <label>Playback speed<select value={settings.speed} onChange={event => {
       const next = { ...settings, speed: Number(event.target.value) };
       change(next);
@@ -265,9 +279,9 @@ export function ReadAlong({ book, adapter, host, controls, start, selected }: {
       <button className="icon-button" aria-label="Stop narration" onClick={() => { cancel(); setStatus("idle"); }}><Square size={17} /></button>
     </div>}
     {part && !part.missing && <blockquote>{part.text}</blockquote>}
-    {status === "buffering" && <p role="status">{download === undefined ? "Buffering narration…" : `Downloading Kokoro · ${download}%`}</p>}
+    {status === "buffering" && <p role="status">{download === undefined ? (deviceVoice ? "Opening device voice…" : index === 0 ? "Preparing the first sentence…" : "Preparing the next sentence…") : `Downloading Kokoro · ${download}%`}</p>}
     {status === "complete" && <p role="status">You reached the end of the book.</p>}
-    {status === "error" && <p role="alert">{message}</p>}
+    {status === "error" && <div><p role="alert">{message}</p><button className="secondary" onClick={() => session.current ? play(cursor.current, true) : begin()}>Retry sentence</button></div>}
     {status === "missing" && part?.locator.type === "pdf" && <div>
       <p role="status">Page {part.locator.page} has no prepared text.</p>
       <div className="narration-actions"><button className="secondary" disabled={preparing} onClick={async () => {

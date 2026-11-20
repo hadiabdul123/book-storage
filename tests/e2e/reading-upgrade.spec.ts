@@ -61,7 +61,15 @@ test("read along starts at a selection and draws a temporary sentence highlight"
   });
   await page.route(url => url.pathname.endsWith("/narration.worker.ts"), route => route.fulfill({
     contentType: "text/javascript",
-    body: `self.onmessage = ({ data }) => {
+    // Hold sentence two until the UI has started and paused sentence one.
+    body: `let released = false, waiting;
+    const gate = new BroadcastChannel("narration-test");
+    gate.onmessage = () => { released = true; if (waiting) send(waiting); };
+    self.onmessage = ({ data }) => {
+      if (data.id === 2 && !released) waiting = data;
+      else send(data);
+    };
+    function send(data) {
       const samples = new Float32Array(72000);
       self.postMessage({ id: data.id, samples, rate: 24000 }, [samples.buffer]);
     };`,
@@ -85,11 +93,43 @@ test("read along starts at a selection and draws a temporary sentence highlight"
   await expect(page.locator(".narration-layer span").first()).toBeVisible();
   await page.getByRole("button", { name: "Pause", exact: true }).click();
   await expect(page.getByRole("button", { name: "Resume", exact: true })).toBeVisible();
+  await page.evaluate(() => {
+    const channel = new BroadcastChannel("narration-test");
+    channel.postMessage("release"); channel.close();
+  });
   await page.getByRole("button", { name: "Next sentence" }).click();
   await expect(page.locator(".read-along blockquote")).toHaveText("The third sentence ends the passage.");
   await page.getByRole("button", { name: "Stop narration" }).click();
   await expect(page.locator(".narration-layer")).toHaveCount(0);
   await expect(page.locator(".pdf-highlight")).toHaveCount(0);
+});
+
+test("switches to an installed voice from the current sentence while the model is waiting", async ({ page }) => {
+  await page.addInitScript(() => {
+    const synth = Object.assign(new EventTarget(), {
+      getVoices: () => [{ voiceURI: "local-test", name: "Test voice", localService: true, lang: "en-US", default: true }],
+      resume() {}, cancel() {},
+      speak(utterance: SpeechSynthesisUtterance) { document.body.dataset.spoken = utterance.text; },
+    });
+    Object.defineProperty(window, "speechSynthesis", { configurable: true, value: synth });
+    Object.defineProperty(window, "SpeechSynthesisUtterance", { configurable: true, value: class {
+      constructor(public text: string) {}
+    } });
+  });
+  await page.route(url => url.pathname.endsWith("/narration.worker.ts"), route =>
+    route.fulfill({ contentType: "text/javascript", body: "self.onmessage = () => {};" }));
+  await page.goto("/");
+  await page.locator("input[type=file]").setInputFiles({ name: "Audio.pdf", mimeType: "application/pdf",
+    buffer: textPdf(["Read this aloud.", "Keep your place."]) });
+  await page.locator(".book-cover-link").click();
+  await expect(page.locator(".textLayer span").first()).toBeVisible();
+  await clickTool(page, "Listen");
+  await page.getByRole("button", { name: "Play from here" }).click();
+  await expect(page.locator(".read-along [role=status]")).toContainText("Preparing the first sentence");
+  await page.getByRole("button", { name: "Play now with Test voice" }).click();
+  await expect(page.locator("body")).toHaveAttribute("data-spoken", "Read this aloud.");
+  await expect(page.getByLabel("Voice", { exact: true })).toHaveValue("device:local-test");
+  await page.getByRole("button", { name: "Stop narration" }).click();
 });
 
 test("library and reader agree on PDF pages and progress", async ({ page }, info) => {

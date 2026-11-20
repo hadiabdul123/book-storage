@@ -29,7 +29,19 @@ function wavUrl({ samples, rate }: AudioData) {
   return URL.createObjectURL(new Blob([wav.buffer], { type: "audio/wav" }));
 }
 
+async function waitForAudioAccess(play: Promise<void>) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([play, new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error("Audio did not start. Tap Retry sentence to enable playback.")), 10_000);
+    })]);
+  } finally { clearTimeout(timer); }
+}
+
 export class NarrationAudio {
+  private clips = new Map<string, AudioData>();
+  private clipBytes = 0;
+
   private worker?: Worker;
   private context?: AudioContext;
   private source?: AudioBufferSourceNode;
@@ -38,36 +50,69 @@ export class NarrationAudio {
   private speech?: SpeechSynthesisUtterance;
   private id = 0;
   private pending = new Map<number, { resolve: (audio: AudioData) => void; reject: (error: Error) => void; progress: (value: number) => void }>();
+  private watchdog?: ReturnType<typeof setTimeout>;
+  private watchWorker() {
+    clearTimeout(this.watchdog);
+    if (this.pending.size) this.watchdog = setTimeout(() => {
+      this.closeWorker("The voice stopped responding. Retry this sentence or choose an installed voice.");
+    }, 90_000);
+  }
 
   unlock() {
     const Context = window.AudioContext ?? (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (Context) {
       this.context ??= new Context();
-      return this.context.resume();
+      return waitForAudioAccess(this.context.resume());
     }
     this.media ??= new Audio();
     this.media.src = this.mediaUrl = wavUrl({ samples: new Float32Array(800), rate: 8000 });
-    return this.media.play();
+    return waitForAudioAccess(this.media.play());
   }
 
   generate(text: string, voice: string, speed: number, progress: (value: number) => void) {
+    const key = JSON.stringify([voice, speed, text]);
+    const clip = this.clips.get(key);
+    if (clip) {
+      this.clips.delete(key);
+      this.clips.set(key, clip);
+      return Promise.resolve(clip);
+    }
     if (!this.worker) {
       this.worker = new Worker(new URL("./narration.worker.ts", import.meta.url), { type: "module" });
       this.worker.onmessage = ({ data }: MessageEvent<AudioReply>) => {
         const next = this.pending.get(data.id);
         if (!next) return;
-        if (data.progress !== undefined) { next.progress(data.progress); return; }
+        if (data.progress !== undefined) { this.watchWorker(); next.progress(data.progress); return; }
         this.pending.delete(data.id);
+        this.watchWorker();
         if (data.samples && data.rate) next.resolve({ samples: data.samples, rate: data.rate });
         else next.reject(new Error(data.error || "The voice could not generate audio."));
       };
-      this.worker.onerror = () => this.closeWorker("Could not load the narration engine.");
+      this.worker.onerror = this.worker.onmessageerror = () => this.closeWorker("Could not load the narration engine. Retry or choose an installed voice.");
     }
     const id = ++this.id;
     return new Promise<AudioData>((resolve, reject) => {
-      this.pending.set(id, { resolve, reject, progress });
+      this.pending.set(id, { reject, progress, resolve: audio => {
+        this.remember(key, audio);
+        resolve(audio);
+      } });
+      if (this.pending.size === 1) this.watchWorker();
       this.worker!.postMessage({ id, text, voice, speed });
     });
+  }
+
+  private remember(key: string, audio: AudioData) {
+    const budget = 6 * 1024 * 1024;
+    if (audio.samples.byteLength > budget) return;
+    this.clipBytes -= this.clips.get(key)?.samples.byteLength ?? 0;
+    this.clips.delete(key);
+    this.clips.set(key, audio);
+    this.clipBytes += audio.samples.byteLength;
+    for (const [oldest, clip] of this.clips) {
+      if (this.clipBytes <= budget) break;
+      this.clips.delete(oldest);
+      this.clipBytes -= clip.samples.byteLength;
+    }
   }
 
   async speak(data: AudioData, onEnd: () => void) {
@@ -80,7 +125,7 @@ export class NarrationAudio {
         this.releaseMedia();
         onEnd();
       };
-      await this.media.play();
+      await waitForAudioAccess(this.media.play());
       return;
     }
     const context = this.context;
@@ -135,7 +180,14 @@ export class NarrationAudio {
     this.releaseMedia();
   }
 
+  cancelPending() {
+    // Keep the initialized model for another play from the same book. An
+    // outstanding download or synthesis job still stops when cancelled.
+    if (this.pending.size) this.closeWorker();
+  }
+
   closeWorker(message = "Narration stopped.") {
+    clearTimeout(this.watchdog);
     this.worker?.terminate();
     this.worker = undefined;
     for (const { reject } of this.pending.values()) reject(new Error(message));
@@ -145,6 +197,8 @@ export class NarrationAudio {
   destroy() {
     this.halt();
     this.closeWorker();
+    this.clips.clear();
+    this.clipBytes = 0;
     void this.context?.close().catch(() => {});
     this.context = undefined;
   }
