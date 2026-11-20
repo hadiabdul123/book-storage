@@ -59,10 +59,20 @@ export function Notebooks() {
       const target = event.target as Element;
       if (!drawer.current?.contains(target) && !pagesButton.current?.contains(target) && !target.closest("dialog,[role=menu]")) closeDrawer();
     };
+    // The browser can move straight from the reveal edge to the editor before
+    // dispatching an enter/leave pair on the newly displayed drawer.
+    const move = (event: PointerEvent) => {
+      if (event.pointerType !== "mouse" || navigator || !peek || !drawer.current) return;
+      const bounds = drawer.current.getBoundingClientRect();
+      if (event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) {
+        if (!drawer.current.contains(document.activeElement)) setPeek(false);
+      }
+    };
+    document.addEventListener("pointermove",move,{passive:true});
     document.addEventListener("keydown",escape);
     document.addEventListener("pointerdown",outside);
-    return () => {document.removeEventListener("keydown",escape); document.removeEventListener("pointerdown",outside);};
-  }, [drawerOpen]);
+    return () => {document.removeEventListener("pointermove",move); document.removeEventListener("keydown",escape); document.removeEventListener("pointerdown",outside);};
+  }, [drawerOpen, navigator, peek]);
   const currentSections = sections.filter(s => s.notebookId === currentId).sort(orderedSections);
   const currentSection = activeNote ? noteSection(activeNote) : currentSections.some(s => s.id === (params.get("section") || sectionId)) ? (params.get("section") || sectionId) : defaultSectionId(currentId);
   const query = params.get("q") || "";
