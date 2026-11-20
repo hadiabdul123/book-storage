@@ -39,7 +39,7 @@ test("contents lists chapter starts and marks the chapter at the current page", 
   await expect(page.locator(".reader-location")).toHaveText("Page 2 of 4");
 });
 
-test("read along starts at a selection and draws a temporary sentence highlight", async ({ page }) => {
+async function provideTestAudioBackend(page: Page) {
   await page.addInitScript(() => {
     // The Windows WebKit runner ships without a usable audio backend.
     if (window.AudioContext || "webkitAudioContext" in window) return;
@@ -59,6 +59,10 @@ test("read along starts at a selection and draws a temporary sentence highlight"
     };
     HTMLMediaElement.prototype.pause = function () {};
   });
+}
+
+test("read along starts at a selection and draws a temporary sentence highlight", async ({ page }) => {
+  await provideTestAudioBackend(page);
   await page.route(url => url.pathname.endsWith("/narration.worker.ts"), route => route.fulfill({
     contentType: "text/javascript",
     // Hold sentence two until the UI has started and paused sentence one.
@@ -105,6 +109,7 @@ test("read along starts at a selection and draws a temporary sentence highlight"
 });
 
 test("switches to an installed voice from the current sentence while the model is waiting", async ({ page }) => {
+  await provideTestAudioBackend(page);
   await page.addInitScript(() => {
     const synth = Object.assign(new EventTarget(), {
       getVoices: () => [{ voiceURI: "local-test", name: "Test voice", localService: true, lang: "en-US", default: true }],
