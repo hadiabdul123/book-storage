@@ -70,6 +70,18 @@ test("desktop hover reveals controls and leaving hides them", async ({
   await page.mouse.move(100, 400);
   await expect(page.locator(".reader-header")).toBeHidden();
 });
+test("unpinned reading controls hide after a tap without another gesture", async ({ page }) => {
+  await open(page);
+  const header = page.locator(".reader-header");
+  const footer = page.locator(".reader-footer");
+  await touch(page, "tap");
+  await expect(header).toBeVisible();
+  await expect(footer).toBeVisible();
+  await expect(header).toBeHidden({ timeout: 3500 });
+  await expect(footer).toBeHidden();
+  await touch(page, "tap");
+  await expect(header).toBeVisible();
+});
 test("simple meanings are compact and expandable without network lookup", async ({
   page,
 }) => {

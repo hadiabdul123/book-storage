@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { bindReadingTaps } from "./reader/gestures";
 const key = "leafmark-controls-pinned";
+const idleDelay = 2000;
+const leaveDelay = 750;
 export function useReaderChrome(
   shell: RefObject<HTMLElement | null>,
   host: RefObject<HTMLDivElement | null>,
@@ -23,24 +25,31 @@ export function useReaderChrome(
   const effectivePinned = pinned && !immersive;
   const current = useRef({ locked, pinned: effectivePinned, menu });
   current.current = { locked, pinned: effectivePinned, menu };
-  const protectedNow = () =>
+  const heldOpen = () =>
     current.current.locked ||
     current.current.pinned ||
-    current.current.menu ||
+    current.current.menu;
+  const protectedNow = () =>
+    heldOpen() ||
     (window.matchMedia("(hover: hover)").matches &&
       !!shell.current?.querySelector(
         ".reader-header:hover,.reader-footer:hover,.reader-reveal:hover",
       )) ||
     !!shell.current?.querySelector(".passage-popup") ||
     !!shell.current?.querySelector(
-      ".reader-header :focus-visible,.reader-footer :focus-visible",
+      ".reader-reveal:focus-visible,.reader-header :focus-visible,.reader-footer :focus-visible",
     );
-  const reveal = () => {
+  const hideLater = (delay = idleDelay) => {
     clearTimeout(hideTimer.current);
-    setVisible(true);
+    if (heldOpen()) return;
+    hideTimer.current = setTimeout(() => {
+      if (protectedNow()) hideLater();
+      else setVisible(false);
+    }, delay);
   };
-  const hide = () => {
-    if (!protectedNow()) setVisible(false);
+  const reveal = () => {
+    setVisible(true);
+    hideLater();
   };
   const toggle = () => {
     if (current.current.menu && !current.current.locked) {
@@ -63,6 +72,10 @@ export function useReaderChrome(
     if (!host.current) return;
     return bindReadingTaps(host.current, () => tap.current());
   }, [ready, host]);
+  useEffect(() => {
+    if (visible) hideLater();
+    return () => clearTimeout(hideTimer.current);
+  }, [visible, locked, effectivePinned, menu]);
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
       if (
@@ -95,12 +108,8 @@ export function useReaderChrome(
     menu,
     setMenu,
     reveal,
-    hide,
     tap: () => tap.current(),
-    leave: () => {
-      clearTimeout(hideTimer.current);
-      hideTimer.current = setTimeout(hide, 1100);
-    },
+    leave: () => hideLater(leaveDelay),
     conceal: () => {
       setMenu(false);
       setVisible(false);
