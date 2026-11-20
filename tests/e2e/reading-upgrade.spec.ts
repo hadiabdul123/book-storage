@@ -240,7 +240,7 @@ test("PDF ink survives reopening, supports undo and exports a separate marked PD
   const download = page.waitForEvent("download"); await page.getByRole("button", { name: "Export marked PDF", exact: true }).click();
   const file = await download; expect(file.suggestedFilename()).toMatch(/-marked\.pdf$/);
   expect((await PDFDocument.load(await readFile((await file.path())!))).getPageCount()).toBe(4);
-  await page.goto("/#/notes"); await showHighlightFilters(page);
+  await page.goto("/#/notes?layout=book"); await showHighlightFilters(page);
   await page.getByLabel("Note type").selectOption("drawing");
   await page.locator(".notes-passage-list section button").first().click(); await expect(page.locator(".ink-preview path")).toHaveCount(2);
 });
@@ -251,7 +251,7 @@ test("notebook sections, text highlighting and inline drawings persist", async (
   if (!(await newSection.isVisible())) await page.getByRole("button", { name: "Pages", exact: true }).click();
   page.once("dialog", d => d.accept("Questions")); await newSection.click();
   await expect(page.locator(".notebook-sections button[aria-current=page]")).toContainText("Questions");
-  await page.getByRole("button", { name: "New note", exact: true }).click();
+  await page.getByRole("button", { name: "New page", exact: true }).click();
   await page.getByRole("button", {name:"Tools",exact:true}).click();
   await page.getByLabel("Topic note title").fill("The useful idea");
   const editor = page.getByRole("textbox", { name: "Topic note content", exact: true });

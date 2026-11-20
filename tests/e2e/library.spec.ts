@@ -56,7 +56,9 @@ test("metadata, covers, collections, library filters and download protection per
   await page
     .getByRole("combobox", { name: "Collection", exact: true })
     .selectOption("");
-  await page.getByRole("button", { name: /^Details for/ }).click();
+  await page.getByLabel("Search library").fill("tracemonkey");
+  await page.locator(".book-cover-link").first().click({button:"right"});
+  await page.getByRole("menuitem", {name:"Book settings",exact:true}).click();
   const dialog = page.getByRole("dialog");
   await dialog
     .getByRole("textbox", { name: "Title", exact: true })
@@ -96,6 +98,7 @@ test("metadata, covers, collections, library filters and download protection per
   await expect(dialog.getByRole("alert")).toContainText("only local copy");
   await dialog.getByRole("button", { name: "Save changes" }).click();
   await expect(dialog).toHaveCount(0);
+  await page.getByLabel("Search library").fill("");
   await page.reload();
   await openTools(page);
   await expect(page.locator(".book-card h3")).toHaveText("Research reference");
@@ -156,7 +159,7 @@ test("annotation edits, filters, exports, JSON restore and malformed backups", a
 }) => {
   await addPdf(page);
   await saveNote(page);
-  await page.goto("/#/notes");
+  await page.goto("/#/notes?layout=book");
   await expect(page.locator(".annotation-card")).toHaveCount(1);
   await page.locator(".notes-passage-open").first().click();
   await page.getByRole("dialog", { name: "Quote card" }).getByRole("button", { name: "Edit highlight" }).click();
@@ -221,7 +224,7 @@ test("annotation edits, filters, exports, JSON restore and malformed backups", a
     buffer: backup,
   });
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await page.goto("/#/notes");
+  await page.goto("/#/notes?layout=book");
   await page.locator(".notes-passage-open").first().click();
   await expect(
     page.getByRole("dialog", { name: "Quote card" }).getByText("Updated research note", { exact: true }),

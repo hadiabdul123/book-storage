@@ -203,7 +203,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   }, [book?.id]);
   const [clip, setClip] = useState<StudyClip>();
   const [paneSize, setPaneSize] = useState(38);
-  const [notebookPlace, setNotebookPlace] = useState({ x: 1, y: 0.12 });
+  const [notebookPlace, setNotebookPlace] = useState({ x: 0.18, y: 0.38 });
   const dragPane = useRef<{ id: number; dx: number; dy: number } | undefined>(undefined);
 
   const sideNote = useRef("");
@@ -748,7 +748,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   return (
     <main
       ref={shell}
-      data-study-open={panel === "study-notebook" || undefined}
+      data-study-open={panel === "study-notebook" || undefined} data-clipping-region={region || undefined}
       style={panel === "study-notebook" ? { "--study-size": paneSize + "%", "--study-x": (100 - paneSize) * notebookPlace.x + "%", "--study-y": 24 * notebookPlace.y + "%" } as React.CSSProperties : undefined}
       className={`reader-shell reader-side-tools theme-${prefs.theme}${drawing ? " drawing-active" : ""}${textBoxMode ? " pdf-text-box-active" : ""}${chrome.visible ? " controls-visible" : " reading-mode"}${chrome.menu ? " controls-menu-open" : ""}${swipeEnabled ? " swipe-pages" : ""}${hidePageControls ? " hide-page-controls" : ""}${panel ? " panel-open" : ""}`}
       data-original-pdf-colors={pdfOriginalColors}
@@ -1047,8 +1047,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
             </header>
             <div className="panel-body">
               {panel === "study-notebook" && <Suspense fallback={<p>Opening notebook...</p>}>
-                <label className="study-size">Pane size<input type="range" aria-label="Notebook pane size" min={28} max={65} value={paneSize} onChange={e=>setPaneSize(+e.target.value)} /></label>
-                <StudyNotebook clip={clip} selectedNote={sideNote} inserted={() => {setClip(undefined); notify("Inserted with a link to the PDF.");}}
+                <StudyNotebook key={book.id} bookId={book.id} sizeControl={<label className="study-size">Pane size<input type="range" aria-label="Notebook pane size" min={28} max={65} value={paneSize} onChange={e=>setPaneSize(+e.target.value)} /></label>} clip={clip} selectedNote={sideNote} inserted={() => {setClip(undefined); notify("Inserted with a link to the PDF.");}}
                   region={region} crop={() => {interactions.current?.dismiss(); (adapter.current as PdfReader)?.setRegionMode(!region); setRegion(!region);}} />
               </Suspense>}
               {panel === "listen" && <div ref={setListenHost} />}
@@ -1674,6 +1673,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
           const file = selection.text.startsWith("Region on page ") ? await (adapter.current as PdfReader).captureRegion(selection.locator) : undefined;
           setClip({ text:selection.text, file, point, source:{ id:uid(), kind:"book", title:book.title, bookId:book.id, locator:selection.locator, excerpt:selection.text.slice(0,2400) } });
           interactions.current?.dismiss(); adapter.current?.clearSelection();
+          if (region) { (adapter.current as PdfReader)?.setRegionMode(false); setRegion(false); }
           setPanel("study-notebook"); chrome.setMenu(false);
         }}
         notify={notify}

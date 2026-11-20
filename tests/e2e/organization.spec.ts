@@ -40,7 +40,7 @@ test("large libraries use source IDs, bounded lists, complete exports and resear
   await openBook(page);
   // Populate an isolated, inactive library atomically; removing the current
   // book while its reader is saving can race WebKit's database cleanup.
-  await page.goto("/#/notes"); await expect(page.getByRole("heading", { name: "Highlights & notes" })).toBeVisible();
+  await page.goto("/#/notes?layout=book"); await expect(page.getByRole("heading", { name: "Highlights & notes" })).toBeVisible();
   await page.evaluate(async () => {
     const { db } = await import("/src/db.ts"), { defaultSectionId } = await import("/src/notebookSections.ts");
     const original = (await db.rows.where("kind").equals("book").first())!.value as any;
@@ -63,7 +63,7 @@ test("large libraries use source IDs, bounded lists, complete exports and resear
   await page.goto("/#/"); await expect(page.locator(".book-card")).toHaveCount(50);
   await expect(page.getByRole("navigation", { name: "Books pagination" })).toContainText("100");
   await page.getByRole("button", { name: "Next books page" }).click(); await expect(page).toHaveURL(/page=2/);
-  await page.goto("/#/notes"); await expect(page.locator(".notes-passage-open")).toHaveCount(50);
+  await page.goto("/#/notes?layout=book"); await expect(page.locator(".notes-passage-open")).toHaveCount(50);
   await expect(page.locator(".annotation-card")).toHaveCount(1);
   const download = page.waitForEvent("download"); await page.getByLabel("Export notes", { exact: true }).selectOption("json");
   const backup = JSON.parse(await readFile((await (await download).path())!, "utf8")); expect(backup.annotations).toHaveLength(5000);
@@ -82,7 +82,11 @@ test("large libraries use source IDs, bounded lists, complete exports and resear
   await expect(page.getByLabel("Topic note content")).toBeVisible();
   await page.screenshot({ path: test.info().outputPath("notebook-workspace.png"), fullPage: true });
   await page.getByRole("button", { name: "Pages", exact: true }).click();
-  await page.getByRole("tab", { name: "Research", exact: true }).click();
+  await page.getByRole("button", {name:"Browse notebooks",exact:true}).click();
+  await expect(page.locator(".common-header")).toBeVisible();
+  const menu = page.getByRole("button",{name:"Navigation",exact:true});
+  if(await menu.isVisible()) await menu.click();
+  await page.getByRole("link", { name: "Research", exact: true }).click();
   const studyRows = page.getByRole("navigation", { name: "Saved studies" }).locator(".workspace-item > button:first-child");
   await expect(studyRows).toHaveCount(50);
   await page.getByLabel("Search studies").fill("Question 99");

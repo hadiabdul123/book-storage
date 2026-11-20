@@ -45,7 +45,7 @@ export function ItemMenu({ title, children, actions, className, touch = false, r
     stopHold();
     open(event.clientX, event.clientY, event.currentTarget.querySelector("button"));
   }} onPointerDown={event => {
-    if (!touch || event.pointerType !== "touch" || !event.isPrimary || (event.target as Element).closest(".workspace-more, .workspace-menu")) return;
+    if (!touch || event.pointerType !== "touch" || !event.isPrimary || (event.target as Element).closest(".workspace-more, .workspace-menu, .reorder-grip")) return;
     const x = event.clientX, y = event.clientY;
     suppressClick.current = false; finger.current = { x, y };
     hold.current = setTimeout(() => { suppressClick.current = true; open(x, y, trigger.current); }, 520);

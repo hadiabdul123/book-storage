@@ -8,8 +8,8 @@ async function openNote(page: Page) {
   await page.getByLabel("Notebook name").fill("Field journal");
   await page.getByRole("button", { name: "Create notebook" }).click();
   await expect(page.getByRole("dialog").filter({ has: page.getByRole("heading", { name: "New notebook" }) })).toBeHidden();
-  await expect(page.locator(".notebook-detail-actions")).toContainText("Field journal");
-  await page.getByRole("button", { name: "New note", exact: true }).click();
+  await expect(page.locator(".pages-heading")).toContainText("Field journal");
+  await page.getByRole("button", { name: "New page", exact: true }).click();
   await expect(page.getByRole("textbox", { name: "Topic note content" })).toHaveAttribute("contenteditable", "true");
   await page.getByRole("button", {name:"Tools",exact:true}).click();
 }
@@ -356,8 +356,9 @@ test("a group of attachments can move freely and be copied to a different page",
   expect(left).toBeGreaterThan(before + 70);
   await page.getByRole("button", { name: "Copy attachments" }).click();
   await page.getByRole("button", {name:"Pages",exact:true}).click();
-  await page.getByRole("button", { name: "New note", exact: true }).click();
+  await page.getByRole("button", { name: "New page", exact: true }).click();
   await expect(writing).toHaveAttribute("contenteditable", "true");
+  await page.getByRole("button", {name:"Tools",exact:true}).click();
   await page.getByRole("button", { name: "Paste attachments" }).click();
   await expect(writing.locator(".note-media")).toHaveCount(2);
   await expect(writing.getByRole("img", { name: "first.png" })).toBeVisible();
@@ -381,4 +382,25 @@ test("holding a notebook image on a phone opens attachment actions", async ({ pa
   await expect(page.getByRole("menuitem", { name: "Download original" })).toBeVisible();
   await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
   await expect(page.getByRole("menuitem", { name: "Move to Trash" })).toBeVisible();
+});
+
+test("peeking at pages preserves the selected words and the writing column", async ({page}, info) => {
+  test.skip(info.project.name !== "desktop", "Requires a fine hover pointer");
+  await openNote(page);
+  const editor = page.getByLabel("Topic note content");
+  await editor.fill("Return to the passage.");
+  await editor.press("ControlOrMeta+a");
+  const selection = () => page.evaluate(() => window.getSelection()?.toString());
+  const before = await editor.boundingBox();
+  await page.mouse.move(3,160);
+  await expect(page.getByLabel("Notebook pages")).toBeVisible();
+  await page.mouse.move(900,160);
+  await expect(page.getByLabel("Notebook pages")).toBeHidden();
+  expect(await editor.boundingBox()).toEqual(before);
+  expect(await selection()).toContain("Return to the passage.");
+  await page.getByRole("button",{name:"Pages",exact:true}).click();
+  await page.mouse.move(900,160);
+  await expect(page.getByLabel("Notebook pages")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByLabel("Notebook pages")).toBeHidden();
 });

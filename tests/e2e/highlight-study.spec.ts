@@ -127,7 +127,7 @@ test("a scoped page and notebook comparison becomes a reusable filed card", asyn
   await page.getByLabel("Save destination").selectOption("card");
   await page.getByRole("dialog").getByRole("button",{name:"Save card",exact:true}).click();
   await page.getByRole("button",{name:"Done",exact:true}).click();
-  await page.goto("/#/notes");
+  await page.goto("/#/notes?layout=book");
   await page.locator(".notes-passage-open").first().click();
   const card = page.getByRole("dialog",{name:"Research note",exact:true});
   await expect(card.locator(".source-citation")).toHaveCount(2);
@@ -143,6 +143,7 @@ test("a scoped page and notebook comparison becomes a reusable filed card", asyn
   await page.reload();
   await expect(page.locator(".notes-passage-open")).toHaveCount(1);
   await page.getByRole("button",{name:"Board",exact:true}).click();
+  await page.getByRole("button",{name:"Arrange cards"}).click();
   const tile=page.locator(".category-board [data-card]");
   await expect(tile).toHaveCount(1);
   const before=await tile.getAttribute("style");
@@ -150,6 +151,7 @@ test("a scoped page and notebook comparison becomes a reusable filed card", asyn
   await expect(tile).not.toHaveAttribute("style",before!);
   const moved=await tile.getAttribute("style");
   await page.reload();await expect(tile).toHaveAttribute("style",moved!);
+  await page.getByRole("button",{name:"Filters & tools"}).click();
   await page.getByRole("button",{name:"Gallery",exact:true}).click();
   await showHighlightFilters(page);
   await page.getByText("More filters",{exact:true}).click();
@@ -181,8 +183,7 @@ test("an unfiled passage opens on the board and keeps its source in a notebook",
       text:"A passage to keep",color:"yellow",tags:[],note:"Return to the source.",createdAt:new Date().toISOString()});
   });
   await page.goto("/#/notes");
-  await expect(page.locator(".common-book-head")).toContainText("Journal");
-  await page.getByRole("button",{name:"Board",exact:true}).click();
+  await expect(page.getByRole("heading",{name:"Collection board"})).toBeVisible();
   await expect(page.locator(".collection-overview")).toContainText("Unfiled");
   await page.locator(".board-slips button").click();
   await page.getByRole("button",{name:"Add to notebook",exact:true}).click();
@@ -196,4 +197,39 @@ test("an unfiled passage opens on the board and keeps its source in a notebook",
   await page.reload();
   await editor.getByRole("link",{name:/Journal/}).click();
   await expect(page.locator('.pdf-page[data-page="1"]')).toBeVisible();
+});
+
+test("compare collections keeps shared cards, exact counts and the phone selection", async ({ page }) => {
+  const pdf = await PDFDocument.create();
+  pdf.addPage().drawText("A shared passage");
+  await page.goto("/");
+  await page.locator("input[type=file]").setInputFiles({name:"Essay.pdf",mimeType:"application/pdf",buffer:Buffer.from(await pdf.save())});
+  await expect(page.locator(".book-card")).toHaveCount(1);
+  await page.evaluate(async () => {
+    const { list, save } = await import("/src/db.ts");
+    const [book] = await list("book"), createdAt = new Date().toISOString();
+    for (const name of ["Attention","Solitude","Writing"]) await save("quote-category",{id:name,name,createdAt});
+    for (let i=0;i<16;i++) {
+      const id = "quote-"+i;
+      await save("annotation",{id,bookId:book.id,locator:{v:1,type:"pdf",page:1,y:0,hash:book.hash},
+        text:"Passage "+i,color:"yellow",tags:[],note:"",createdAt});
+      for (const categoryId of i === 0 ? ["Attention","Solitude"] : ["Attention"])
+        await save("card-filing",{id:categoryId+":"+id,cardId:id,categoryId,createdAt});
+    }
+  });
+  await page.goto("/#/notes");
+  await expect(page.locator(".collection-overview section")).toHaveCount(2);
+  await page.getByRole("button",{name:"Compare collections",exact:true}).click();
+  const left = page.getByRole("region",{name:"Left collection"}),right=page.getByRole("region",{name:"Right collection"});
+  await expect(left).toContainText("16 highlights");
+  await left.getByRole("button",{name:/Show more highlights/}).click();
+  await expect(left.locator(".board-slips button")).toHaveCount(16);
+  if (await page.locator(".compare-tabs").isVisible()) await page.locator(".compare-tabs button").nth(1).click();
+  await expect(right.locator(".board-slips button")).toHaveCount(1);
+  await right.locator(".board-slips button").click();
+  await expect(page.getByRole("dialog",{name:"Quote card"})).toContainText("Passage 0");
+  await page.getByRole("button",{name:"Close",exact:true}).click();
+  await expect(right).toBeVisible();
+  await right.getByRole("combobox").selectOption("Writing");
+  await expect(right).toContainText("No highlights in this collection.");
 });

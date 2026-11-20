@@ -14,7 +14,6 @@ import {
   FolderPlus,
   Trash2,
   BookOpen,
-  ListOrdered,
 } from "lucide-react";
 import { db, get, list, save } from "./db";
 import { importBook } from "./import";
@@ -322,9 +321,10 @@ export function Library({ notify }: { notify: (message: string) => void }) {
               progress={progress.get(book.id)!}
               onDetails={() => setDetail(book)}
             />);
-            return canReorder ? <ItemMenu key={book.id} title={book.title} className="reorder-item" reorderId={book.id} icon={<ListOrdered size={18} />} grip={<ReorderGrip title={book.title} />} actions={[
-              ...moveActions(shown, book.id, target => moveBook(book.id, target)),
-            ]}>{card}</ItemMenu> : card;
+            return <ItemMenu key={book.id} touch title={book.title} className="reorder-item library-book-actions" reorderId={canReorder ? book.id : undefined} grip={canReorder && <ReorderGrip title={book.title} />} actions={[
+              { label:"Book settings", run:() => setDetail(book) },
+              ...moveActions(shown, book.id, target => moveBook(book.id, target), canReorder),
+            ]}>{card}</ItemMenu>;
           })}
         </div>
       )}
@@ -453,7 +453,6 @@ function BookDetails({
                 onChange={async (e) => {
                   const image = e.target.files?.[0];
                   if (!image) return;
-                  const url = URL.createObjectURL(image);
                   try {
                     const bitmap = await createImageBitmap(image);
                     const canvas = document.createElement("canvas");
@@ -464,15 +463,11 @@ function BookDetails({
                     canvas
                       .getContext("2d")!
                       .drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-                    setDraft({
-                      ...draft,
-                      cover: canvas.toDataURL("image/webp", 0.8),
-                    });
+                    const cover = canvas.toDataURL("image/webp", 0.8);
+                    setDraft(current => ({ ...current, cover }));
                     bitmap.close();
                   } catch (err) {
                     setError(messageOf(err));
-                  } finally {
-                    URL.revokeObjectURL(url);
                   }
                 }}
               />

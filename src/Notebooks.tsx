@@ -41,6 +41,28 @@ export function Notebooks() {
   const [sectionId, setSectionId] = useState("");
   const [navigator, setNavigator] = useState(false), [focus, setFocus] = useState(true);
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [peek, setPeek] = useState(false);
+  const drawer = useRef<HTMLDivElement>(null);
+  const pagesButton = useRef<HTMLButtonElement>(null);
+  const drawerOpen = navigator || peek;
+  const closeDrawer = () => { setNavigator(false); setPeek(false); };
+  useEffect(() => {
+    if (!drawerOpen) return;
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !document.querySelector("dialog[open], [role=menu]")) {
+        const focusInside = drawer.current?.contains(document.activeElement);
+        closeDrawer();
+        if (focusInside) pagesButton.current?.focus();
+      }
+    };
+    const outside = (event: PointerEvent) => {
+      const target = event.target as Element;
+      if (!drawer.current?.contains(target) && !pagesButton.current?.contains(target) && !target.closest("dialog,[role=menu]")) closeDrawer();
+    };
+    document.addEventListener("keydown",escape);
+    document.addEventListener("pointerdown",outside);
+    return () => {document.removeEventListener("keydown",escape); document.removeEventListener("pointerdown",outside);};
+  }, [drawerOpen]);
   const currentSections = sections.filter(s => s.notebookId === currentId).sort(orderedSections);
   const currentSection = activeNote ? noteSection(activeNote) : currentSections.some(s => s.id === (params.get("section") || sectionId)) ? (params.get("section") || sectionId) : defaultSectionId(currentId);
   const query = params.get("q") || "";
@@ -71,8 +93,8 @@ export function Notebooks() {
       return next;
     });
   }
-  useEffect(() => { if (noteId) { setFocus(true); setNavigator(false); } }, [noteId]);
-  const selectNote = (id: string) => run(async () => { await flushActive(); setParams({ note: id, view: "notes" }); setNavigator(false); });
+  useEffect(() => { if (noteId) { setFocus(true); closeDrawer(); setToolsOpen(false); } }, [noteId]);
+  const selectNote = (id: string) => run(async () => { await flushActive(); setParams({ note: id, view: "notes" }); closeDrawer(); });
   const order = (kind: "notebook" | "notebook-section" | "notebook-note", id: string, target: Move) => run(async () => {
     if (kind === "notebook-note") await flushActive();
     await reorder(kind, id, target);
@@ -117,13 +139,20 @@ export function Notebooks() {
   });
   const filtered = notes.filter(n => n.notebookId === currentId && (query || noteSection(n) === currentSection) && `${n.title} ${plainText(n.document)} ${n.tags.join(" ")}`.toLowerCase().includes(query.toLowerCase())).sort(orderedPages);
   const page = pageOf(filtered, params.get("np") || "1");
-  return <div className={`notebooks-page workspace-notebooks ${research ? "workspace-research" : "workspace-writing"} ${navigator ? "navigator-open" : ""} ${activeNote && !research && focus && !navigator ? "notebook-focus" : ""} ${toolsOpen ? "writing-tools-open" : ""} ${activeNote ? "has-open-page" : ""}`}>
-    <header className="page-header"><div><h1>{research ? "Research" : "Notebooks"}{!research && <span className="count">{notebooks.length}</span>}</h1></div><div className="button-row">{!research && <button className="secondary" onClick={() => { setTitle(""); setCreating(true); }}><Plus size={17} />New notebook</button>}<label className="export-select"><Download size={17} /><select aria-label="Export notebooks" value="" onChange={e => { if (e.target.value) run(() => exportResearch(e.target.value as "md" | "json")); }}><option value="">Export</option><option value="md">Markdown</option><option value="json">JSON backup</option></select></label><label className="text-button notebook-import">Restore backup<input type="file" accept="application/json,.json" aria-label="Restore research backup" onChange={e => { const file = e.target.files?.[0]; if (file) run(async () => { const result = await restoreResearchBackup(JSON.parse(await file.text())); setError(`Restored ${result.restored} records; kept ${result.skipped} existing records.`); }); e.target.value = ""; }} /></label></div></header>
+  const backupControls = <><label className="export-select"><Download size={17} /><select aria-label="Export notebooks" value="" onChange={e => { if (e.target.value) run(() => exportResearch(e.target.value as "md" | "json")); }}><option value="">Export</option><option value="md">Markdown</option><option value="json">JSON backup</option></select></label><label className="text-button notebook-import">Restore backup<input type="file" accept="application/json,.json" aria-label="Restore research backup" onChange={e => { const file = e.target.files?.[0]; if (file) run(async () => { const result = await restoreResearchBackup(JSON.parse(await file.text())); setError(`Restored ${result.restored} records; kept ${result.skipped} existing records.`); }); e.target.value = ""; }} /></label></>;
+  return <div className={`notebooks-page workspace-notebooks ${research ? "workspace-research" : "workspace-writing"} ${drawerOpen && activeNote ? "navigator-open" : ""} ${activeNote && !research && focus ? "notebook-focus" : ""} ${toolsOpen ? "writing-tools-open" : ""} ${activeNote ? "has-open-page" : ""}`}>
+    {research && <header className="page-header"><h1>Research</h1><div className="button-row">{backupControls}</div></header>}
     {error && <p className="notice" role="status">{error}</p>}
-    <nav className="workspace-tabs" role="tablist" aria-label="Notebook workspace"><button role="tab" aria-selected={!research} onClick={() => setResearch(false)}>Notes</button><button role="tab" aria-selected={research} onClick={() => setResearch(true)}>Research</button></nav>
+    {research && <nav className="workspace-tabs" role="tablist" aria-label="Notebook workspace"><button role="tab" aria-selected={!research} onClick={() => setResearch(false)}>Notes</button><button role="tab" aria-selected={research} onClick={() => setResearch(true)}>Research</button></nav>}
     {research ? <ResearchBrowser /> : <div className="notebook-layout">
+      {activeNote && focus && <div className="writing-edge" aria-hidden="true" onPointerEnter={e => {
+        if (e.pointerType === "mouse" && !e.buttons) setPeek(true);
+      }} />}
+      <div className="notebook-navigation" ref={drawer} onPointerLeave={() => {if (!navigator && !drawer.current?.contains(document.activeElement)) setPeek(false);}}>
       <aside className="notebook-list" aria-label="Notebooks and notes">
-        {navigator && activeNote && <button className="text-button" aria-label="Close notebook navigation" onClick={() => setNavigator(false)}>Close navigation</button>}
+        <div className="rail-heading"><strong>Notebooks</strong><button aria-label="New notebook" onClick={() => {setTitle("");setCreating(true);}}><Plus size={16}/></button></div>
+        {drawerOpen && activeNote && <button className="text-button" onClick={() => run(async () => { await flushActive(); setParams({notebook:currentId,section:currentSection}); closeDrawer(); })}>Browse notebooks</button>}
+        {drawerOpen && activeNote && <button className="text-button" aria-label="Close notebook navigation" onClick={closeDrawer}>Close navigation</button>}
         <label className="search-field"><Search size={16} /><input aria-label="Find a notebook" placeholder="Find a notebook" value={notebookQuery} onChange={e => setNotebookQuery(e.target.value)} /></label>
         <nav aria-label="Notebook list" {...notebookDrag}>{notebooks.filter(n => n.id === currentId || n.title.toLowerCase().includes(notebookQuery.toLowerCase())).map(n => <ItemMenu key={n.id} title={n.title} reorderId={n.id} grip={!notebookQuery && <ReorderGrip title={n.title} />} actions={[
           { label: "Rename", run: () => setRename({ label: "notebook", title: n.title, save: async title => { await flushActive(); const latest = await get("notebook", n.id); if (latest) await save("notebook", { ...latest, title }); } }) },
@@ -131,8 +160,8 @@ export function Notebooks() {
           { label: "Move to Trash", danger: true, run: () => run(() => trashNotebook(n.id)) },
         ]}><button aria-current={n.id === currentId ? "page" : undefined} onClick={() => run(async () => {
           await flushActive(); setNotebookId(n.id); setSectionId(""); setParams({ notebook: n.id, section: "", np: "1" }); setNavigator(false);
-        })}><strong>{n.title}</strong></button></ItemMenu>)}</nav>
-        <h2 className="navigator-heading">Sections</h2>
+        })}><strong>{n.title}</strong><small>{notes.filter(page => page.notebookId === n.id).length}</small></button></ItemMenu>)}</nav>
+        <h2 className="rail-section-name">{current?.title || "Sections"}</h2>
         <nav className="notebook-sections" aria-label="Notebook sections" {...sectionDrag}>{currentSections.map(section => <ItemMenu key={section.id} title={section.title} reorderId={section.id} grip={<ReorderGrip title={section.title} />} actions={[
           { label: "Rename", run: () => setRename({ label: "section", title: section.title, save: async title => { const latest = await get("notebook-section", section.id); if (latest) await save("notebook-section", { ...latest, title }); } }) },
           ...moveActions(currentSections, section.id, target => order("notebook-section", section.id, target)),
@@ -145,28 +174,30 @@ export function Notebooks() {
           await flushActive(); setSectionId(section.id); setParams({ section: section.id, np: "1" }); setNavigator(false);
         })}><span className="section-tab" /><strong>{section.title}</strong><small>{notes.filter(n => noteSection(n) === section.id).length}</small></button></ItemMenu>)}</nav>
         <button className="text-button" disabled={!current} onClick={() => { const title = prompt("Section name"); if (title?.trim() && current) run(async () => { await flushActive(); const section = { id: uid(), notebookId: current.id, title: title.trim().slice(0, 200), order: Math.max(0, ...currentSections.map(s => s.order)) + 1, createdAt: now() }; await save("notebook-section", section); setSectionId(section.id); setParams({ section: section.id, np: "1" }); setNavigator(false); }); }}><Plus size={15} />New section</button>
+        <details className="notebook-options"><summary>Notebook options</summary>{backupControls}</details>
       </aside>
       <aside className="notebook-pages" aria-label="Notebook pages">
-        <h2 className="notebook-section-title">{currentSections.find(s => s.id === currentSection)?.title || "Pages"}</h2>
-        <h2 className="navigator-heading">{currentSections.find(s => s.id === currentSection)?.title || "Pages"}</h2>
-        <label className="search-field"><Search size={17} /><input aria-label="Search notebook" value={query} onChange={e => setQuery(e.target.value)} placeholder="Search notes or tags" /></label>
-        <button className="text-button" onClick={addNote}><Plus size={16} />New note</button>
+        <header className="pages-heading"><h1>{current?.title || "Notebooks"}</h1><button className="secondary" onClick={addNote}><Plus size={16}/>New page</button></header>
+        <p className="section-path">{currentSections.find(s => s.id === currentSection)?.title || "Notes"}</p>
+        <div className="pages-rule"><h2>Pages</h2><small>{filtered.length} {filtered.length === 1 ? "page" : "pages"}</small>
+          <details><summary aria-label="Search pages"><Search size={16}/></summary><label className="search-field"><input aria-label="Search notebook" value={query} onChange={e => setQuery(e.target.value)} placeholder="Search notes or tags" /></label></details></div>
         <nav aria-label="Pages in this section" {...pageDrag}>{page.items.map(n => <ItemMenu key={n.id} title={n.title} reorderId={n.id} grip={!query && <ReorderGrip title={n.title} />} actions={[
           { label: "Rename", run: () => setRename({ label: "page", title: n.title, save: title => changeNote(n.id, { title }) }) },
           { label: "Move to section", disabled: currentSections.length < 2, run: () => setMoving(n) },
           ...moveActions(filtered, n.id, target => order("notebook-note", n.id, target), !query),
           { label: "Move to Trash", danger: true, run: () => trashPage(n.id) },
-        ]}><button className={n.id === noteId ? "active" : ""} aria-current={n.id === noteId ? "page" : undefined} onClick={() => selectNote(n.id)}><strong>{n.title}</strong><span>{plainText(n.document).slice(0, 90)}</span></button></ItemMenu>)}</nav>
+        ]}><button className={n.id === noteId ? "active" : ""} aria-current={n.id === noteId ? "page" : undefined} onClick={() => selectNote(n.id)}><strong>{n.title}</strong><span>{plainText(n.document).slice(0, 90)}</span><time dateTime={n.updatedAt}>{new Date(n.updatedAt).toLocaleDateString(undefined,{month:"short",day:"numeric"})}</time></button></ItemMenu>)}</nav>
         <BrowsePages {...page} label="Pages" onChange={n => writeParams(previous => { const next = new URLSearchParams(previous); next.set("np", String(n)); return next; })} />
         {!filtered.length && <p className="muted">{query ? "No matching pages." : "Create a page in this section."}</p>}
       </aside>
+      </div>
       <main className="notebook-detail">
         <header className="notebook-detail-actions">
-          <button className="text-button notebook-navigator-toggle" aria-expanded={navigator} onClick={() => setNavigator(!navigator)}><PanelLeft size={17} />Pages</button>
+          <button className="text-button notebook-navigator-toggle" ref={pagesButton} aria-expanded={drawerOpen} onMouseDown={e => e.preventDefault()} onClick={() => {setPeek(false); setNavigator(!navigator);}}><PanelLeft size={17} />Pages</button>
           <span>{current?.title || "Notebooks"} / {currentSections.find(s => s.id === currentSection)?.title || "Notes"}</span>
           <div className="button-row">
-            <button className="text-button" aria-label="Focus notebook page" aria-pressed={focus} onClick={() => { setFocus(!focus); setNavigator(false); }}><Maximize2 size={17} /></button>
-            <button className="text-button" aria-pressed={research} onClick={() => run(openPageStudy)}><Sparkles size={17} />Research</button>
+            <button className="text-button writer-extra" aria-label="Focus notebook page" aria-pressed={focus} onClick={() => { setFocus(!focus); setNavigator(false); }}><Maximize2 size={17} /></button>
+            <button className="text-button writer-extra" aria-pressed={research} onClick={() => run(openPageStudy)}><Sparkles size={17} />Research</button>
             {activeNote && <><button className="text-button writing-tools-toggle" aria-expanded={toolsOpen} onMouseDown={e => e.preventDefault()} onClick={() => setToolsOpen(!toolsOpen)}>Tools</button><div ref={setHeaderHost} /></>}
           </div>
         </header>

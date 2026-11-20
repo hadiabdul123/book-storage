@@ -410,6 +410,7 @@ export function TopicEditor({ note, headerHost, toolbarHost, insertHandle }: { i
     <div className="note-paper-layout">
       {cue && files && !files.some(media => media.id === cue.id) && <p role="status">This attachment is unavailable. Check sync or restore it from Trash.</p>}
       <div className="note-paper-column">
+        <time className="page-date" dateTime={note.createdAt}>{new Date(note.createdAt).toLocaleDateString(undefined,{month:"long",day:"numeric"})}</time>
         <label className="topic-title-label"><input aria-label="Topic note title" maxLength={200} disabled={!loaded} value={title} onChange={e => { setTitle(e.target.value); change({ title: e.target.value }); }} /></label>
         <div ref={paper} className="notebook-paper" data-media-select={selectingMedia} data-writing-tool={paperTool} {...lasso.handlers}
           onClickCapture={event => {

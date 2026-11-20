@@ -94,15 +94,17 @@ test("selection research saves a partial cited answer into a chosen PDF page and
 test("topic writing autosaves and remains editable after reload, with valid JSON export and trash recovery", async ({ page }) => {
   await page.goto("/#/notebooks"); await page.getByRole("button", { name: "New notebook", exact: true }).click();
   await page.getByLabel("Notebook name").fill("My ideas"); await page.getByRole("button", { name: "Create notebook", exact: true }).click();
-  await page.getByRole("button", { name: "New note", exact: true }).click();
+  await page.getByRole("button", { name: "New page", exact: true }).click();
   await page.getByRole("textbox", { name: "Topic note title" }).fill("Questions about the universe");
   await page.getByRole("textbox", { name: "Topic note content" }).fill("A thought that should survive a restart.");
   await page.getByRole("button", { name: "Save now", exact: true }).click(); await expect(page.locator(".topic-save-status")).toContainText("Saved on this device");
   await page.reload(); await expect(page.getByRole("textbox", { name: "Topic note content" })).toContainText("survive a restart");
   await page.getByRole("button", {name:"Pages",exact:true}).click();
+  await page.getByText("Notebook options",{exact:true}).click();
   const downloaded = page.waitForEvent("download"); await page.getByLabel("Export notebooks").selectOption("json");
   const download = await downloaded; expect(download.suggestedFilename()).toMatch(/leafmark-research.*json/);
   await page.getByRole("button", {name:"Close notebook navigation"}).click();
+  await page.getByRole("button",{name:"Tools",exact:true}).click();
   page.once("dialog", d => d.accept()); await page.getByRole("button", { name: "Trash note", exact: true }).click();
   await expect(page.getByRole("textbox", { name: "Topic note content" })).toHaveCount(0);
   await page.goto("/#/settings"); const row = page.locator(".trash-row").filter({ hasText: "Questions about the universe" }); await row.getByRole("button", { name: "Restore" }).click();

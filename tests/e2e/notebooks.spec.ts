@@ -52,7 +52,7 @@ test("formatted page notebooks persist, search, export and restore", async ({
   await expect(page.locator(".notebook-results .search-result")).toHaveCount(1);
   await page.getByRole("button", { name: "Close panel" }).click();
   await page.getByRole("link", { name: "Back to library" }).click();
-  await page.goto("/#/notes");
+  await page.goto("/#/notes?layout=book");
   await showHighlightFilters(page);
   await page.getByLabel("Note type").selectOption("page-note");
   await expect(page.locator(".annotation-card")).toHaveCount(1);
@@ -76,7 +76,7 @@ test("formatted page notebooks persist, search, export and restore", async ({
     .getByRole("button", { name: "Restore", exact: true })
     .click();
   await expect(page.locator(".trash-row")).toHaveCount(0);
-  await page.goto("/#/notes");
+  await page.goto("/#/notes?layout=book");
   await expect(page.locator(".annotation-card")).toContainText("Second bullet");
 });
 test("meaning lookup preserves selection and adds definitions to the page notebook", async ({

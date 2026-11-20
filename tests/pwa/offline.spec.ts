@@ -164,11 +164,12 @@ test("saved PDF notes and rendering assets survive a full offline browser restar
     await page.getByRole("button", { name: "New notebook", exact: true }).click();
     await page.getByLabel("Notebook name").fill("Offline research");
     await page.getByRole("button", { name: "Create notebook", exact: true }).click();
-    await page.getByRole("button", { name: "New note", exact: true }).click();
+    await page.getByRole("button", { name: "New page", exact: true }).click();
     await page.getByRole("textbox", { name: "Topic note title" }).fill("Ideas kept offline");
     await page.getByRole("textbox", { name: "Topic note content" }).fill("Writing survives a full offline restart.");
     await page.getByRole("button", { name: "Save now", exact: true }).click();
     await expect(page.locator(".topic-save-status")).toContainText("Saved on this device");
+    await page.getByRole("button",{name:"Tools",exact:true}).click();
     await page.getByRole("button", { name: "Research", exact: true }).click();
     await online.setOffline(true);
     await page.getByRole("textbox", { name: "Research question" }).fill("What evidence supports cosmic expansion?");
@@ -303,6 +304,7 @@ test("saved PDF notes and rendering assets survive a full offline browser restar
     await page.goto(new URL("#/notebooks", baseURL!).href);
     await page.getByRole("button", { name: /^Ideas kept offline/ }).click();
     await expect(page.getByRole("textbox", { name: "Topic note content" })).toContainText("full offline restart");
+    await page.getByRole("button",{name:"Tools",exact:true}).click();
     await page.getByRole("button", { name: "Research", exact: true }).click();
     await expect(page.locator(".research-pending")).toContainText("cosmic expansion");
     expect(external).toEqual([]);

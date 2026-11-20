@@ -15,12 +15,13 @@ test("clip a PDF passage and region to the same notebook page", async ({ page })
     selection.removeAllRanges();selection.addRange(range);
   });
   await page.getByRole("button",{name:"Insert into notebook",exact:true}).click();
-  await page.getByText("New note",{exact:true}).click();
+  await page.getByText("Create a page",{exact:true}).click();
   await page.getByRole("button",{name:"Create note",exact:true}).click();
   const editor = page.getByRole("textbox",{name:"Topic note content"});
   await expect(editor).toBeEditable();
   await page.getByRole("button",{name:"Insert at caret"}).click();
   await expect(editor.locator(".source-citation a")).toHaveCount(1);
+  await page.locator(".study-writing-tools summary").click();
   await page.getByRole("button",{name:"Clip PDF region"}).click();
   const paper = (await page.locator('.pdf-page[data-page="1"]').boundingBox())!;
   const host = (await page.locator(".reading-column").boundingBox())!;
@@ -35,6 +36,35 @@ test("clip a PDF passage and region to the same notebook page", async ({ page })
   await expect(editor.locator(".source-citation a")).toHaveCount(2);
   await page.getByRole("figure",{name:"Attachment: Page 1.png"}).scrollIntoViewIfNeeded();
   await expect(page.locator(".study-notebook img").first()).toBeVisible();
+});
+
+test("study notebooks reopen the page chosen for each PDF", async ({page}) => {
+  await page.goto("/");
+  await page.locator("input[type=file]").setInputFiles([1,2].map(n => ({
+    name:"Study "+n+".pdf", mimeType:"application/pdf", buffer:numberedPdf(n),
+  })));
+  await expect(page.locator(".book-card")).toHaveCount(2);
+  async function open(index:number) {
+    await page.goto("/#/");
+    await page.locator(".book-card").filter({hasText:"Study "+index}).locator(".book-cover-link").click();
+    await expect(page.locator(".pdf-page canvas").first()).toBeVisible();
+    await clickTool(page,"Study notebook");
+  }
+  for (const n of [1,2]) {
+    await open(n);
+    await expect(page.getByLabel("Write in")).toHaveValue("");
+    await page.getByText("Create a page",{exact:true}).click();
+    await page.getByRole("button",{name:"Create note",exact:true}).click();
+    await page.getByLabel("Topic note title").fill("Field study "+n);
+    await page.locator(".study-writing-tools summary").click();
+    await page.getByRole("button",{name:"Save now",exact:true}).click();
+    await expect(page.locator(".topic-save-status")).toContainText("Saved on this device");
+  }
+  for (const n of [1,2]) {
+    await open(n);
+    await expect(page.getByLabel("Topic note title")).toHaveValue("Field study "+n);
+    await expect(page.getByLabel("Write in")).toBeHidden();
+  }
 });
 
 test("lasso deletes two PDF strokes together and undo restores both", async ({page}) => {

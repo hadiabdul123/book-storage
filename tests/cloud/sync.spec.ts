@@ -200,7 +200,12 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
         .digest("hex"),
     ).toBe(expected);
     await expect(first.locator(".book-preparation")).toContainText("Text ready", { timeout: 60_000 });
-    await first.getByRole("dialog", { name: "Book details" }).getByRole("button", { name: "Close", exact: true }).click();
+    const settings = first.getByRole("dialog",{name:"Book details"});
+    await settings.getByLabel("Title",{exact:true}).fill("Seminar reading");
+    await settings.locator("input[type=file]").setInputFiles("public/icon-192.png");
+    await expect(settings.locator(".cover img")).toHaveAttribute("src",/^data:image\/webp/);
+    const editedCover = await settings.locator(".cover img").getAttribute("src");
+    await settings.getByRole("button",{name:"Save changes"}).click();
     await expect.poll(() => [...rows.values()].some(row => row.kind === "book" && row.value.preparedTextPath && objects.has(`${user.id}/${row.value.preparedTextPath}`)), { timeout: 30_000 }).toBe(true);
     expect([...uploads.values()].filter(upload => upload.path.endsWith("/source.pdf"))).toHaveLength(1);
     await first.locator(".book-cover-link").click();
@@ -243,6 +248,8 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
     const second = await phone.newPage();
     await second.goto(baseURL!);
     await expect(second.locator(".book-card")).toHaveCount(1);
+    await expect(second.locator(".book-card h3")).toHaveText("Seminar reading");
+    await expect(second.locator(".book-card .cover img")).toHaveAttribute("src",editedCover!);
     await second.getByRole("button", { name: /^Details for/ }).click();
     await expect(second.locator(".book-sync-status")).toContainText(
       "Download when opened",
@@ -369,8 +376,8 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
     await first.getByLabel("Notebook name").fill("Shared seminar");
     await first.getByRole("button", { name: "Create notebook" }).click();
     await expect(first.getByRole("dialog").filter({ has: first.getByRole("heading", { name: "New notebook" }) })).toBeHidden();
-    await expect(first.locator(".notebook-detail-actions")).toContainText("Shared seminar");
-    await first.getByRole("button", { name: "New note", exact: true }).click();
+    await expect(first.locator(".pages-heading")).toContainText("Shared seminar");
+    await first.getByRole("button", { name: "New page", exact: true }).click();
     const writing = first.getByRole("textbox", { name: "Topic note content" });
     await expect(writing).toHaveAttribute("contenteditable", "true");
     await first.getByRole("button", {name:"Tools",exact:true}).click();
