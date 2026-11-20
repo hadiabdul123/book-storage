@@ -138,7 +138,7 @@
 .auth-page .auth-card h1 { font:500 clamp(32px,4vw,47px)/1.2 Literata,Georgia,serif; }
 .auth-page :is(input,button) { border-radius:0; min-height:44px; }
 
-.app .common-header.sidebar { width:100%; grid-column:auto; grid-row:auto; }
+.app .common-header.sidebar { width:100%; max-width:none; grid-column:auto; grid-row:auto; }
 .common-header.sidebar > .brand { display:inline-flex; width:auto; height:auto; margin:0; overflow:visible; flex:none; }
 .common-header.sidebar nav > a > span, .common-header.sidebar .sync-status > span {
   position:static; width:auto; height:auto; padding:0; margin:0; overflow:visible; clip-path:none; white-space:normal;
