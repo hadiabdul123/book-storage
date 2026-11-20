@@ -76,6 +76,7 @@ test("a highlight keeps follow-ups, study labels and an on-demand full PDF previ
 
   await page.reload();
   await expect(notes).toContainText("Check the updated equation");
+  if (await page.getByRole("button", {name:"Filters & collections", expanded:false}).isVisible()) await page.getByRole("button", {name:"Filters & collections"}).click();
   await page.getByText("More filters", { exact:true }).click();
   await page.getByLabel("Filter by priority").selectOption("lower");
   await expect(page.locator(".notes-passage-open")).toHaveCount(0);
@@ -136,6 +137,7 @@ test("a scoped page and notebook comparison becomes a reusable filed card", asyn
   await expect(card.locator(".card-chips")).toContainText("Practice");
   await page.screenshot({path:test.info().outputPath("filed-card.png")});
   await card.getByRole("button",{name:"Close",exact:true}).click();
+  if (await page.getByRole("button", {name:"Filters & collections", expanded:false}).isVisible()) await page.getByRole("button", {name:"Filters & collections"}).click();
   await page.getByRole("navigation",{name:"Categories",exact:true}).getByRole("button",{name:"Practice",exact:true}).click();
   await page.reload();
   await expect(page.locator(".notes-passage-open")).toHaveCount(1);
@@ -148,6 +150,7 @@ test("a scoped page and notebook comparison becomes a reusable filed card", asyn
   const moved=await tile.getAttribute("style");
   await page.reload();await expect(tile).toHaveAttribute("style",moved!);
   await page.getByRole("button",{name:"Gallery",exact:true}).click();
+  if (await page.getByRole("button", {name:"Filters & collections", expanded:false}).isVisible()) await page.getByRole("button", {name:"Filters & collections"}).click();
   await page.getByText("More filters",{exact:true}).click();
   await page.getByLabel("View name",{exact:true}).fill("Practice cards");
   await page.getByRole("button",{name:"Save view",exact:true}).click();
@@ -155,8 +158,41 @@ test("a scoped page and notebook comparison becomes a reusable filed card", asyn
   await page.getByRole("button",{name:"Clear filters",exact:true}).click();
   await page.getByLabel("Saved views").selectOption({label:"Practice cards"});
   await expect(page.getByRole("navigation",{name:"Categories",exact:true}).getByRole("button",{name:"Practice",exact:true})).toHaveAttribute("aria-pressed","true");
+  if (await page.getByRole("button", {name:"Filters & collections", expanded:false}).isVisible()) await page.getByRole("button", {name:"Filters & collections"}).click();
   await page.getByText("More filters",{exact:true}).click();
   await page.locator(".notes-passage-open").click();
   await card.getByRole("link",{name:"Open study"}).click();
   await expect(page.locator(".study-answer")).toContainText("Repetition helps");
+});
+
+test("an unfiled passage opens on the board and keeps its source in a notebook", async ({page}) => {
+  const pdf = await PDFDocument.create();
+  pdf.addPage().drawText("A passage to keep");
+  await page.goto("/");
+  await page.locator("input[type=file]").setInputFiles({
+    name:"Journal.pdf", mimeType:"application/pdf", buffer:Buffer.from(await pdf.save()),
+  });
+  await expect(page.locator(".book-card")).toHaveCount(1);
+  await page.evaluate(async () => {
+    const {list,save} = await import("/src/db.ts");
+    const [book] = await list("book");
+    await save("annotation", {id:"kept-passage",bookId:book.id,locator:{v:1,type:"pdf",page:1,y:0,hash:book.hash},
+      text:"A passage to keep",color:"yellow",tags:[],note:"Return to the source.",createdAt:new Date().toISOString()});
+  });
+  await page.goto("/#/notes");
+  await expect(page.locator(".common-book-head")).toContainText("Journal");
+  await page.getByRole("button",{name:"Board",exact:true}).click();
+  await expect(page.locator(".collection-overview")).toContainText("Unfiled");
+  await page.locator(".board-slips button").click();
+  await page.getByRole("button",{name:"Add to notebook",exact:true}).click();
+  await page.getByLabel("Note title").fill("Source notes");
+  await page.getByRole("button",{name:"Save excerpt"}).click();
+  await page.getByRole("button",{name:"Done"}).click();
+  await page.goto("/#/notebooks");
+  await page.locator(".notebook-pages .workspace-item > button:first-child").filter({hasText:"Source notes"}).click();
+  const editor = page.getByLabel("Topic note content");
+  await expect(editor).toContainText("A passage to keep");
+  await page.reload();
+  await editor.getByRole("link",{name:/Journal/}).click();
+  await expect(page.locator('.pdf-page[data-page="1"]')).toBeVisible();
 });

@@ -189,27 +189,6 @@ export function Library({ notify }: { notify: (message: string) => void }) {
           </div>
         </div>
       )}
-      {recent && !query && !collection && filter === "all" && (
-        <section className="continue-reading">
-          <Link to={`/read/${recent.id}`}>
-            <Cover book={recent} small />
-          </Link>
-          <div>
-            <h2>{recent.title}</h2>
-            {recentAuthor && <p>{recentAuthor}</p>}
-            <BookProgress progress={progress.get(recent.id)!} />
-            <Link
-              className="text-button resume-button"
-              to={`/read/${recent.id}`}
-            >
-              Continue reading <ArrowRight size={17} />
-            </Link>
-          </div>
-          <div className="continue-decoration" aria-hidden="true">
-            <BookOpen size={100} strokeWidth={0.7} />
-          </div>
-        </section>
-      )}
       <div className="library-toolbar">
         <div className="tabs" aria-label="Filter books">
           {[
@@ -350,6 +329,27 @@ export function Library({ notify }: { notify: (message: string) => void }) {
         </div>
       )}
       <BrowsePages {...page} label="Books" onChange={n => browse.update({ page: String(n) })} /></div></div>
+      {recent && !query && !collection && filter === "all" && (
+        <section className="continue-reading">
+          <Link to={`/read/${recent.id}`}>
+            <Cover book={recent} small />
+          </Link>
+          <div>
+            <h2>{recent.title}</h2>
+            {recentAuthor && <p>{recentAuthor}</p>}
+            <BookProgress progress={progress.get(recent.id)!} />
+            <Link
+              className="text-button resume-button"
+              to={`/read/${recent.id}`}
+            >
+              Continue reading <ArrowRight size={17} />
+            </Link>
+          </div>
+          <div className="continue-decoration" aria-hidden="true">
+            <BookOpen size={100} strokeWidth={0.7} />
+          </div>
+        </section>
+      )}
       {drag && (
         <div className="drop-overlay">
           <Upload size={42} />

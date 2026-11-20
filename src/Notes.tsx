@@ -4,9 +4,13 @@ import { BrowsePages, pageOf, useBrowseState } from "./browse";
 import { Link, useNavigate } from "react-router-dom";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Search, Download, Highlighter, Copy, FileText } from "lucide-react";
-import { list, save } from "./db";
+import { db, list, save } from "./db";
 import { type Annotation, type Locator, colors, now, uid } from "./model";
-import { AnnotationCard, EditAnnotation, Empty } from "./components";
+import { currentSection } from "./ReaderContents";
+import type { Section } from "./reader/types";
+import { SaveResearch } from "./SaveResearch";
+import { knownAuthor } from "./readingProgress";
+import { Cover, AnnotationCard, EditAnnotation, Empty } from "./components";
 import { exportAnnotations } from "./export";
 import type { InkStroke } from "./inkTypes";
 import { ItemMenu, type ItemAction } from "./ItemMenu";
@@ -51,7 +55,20 @@ export function Notes() {
   const browse = useBrowseState();
   const navigate = useNavigate();
   const selected = browse.value("item");
-  const query = browse.value("q"), bookId = browse.value("book"), notebookSource = browse.value("notebook"), color = browse.value("color"), sort = browse.value("sort", "newest"), type = browse.value("type", "all"), tag = browse.value("tag");
+  const mode = browse.value("layout", "book");
+  const bookView = mode === "book" && !selected;
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [clipping, setClipping] = useState(false);
+  const editions = books.map(book => book.id + ":" + book.hash).join("|");
+  const contents = useLiveQuery(async () => {
+    const records = await db.meta.bulkGet(books.map(book => "reader-contents:" + book.id + ":" + book.hash));
+    return new Map(books.map((book, index) => {
+      let items: Section[] = [];
+      try { items = JSON.parse(records[index]?.value || "[]"); } catch { /* Cache can be rebuilt by opening the book. */ }
+      return [book.id, items];
+    }));
+  }, [editions]);
+  const query = browse.value("q"), bookId = browse.value("book"), notebookSource = browse.value("notebook"), color = browse.value("color"), sort = browse.value("sort", mode === "book" ? "reading" : "newest"), type = browse.value("type", "all"), tag = browse.value("tag");
   const library = useLiveQuery(cardLibrary, []) || emptyCards;
   const category = browse.value("category");
   const categoryMap = useMemo(() => {
@@ -65,7 +82,6 @@ export function Notes() {
   const [viewName,setViewName]=useState("");
   const [savingView,setSavingView]=useState(false);
   const groupSort=browse.value("groupSort","name");
-  const mode=browse.value("layout","gallery");
   const boardCategory=categories.length===1 && categories[0]!=="unfiled"?categories[0]:"";
   const [filing, setFiling] = useState<string[]>();
   const [bulk, setBulk] = useState(false);
@@ -189,7 +205,16 @@ export function Notes() {
   const openCard = cards[cardIndex];
   const researchCard = researchCards.find(c => c.id === opened);
   function closeCard() { setOpened(""); requestAnimationFrame(() => origin?.focus({ preventScroll: true })); }
-  const page = pageOf(rows, browse.value("page"));
+  const page = pageOf(mode === "board" ? cards : rows, browse.value("page"));
+  const boardGroups = new Map<string, typeof cards>();
+  if (mode === "board" && !boardCategory) for (const card of page.items) {
+    for (const id of categoryMap.get(card.id) || ["unfiled"]) {
+      if (categories.length && !categories.includes(id)) continue;
+      const group = boardGroups.get(id) || [];
+      group.push(card);
+      boardGroups.set(id, group);
+    }
+  }
   const active = openCard || rows.find(r => r.id === selected) || page.items[0];
   const activeAnnotation = active?.annotation;
   const activeBook = activeAnnotation && bookMap.get(activeAnnotation.bookId);
@@ -205,7 +230,7 @@ export function Notes() {
   const catItems=[{id:"unfiled",name:"Unfiled"},...library.categories].map(c=>({...c,title:c.name,count:countCategories.get(c.id)||0})).sort(groupOrder);
   const filterState=Object.fromEntries(viewKeys.map(k=>[k,browse.value(k)]));
   return (
-    <div className={`notes-page notes-browser ${mode==="gallery" && !detail ? "card-gallery" : ""} ${detail ? "notes-detail-open" : ""}`}>
+    <div data-filters-open={filtersOpen || undefined} className={`notes-page notes-browser ${bookView ? "common-book-view" : ""} ${mode==="gallery" && !detail ? "card-gallery" : ""} ${detail ? "notes-detail-open" : ""}`}>
       <header className="page-header">
         <div>
           <h1>
@@ -217,6 +242,7 @@ export function Notes() {
             </span>
           </h1>
         </div>
+        <button className="secondary mobile-filter-toggle" aria-expanded={filtersOpen} onClick={() => setFiltersOpen(!filtersOpen)}>Filters & collections</button>
         <label className="export-select">
           <Download size={17} />
           <select
@@ -313,7 +339,7 @@ export function Notes() {
       </div>
       <div className="filter-summary"><span>{rows.length} matching saved items</span>{(category || query || bookId || notebookSource || color || tag || priority || type !== "all") && <button onClick={() => browse.update({ q: "", book: "", notebook: "", color: "", tag: "", priority: "", category: "", type: "", page: "1", item: "" })}>Clear filters</button>}</div>
       {actionError && <p role="alert">{actionError}</p>}
-      <div className="card-collection-actions"><div role="group" aria-label="Highlight layout">{["gallery","list","board"].map(v=><button key={v} aria-pressed={mode===v} onClick={()=>browse.update({layout:v,item:""})}>{v[0].toUpperCase()+v.slice(1)}</button>)}</div><button className="secondary" onClick={() => { setBulk(!bulk); setChecked([]); }}>{bulk ? "Finish selection" : "Select cards"}</button>
+      <div className="card-collection-actions"><div role="group" aria-label="Highlight layout">{["book","gallery","list","board"].map(v=><button key={v} aria-pressed={mode===v} onClick={()=>browse.update({layout:v,item:""})}>{v[0].toUpperCase()+v.slice(1)}</button>)}</div><button className="secondary" onClick={() => { setBulk(!bulk); setChecked([]); }}>{bulk ? "Finish selection" : "Select cards"}</button>
         {bulk && <><button onClick={() => setChecked([...new Set([...checked, ...page.items.filter(r => !r.drawing && r.annotation?.type !== "page-note").map(r => r.id)])])}>Select page</button>
         <button disabled={!checked.length} onClick={() => setFiling(checked)}>File selected ({checked.length})</button></>}
       </div>
@@ -323,9 +349,25 @@ export function Notes() {
         <button className="text-button" onClick={() => setFiling([])}>Add or manage categories</button></nav></details>
         <details open className="source-navigator"><summary>Books &amp; notebooks</summary><nav aria-label="Books & notebooks"><button onClick={()=>browse.update({book:"",notebook:"",page:"1",item:""})}>All sources</button>
         {sourceItems.map(s=><button key={s.id} aria-pressed={s.id.startsWith("book:")?bookIds.includes(s.id.slice(5)):notebookSource===s.id.slice(9)} onClick={()=>s.id.startsWith("book:")?toggleFacet("book",bookIds,s.id.slice(5)):browse.update({notebook:s.id.slice(9),book:"",page:"1",item:""})}><span>{s.title}<em>{s.detail}</em></span><small>{s.count}</small></button>)}</nav></details></aside><div>
-      {mode==="board" ? boardCategory ? <CategoryBoard key={boardCategory} category={boardCategory} filings={library.filings.filter(f=>f.categoryId===boardCategory).sort((a,b)=>a.id.localeCompare(b.id))} cards={cards} open={(id,button)=>{setOrigin(button);setOpened(id);}} /> : <p className="notice">Choose one category to open its board.</p> : rows.length ? (
+      {mode==="board" ? boardCategory && cards.length ? <CategoryBoard key={boardCategory} category={boardCategory} filings={library.filings.filter(f=>f.categoryId===boardCategory).sort((a,b)=>a.id.localeCompare(b.id))} cards={cards} open={(id,button)=>{setOrigin(button);setOpened(id);}} /> :
+        <div className="collection-overview" aria-label="Collection board">
+          {Array.from(boardGroups, ([id, group]) => <section key={id}>
+            <h2>{library.categories.find(c => c.id === id)?.name || "Unfiled"} <small>{countCategories.get(id)}</small></h2>
+            <div className="board-slips">{group.map(card => <button key={card.id} onClick={e => {
+              if (bulk) setChecked(ids => ids.includes(card.id) ? ids.filter(i => i !== card.id) : [...ids, card.id]);
+              else { setOrigin(e.currentTarget); setOpened(card.id); }
+            }} aria-pressed={bulk ? checked.includes(card.id) : undefined}><small>{card.title} · {card.subtitle}</small><span>{card.text}</span></button>)}</div>
+          </section>)}
+          {!cards.length && <p className="notice">No highlights in this view. Choose another collection or clear your filters.</p>}
+        </div> : rows.length ? (
         <div className="notes-browser-layout">
-          <nav className="notes-passage-list" aria-label="Saved passages and drawings"><p className="notes-result-count">{rows.length} saved {rows.length === 1 ? "item" : "items"}</p>{(mode==="gallery"?["gallery"]:grouped).map(source => <section key={source}><h2>{page.items.find(r => r.sourceId === source)?.title}</h2>{page.items.filter(r => mode==="gallery" || r.sourceId === source).map(r => {
+          <nav className="notes-passage-list" aria-label="Saved passages and drawings"><p className="notes-result-count">{rows.length} saved {rows.length === 1 ? "item" : "items"}</p>{(mode==="gallery"?["gallery"]:grouped).map(source => <section key={source}>{bookView && bookMap.has(source.slice(5)) ? <header className="common-book-head">
+            <Cover small book={bookMap.get(source.slice(5))!} /><div><h2>{bookMap.get(source.slice(5))!.title}</h2>
+            <p>{knownAuthor(bookMap.get(source.slice(5))!.author)}</p><small>{countBooks.get(source.slice(5))} saved items</small></div>
+          </header> : <h2>{page.items.find(r => r.sourceId === source)?.title}</h2>}{page.items.filter(r => mode==="gallery" || r.sourceId === source).map((r,index,group) => {
+            const outline = bookView && r.annotation ? contents?.get(r.annotation.bookId) : undefined;
+            const chapter = outline && currentSection(outline,r.annotation?.locator).active;
+            const previous = index && outline ? currentSection(outline,group[index-1].annotation?.locator).active : undefined;
             const open = <button key={r.id} className="notes-passage-open" aria-current={active?.id === r.id ? "page" : undefined} style={{ borderLeftColor: r.color }} aria-pressed={bulk ? checked.includes(r.id) : undefined} onClick={e => {
               if (!r.drawing && r.annotation?.type !== "page-note") {
                 if (bulk) { setChecked(ids => ids.includes(r.id) ? ids.filter(id => id !== r.id) : [...ids,r.id]); return; }
@@ -335,9 +377,12 @@ export function Notes() {
             }}><small>{mode==="gallery"?r.title+" / ":""}{r.subtitle}</small>
               {r.annotation && <HighlightLabels tags={r.annotation.tags} priority={priorityMap.get(r.id)} />}
               {categoryMap.has(r.id) && <small>{library.categories.filter(c => categoryMap.get(r.id)?.includes(c.id)).map(c => c.name).join(" · ")}</small>}
-              <span className="notes-passage-text">{r.text.slice(0, 150)}</span>{r.annotation?.note && <em>{r.annotation.note.slice(0, 80)}</em>}
+              <span className="notes-passage-text">{bookView ? r.text : r.text.slice(0, 150)}</span>{r.annotation?.note && <em>{bookView && <strong>My note</strong>}{bookView ? r.annotation.note : r.annotation.note.slice(0, 80)}</em>}
             </button>;
-            return r.annotation && r.annotation.type !== "page-note" ? <ItemMenu key={r.id} title={r.text.slice(0, 75) || "highlight"} actions={studyActions(r.annotation)}>{open}</ItemMenu> : open;
+            const row = r.annotation && r.annotation.type !== "page-note" ? <ItemMenu key={r.id} title={r.text.slice(0, 75) || "highlight"} actions={studyActions(r.annotation)}>{open}</ItemMenu> : open;
+            return bookView ? <div key={r.id} className="common-entry" style={{"--passage-color":r.color} as React.CSSProperties}>
+              {chapter && chapter.key !== previous?.key && <h3>{chapter.section.label}</h3>}{row}
+            </div> : row;
           })}</section>)}</nav>
           <div className="notes-preview-pane" ref={setPreviewPane}><button className="text-button notes-back-list" onClick={() => { setPdfItem(""); browse.update({ item: "" }); }}>Back to saved items</button>
           {!openCard && active && activeAnnotation && <><div className="notes-reference-bar"><strong>{active.title}</strong><span>{active.subtitle}</span><button className="text-button" onClick={async () => {
@@ -379,8 +424,9 @@ export function Notes() {
           </p>
         </Empty>
       )}
-      <BrowsePages {...page} label="Items" onChange={n => browse.update({ page: String(n), item: "" })} /></div></div>
-      {openCard && <Dialog title={researchCard?.kind === "finding" ? "Research note" : "Quote card"} onClose={closeCard} wide>
+      {!(mode === "board" && boardCategory) && <BrowsePages {...page} label="Items" onChange={n => browse.update({ page: String(n), item: "" })} />}</div></div>
+      {clipping && openCard?.annotation && <SaveResearch notebookOnly text={openCard.text} sources={[{ id:"S1", kind:"book", bookId:openCard.annotation.bookId, title:openCard.title, locator:openCard.annotation.locator, excerpt:openCard.text.slice(0,20000) }]} onClose={() => setClipping(false)} />}
+      {openCard && !clipping && <Dialog title={researchCard?.kind === "finding" ? "Research note" : "Quote card"} onClose={closeCard} wide>
         <article className="paper-quote"><header><strong>{researchCard ? researchCard.sources[0]?.title : openCard.title}</strong>
           <span>{researchCard ? researchCard.sources.length + (researchCard.sources.length === 1 ? " source" : " sources") : openCard.subtitle}</span></header>
           {openCard.annotation && <HighlightLabels tags={openCard.annotation.tags} priority={priorityMap.get(openCard.id)} />}<blockquote>{researchCard?.kind === "finding" ? openCard.text.split(/(\[S\d+\])/g).map((part,i) => {
@@ -391,6 +437,7 @@ export function Notes() {
           <div className="card-chips">{library.categories.filter(c => categoryMap.get(openCard.id)?.includes(c.id)).map(c => <span key={c.id}>{c.name}</span>)}
           <button className="text-button" onClick={() => setFiling([openCard.id])}>Edit categories</button></div>
           {openCard.annotation && <><div className="button-row"><Link to={`/read/${openCard.annotation.bookId}?annotation=${openCard.id}`}>Go to passage</Link>
+            <button onClick={() => setClipping(true)}>Add to notebook</button>
             {previewLocator && <button onClick={() => setPdfItem(openCard.id)}>Show PDF page</button>}
             <button onClick={() => setEditing(openCard.annotation)}>Edit highlight</button>
             <ItemMenu title="Card actions" actions={studyActions(openCard.annotation)}>{null}</ItemMenu></div>

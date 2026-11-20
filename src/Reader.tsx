@@ -174,16 +174,14 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   useEffect(() => setSwipeToTurn(effectiveView.swipeToTurn ?? paginated), [id, effectiveView.swipeToTurn, paginated]);
   const comfort = useReaderComfort();
   const [railTip, setRailTip] = useState<{label:string;y:number}>();
-  const tipTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const clearTip = () => { clearTimeout(tipTimer.current); setRailTip(undefined); };
-  const tipFor = (target:EventTarget | null) => {
+  const clearTip = () => setRailTip(undefined);
+  const tipFor = (target: EventTarget | null) => {
     const button = target instanceof Element ? target.closest<HTMLElement>("button,a") : null;
-    clearTimeout(tipTimer.current);
-    if (!button) { setRailTip(undefined); return; }
-    const label = button.getAttribute("aria-label") || button.textContent?.trim();
-    if (label) tipTimer.current=setTimeout(()=>{ const r=button.getBoundingClientRect(); setRailTip({label,y:r.top+r.height/2}); },400);
+    const label = button?.getAttribute("aria-label") || button?.textContent?.trim();
+    if (!button || !label) return clearTip();
+    const rect = button.getBoundingClientRect();
+    setRailTip({ label, y: rect.top + rect.height / 2 });
   };
-  useEffect(()=>()=>clearTimeout(tipTimer.current),[]);
   const shell = useRef<HTMLElement>(null);
   const fullscreen = useReaderFullscreen(shell, notify);
   const [quietFullscreen, setQuietFullscreen] = useState(false);
@@ -205,6 +203,9 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   }, [book?.id]);
   const [clip, setClip] = useState<StudyClip>();
   const [paneSize, setPaneSize] = useState(38);
+  const [notebookPlace, setNotebookPlace] = useState({ x: 1, y: 0.12 });
+  const dragPane = useRef<{ id: number; dx: number; dy: number } | undefined>(undefined);
+
   const sideNote = useRef("");
   const notebook = useRef<NotebookHandle | null>(null);
   const [notebookPage, setNotebookPage] = useState(1),
@@ -574,7 +575,11 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
       await reader.open(files.source, files.derived);
       if (cancelled) return;
       reader.annotate(annotationsRef.current);
-      void reader.sections().then(items => { if (!cancelled) setSections(items); })
+      void reader.sections().then(items => {
+        if (cancelled) return;
+        setSections(items);
+        if (items.length) void savePageCache(book, [{ key: "reader-contents:" + book.id + ":" + book.hash, value: JSON.stringify(items) }]).catch(() => {});
+      })
         .catch(() => { if (!cancelled) setSections([]); });
       const target = params.get("annotation");
       const mark = target ? await get("annotation", target) : undefined;
@@ -744,7 +749,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
     <main
       ref={shell}
       data-study-open={panel === "study-notebook" || undefined}
-      style={panel === "study-notebook" ? { "--study-size": paneSize + "%" } as React.CSSProperties : undefined}
+      style={panel === "study-notebook" ? { "--study-size": paneSize + "%", "--study-x": (100 - paneSize) * notebookPlace.x + "%", "--study-y": 24 * notebookPlace.y + "%" } as React.CSSProperties : undefined}
       className={`reader-shell reader-side-tools theme-${prefs.theme}${drawing ? " drawing-active" : ""}${textBoxMode ? " pdf-text-box-active" : ""}${chrome.visible ? " controls-visible" : " reading-mode"}${chrome.menu ? " controls-menu-open" : ""}${swipeEnabled ? " swipe-pages" : ""}${hidePageControls ? " hide-page-controls" : ""}${panel ? " panel-open" : ""}`}
       data-original-pdf-colors={pdfOriginalColors}
       data-loading={loading || savedPrefs === null || localView === undefined}
@@ -996,6 +1001,27 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
         {panel && (
           <aside className={`reader-panel ${panel === "research" ? "research-reader-panel" : ""}`}>
             <header>
+              {panel === "study-notebook" && <button className="study-move" aria-label="Move study notebook" title="Drag to move, or use the arrow keys"
+                onPointerDown={e => {
+                  if (e.button !== 0 || !e.isPrimary) return;
+                  const box = e.currentTarget.closest("aside")!.getBoundingClientRect();
+                  dragPane.current = { id:e.pointerId, dx:e.clientX-box.left, dy:e.clientY-box.top };
+                  e.currentTarget.setPointerCapture(e.pointerId);
+                }}
+                onPointerMove={e => {
+                  const drag=dragPane.current, area=e.currentTarget.closest(".reader-workspace")?.getBoundingClientRect();
+                  const pane=e.currentTarget.closest("aside")!.getBoundingClientRect();
+                  if (!area || !drag || drag.id !== e.pointerId) return;
+                  const unit=(n:number)=>Math.min(1,Math.max(0,n));
+                  setNotebookPlace({x:unit((e.clientX-area.left-drag.dx)/Math.max(1,area.width-pane.width)),y:unit((e.clientY-area.top-drag.dy)/Math.max(1,area.height*.24))});
+                }}
+                onLostPointerCapture={() => {dragPane.current=undefined;}}
+                onKeyDown={e => {
+                  if (!["ArrowLeft","ArrowRight","ArrowUp","ArrowDown"].includes(e.key)) return;
+                  e.preventDefault();
+                  const step=(value:number,negative:string,positive:string)=>Math.max(0,Math.min(1,value+(e.key===negative?-.1:e.key===positive?.1:0)));
+                  setNotebookPlace(p=>({x:step(p.x,"ArrowLeft","ArrowRight"),y:step(p.y,"ArrowUp","ArrowDown")}));
+                }}>⠿</button>}
               <h2>
                 {
                   {

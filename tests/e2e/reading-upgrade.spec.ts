@@ -250,6 +250,7 @@ test("notebook sections, text highlighting and inline drawings persist", async (
   page.once("dialog", d => d.accept("Questions")); await newSection.click();
   await expect(page.locator(".notebook-sections button[aria-current=page]")).toContainText("Questions");
   await page.getByRole("button", { name: "New note", exact: true }).click();
+  await page.getByRole("button", {name:"Tools",exact:true}).click();
   await page.getByLabel("Topic note title").fill("The useful idea");
   const editor = page.getByRole("textbox", { name: "Topic note content", exact: true });
   await editor.fill("An important thought worth keeping.");

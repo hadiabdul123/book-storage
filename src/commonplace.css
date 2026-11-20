@@ -1,0 +1,165 @@
+/* The public workspace shares a paper palette. Book rendering keeps its own preferences. */
+.app:not(.reading), .auth-page {
+  --paper: #faf8f2;
+  --surface: #fffefa;
+  --sidebar: #f1efe7;
+  --ink: #25251f;
+  --muted: #5e6058;
+  --line: #cecbbf;
+  --accent: #293554;
+  --soft: #f1efe7;
+  --navigator-width: 218px;
+  color: var(--ink);
+  background: var(--paper);
+}
+.app:not(.reading) { display: block; }
+.app:not(.reading) .app-content { padding: 0; background: var(--paper); min-height: calc(100dvh - 64px); }
+.common-header.sidebar {
+  height: 64px; position: relative; z-index: 12; width: 100%;
+  display: flex; flex-flow: row nowrap; align-items: center; gap: 30px;
+  padding: 0 clamp(18px,3vw,48px); border: 0; border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+.common-header .brand { font: 500 27px/1 Literata,Georgia,serif; letter-spacing: -.06em; color: var(--accent); }
+.common-header nav { display: flex; flex-direction: row; align-self: stretch; margin: 0; gap: 18px; }
+.common-header nav a { width:auto; color:var(--muted); border-radius:0; padding:0 4px; min-height:44px; border-bottom:2px solid transparent; font-size:17px; }
+.common-header nav a span { display:inline; }
+.common-header nav a svg { display:none; }
+.common-header nav a.current { color:var(--accent); font-weight:600; border-color:var(--accent); }
+.common-header .sidebar-bottom { margin:0 0 0 auto; min-width:0; }
+.common-header .sync-status { border:0; padding:0 6px; min-height:44px; max-width:205px; color:var(--muted); }
+.workspace-nav-toggle { display:none; }
+.app:not(.reading) :is(button,input,select,textarea,.dialog,.source-navigator,.workspace-item,.notebook-layout,.empty,.notice,.tabs,.search-field,.filter-row,.book-card,.cover,.category-board,.notes-browser-layout,.note-paper-column,.research-history-layout,.settings-section,.paper-quote,.card-chips span,.count,.book-cover-link) { border-radius:0; }
+.app:not(.reading) :is(button,a,input,textarea,select,summary):focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.app:not(.reading) :is(.primary,.secondary,.tabs button,.card-collection-actions button,.workspace-tabs button,.card-sources nav button,.source-navigator nav button) { min-height:44px; }
+.app:not(.reading) .primary { background:var(--accent); color:white; }
+.app:not(.reading) :is(.library-page,.notes-page,.settings-page,.workspace-notebooks) { padding:clamp(21px,3vw,44px); background:var(--paper); }
+.app:not(.reading) .page-header { border-color:var(--line); }
+.app:not(.reading) .page-header h1 { font:500 clamp(32px,3.6vw,52px)/1.14 Literata,Georgia,serif; letter-spacing:-.045em; }
+.app:not(.reading) .source-layout { grid-template-columns:var(--navigator-width) minmax(0,1fr); }
+.app:not(.reading) :is(.source-navigator,.card-sources,.notebook-list,.research-conversation-list) { background:var(--sidebar); color:var(--ink); border-color:var(--line); }
+.app:not(.reading) :is(.card-sources,.source-navigator) button { min-height:44px; }
+.app:not(.reading) :is(.card-sources,.source-navigator) button[aria-pressed=true],
+.app:not(.reading) .source-navigator button[aria-current=page] { color:var(--accent); border-left:3px solid var(--accent); background:#e7e6de; }
+.library-page .books-grid { gap:30px clamp(15px,2vw,32px); }
+.library-page .book-cover-link, .library-page .cover { box-shadow:none; }
+.library-page .book-card-title h3 { font:500 clamp(18px,1.5vw,23px)/1.3 Literata,Georgia,serif; }
+.library-page .continue-reading { background:transparent; border:0; border-top:1px solid var(--line); margin:25px 0 0; padding:20px 0; }
+.app .card-collection-actions [role=group], .app .workspace-tabs { background:transparent; gap:8px; border-radius:0; }
+.app .card-collection-actions [aria-pressed=true], .app .workspace-tabs [aria-selected=true] { border-bottom:2px solid var(--accent); color:var(--accent); background:transparent; }
+.app .common-book-view .notes-browser-layout { display:block; background:transparent; border:0; }
+.common-book-view .notes-preview-pane { display:none; }
+.app .common-book-view .notes-passage-list { background:transparent; border:0; max-height:none; overflow:visible; padding:0; }
+.common-book-view .common-book-head { display:flex; align-items:center; gap:20px; padding:12px 0 17px; }
+.common-book-head .cover.small { width:80px; height:109px; flex:none; }
+.app .common-book-head h2 { font:500 clamp(26px,3vw,42px)/1.2 Literata,serif; color:var(--ink); letter-spacing:-.04em; margin:0; }
+.common-book-head p { margin:5px 0; font:italic 17px Georgia,serif; }
+.common-book-head small { color:var(--muted); }
+.common-entry { border-top:1px solid var(--line); }
+.common-entry h3 { font:500 22px/1.35 Literata,serif; margin:18px 0 4px; }
+.app .common-entry .workspace-item { background:transparent; border:0; }
+.app .common-entry .notes-passage-open { width:100%; display:grid; grid-template-columns:65px minmax(0,1fr); gap:8px 15px; padding:18px 12px 18px 0; text-align:left; border:0; background:transparent; align-items:start; }
+.app .common-entry .notes-passage-open:has(em) { grid-template-columns:65px minmax(0,1fr) minmax(140px,25%); }
+.common-entry .notes-passage-open > small:first-child { grid-area:1/1; font:italic 15px/1.5 Georgia,serif; }
+.common-entry .notes-passage-open > :not(:first-child) { grid-column:2; }
+.app .common-entry .notes-passage-text { grid-area:1/2; font:400 clamp(18px,1.65vw,24px)/1.55 Literata,Georgia,serif; border-left:3px solid var(--passage-color); padding-left:12px; color:var(--ink); display:block; overflow-wrap:anywhere; }
+.app .common-entry .notes-passage-open em { grid-area:1/3; align-self:start; border-left:1px solid var(--accent); padding-left:12px; font:400 16px/1.45 Literata,Georgia,serif; color:var(--accent); }
+.common-entry em strong { display:block; font:600 14px/1.5 "Source Sans 3",sans-serif; }
+.collection-overview section { margin-bottom:25px; }
+.collection-overview h2 { font:500 25px/1.4 Literata,serif; border-bottom:1px solid var(--line); padding-bottom:9px; }
+.collection-overview h2 small { font:400 15px "Source Sans 3",sans-serif; color:var(--muted); }
+.board-slips { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,240px),1fr)); gap:18px; align-items:start; }
+.board-slips button, .app .category-board button { display:grid; gap:12px; padding:19px; text-align:left; border:1px solid var(--line); border-top:2px solid #aa9668; background:var(--surface); color:var(--ink); box-shadow:none; overflow-wrap:anywhere; }
+.board-slips button[aria-pressed=true] { outline:2px solid var(--accent); }
+.board-slips button span { font:400 18px/1.55 Literata,serif; }
+.app .category-board { background:var(--sidebar); border:1px solid var(--line); }
+.app .dialog:has(.paper-quote) { border-radius:0; background:var(--surface); border-top:3px solid #aa9668; }
+.app .workspace-notebooks.workspace-writing { height:calc(100dvh - 64px); min-height:0; }
+.app .workspace-writing .notebook-layout { border-color:var(--line); background:var(--paper); }
+.app .workspace-writing .notebook-pages, .app .workspace-writing .notebook-detail { background:var(--paper); border-color:var(--line); }
+.app .workspace-writing .notebook-pages nav button { padding:16px 8px; border-bottom:1px solid var(--line); }
+.app .workspace-writing .notebook-pages nav strong { font:500 19px/1.4 Literata,serif; }
+.app .workspace-writing .notebook-pages nav span { font-size:15px; color:var(--muted); }
+.app:has(.workspace-writing.notebook-focus) > .common-header,
+.workspace-writing.notebook-focus > :is(.page-header,.workspace-tabs) { display:none; }
+.app .workspace-writing.notebook-focus { height:100dvh; padding:0; }
+.app .workspace-writing.notebook-focus .notebook-layout { border:0; }
+.app .workspace-writing.notebook-focus .notebook-detail { padding:0 clamp(14px,3vw,40px); }
+.app .notebook-focus .notebook-detail-actions { padding:6px 0; border-bottom:1px solid var(--line); background:var(--paper); }
+.app .workspace-writing .note-paper-column { background:var(--surface); border:0; box-shadow:none; }
+.app .workspace-writing .notebook-writing { font:400 19px/1.7 Literata,Georgia,serif; }
+.app .workspace-writing.notebook-focus:not(.writing-tools-open) :is(.notebook-toolbar-host,.page-organization,.notebook-insert-text-box) { display:none; }
+.app .workspace-writing.navigator-open .notebook-layout { display:grid; grid-template-columns:var(--navigator-width) minmax(0,1fr); }
+.app .workspace-writing.navigator-open .notebook-list,.app .workspace-writing.navigator-open .notebook-pages { display:flex; position:static; margin:0; width:auto; min-width:0; }
+.app .workspace-writing.navigator-open .notebook-detail { display:none; }
+.app .workspace-writing:not(.has-open-page) .notebook-layout { display:grid; grid-template-columns:var(--navigator-width) minmax(0,1fr); }
+.app .workspace-writing:not(.has-open-page) .notebook-list { display:flex; }
+.app .workspace-writing:not(.has-open-page) .notebook-detail { display:none; }
+.app .workspace-research .study-workspace,.app .workspace-research .study-results,.app .workspace-research .study-heading { background:var(--surface); border-color:var(--line); }
+.app .workspace-research .research-conversation-list nav { gap:0; }
+.app .workspace-research .research-conversation-list .workspace-item { border:0; border-bottom:1px solid var(--line); background:transparent; }
+.app .workspace-research .study-workspace h2 { font-family:Literata,Georgia,serif; }
+.app .workspace-research .study-evidence-panel { background:var(--sidebar); }
+.app .settings-page .settings-section { border:0; border-bottom:1px solid var(--line); background:transparent; max-width:80ch; box-shadow:none; }
+.study-move { touch-action:none; cursor:move; min-width:44px; min-height:44px; }
+.reader-shell[data-study-open] .reader-panel > header { border-bottom:1px solid var(--line); gap:6px; padding:4px 10px; }
+.reader-shell[data-study-open] .reader-panel > header h2 { flex:1; }
+.reader-shell[data-study-open] .study-notebook .notebook-paper { box-shadow:none; }
+@media(min-width:761px) {
+  .reader-shell.reader-side-tools[data-study-open] .reader-workspace { padding-right:0; }
+  .reader-shell.reader-side-tools[data-study-open] .reader-panel { position:absolute; left:var(--study-x); top:var(--study-y); right:auto; bottom:auto; width:var(--study-size); height:72%; max-height:calc(100% - var(--reader-footer-height,56px)); border:1px solid #aaa99d; border-radius:0; box-shadow:0 6px 18px #26251b24; }
+}
+@media(max-width:1000px) {
+  .app:not(.reading) { --navigator-width:176px; }
+  .common-header.sidebar { gap:16px; }
+  .common-header nav { gap:12px; }
+}
+@media(max-width:760px) {
+  .common-header.sidebar { height:56px; padding:0 14px; gap:10px; }
+  .common-header .workspace-nav-toggle { display:grid; place-items:center; width:44px; height:44px; }
+  .common-header nav { display:none; }
+  .common-header[data-menu] nav { display:flex; position:absolute; top:100%; left:0; padding:10px; width:min(285px,90vw); flex-direction:column; background:var(--surface); border:1px solid var(--line); gap:0; }
+  .common-header[data-menu] nav a { justify-content:start; }
+  .common-header[data-menu] nav a svg { display:block; }
+  .app:not(.reading) .source-layout { display:block; }
+  .app:not(.reading) .card-sources { margin-bottom:14px; }
+  .app .common-entry .notes-passage-open, .app .common-entry .notes-passage-open:has(em) { grid-template-columns:44px minmax(0,1fr); }
+  .app .common-entry .notes-passage-open em { grid-column:2; grid-row:auto; }
+  .app .workspace-notebooks.workspace-writing { height:calc(100dvh - 56px); padding:12px; }
+  .app .workspace-writing.notebook-focus { height:100dvh; padding:0; }
+  .app .workspace-writing.navigator-open .notebook-layout,.app .workspace-writing:not(.has-open-page) .notebook-layout { grid-template-columns:minmax(95px,36%) minmax(0,1fr); }
+  .reader-shell[data-study-open] .study-move { display:none; }
+  .reader-shell.reader-side-tools[data-study-open] .reader-panel { top:auto; bottom:var(--reader-footer-height,56px); left:0; right:0; width:100%; height:var(--study-size); border-radius:0; }
+}
+
+.auth-page { background:var(--paper); }
+.auth-page .auth-card { background:var(--surface); border:1px solid var(--line); border-top:3px solid var(--accent); border-radius:0; box-shadow:none; }
+.auth-page .brand { font:500 24px Literata,Georgia,serif; color:var(--accent); }
+.auth-page .auth-card h1 { font:500 clamp(32px,4vw,47px)/1.2 Literata,Georgia,serif; }
+.auth-page :is(input,button) { border-radius:0; min-height:44px; }
+
+.app .common-header.sidebar { width:100%; grid-column:auto; grid-row:auto; }
+.common-header.sidebar > .brand { display:inline-flex; width:auto; height:auto; margin:0; overflow:visible; flex:none; }
+.common-header.sidebar nav > a > span, .common-header.sidebar .sync-status > span {
+  position:static; width:auto; height:auto; padding:0; margin:0; overflow:visible; clip-path:none; white-space:normal;
+}
+.app .common-header .sidebar-bottom { flex:0 1 auto; width:auto; }
+.app .common-header .sync-status { width:auto; white-space:nowrap; }
+.app .common-header .sync-status span { white-space:nowrap; }
+.mobile-filter-toggle { display:none; }
+@media(max-width:760px) {
+  .app .mobile-filter-toggle { display:inline-flex; }
+  .notes-page:not([data-filters-open]) > .filter-row,
+  .notes-page:not([data-filters-open]) .card-sources { display:none; }
+  .app .notes-page > .page-header { display:flex; flex-flow:row wrap; align-items:center; gap:8px; }
+  .app .notes-page > .page-header > div { flex:1 0 100%; }
+  .app .notes-page .card-collection-actions { gap:5px; }
+  .app .notes-page .card-collection-actions [role=group] { gap:0; }
+  .app .notes-page .card-collection-actions [role=group] button { padding-inline:8px; }
+}
+
+.app .notebook-section-title { font:500 25px/1.35 Literata,Georgia,serif; margin:0 0 8px; }
+.app .workspace-research .study-workspace .study-question { background:transparent; border:0; border-bottom:1px solid var(--line); border-radius:0; padding-block:20px; }
+.app .workspace-research :is(.study-heading,.study-source-strip,.study-results,.study-answer,.study-evidence-panel,.research-conversation-list .workspace-item,.study-source-strip li) { border-radius:0; box-shadow:none; }
+.app .workspace-research .study-answer { background:var(--surface); color:var(--ink); }
+.app .workspace-research .study-answer :is(p,li) { font:400 17px/1.65 Literata,Georgia,serif; }

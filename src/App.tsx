@@ -4,6 +4,7 @@ import { UpdateNotice } from "./UpdateNotice";
 import { type ReactNode, lazy, Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   HashRouter,
+  Link,
   NavLink,
   Route,
   Routes,
@@ -12,6 +13,8 @@ import {
 import {
   BookOpen,
   LibraryBig,
+  Menu,
+  Search,
   Highlighter,
   Settings2,
   Cloud,
@@ -157,6 +160,17 @@ function AccessGate() {
 function Shell({ accessNotice }: { accessNotice: ReactNode }) {
   const location = useLocation(),
     reading = location.pathname.startsWith("/read/");
+  const [menu, setMenu] = useState(false);
+  useEffect(() => setMenu(false), [location.pathname, location.search]);
+  useEffect(() => {
+    if (!menu) return;
+    const outside = (event: PointerEvent) => {
+      if (event.target instanceof Element && !event.target.closest(".common-header")) setMenu(false);
+    };
+    document.addEventListener("pointerdown", outside);
+    return () => document.removeEventListener("pointerdown", outside);
+  }, [menu]);
+  const research = location.pathname === "/notebooks" && new URLSearchParams(location.search).get("view") === "research";
   const sync = useSyncExternalStore(subscribeSync, syncSnapshot);
   const conflicts = useLiveQuery(() => db.conflicts.count(), []) || 0;
   const [toast, setToast] = useState("");
@@ -170,43 +184,24 @@ function Shell({ accessNotice }: { accessNotice: ReactNode }) {
   return (
     <div className={reading ? "app reading" : "app"}>
       {!reading && (
-        <aside className="sidebar">
+        <aside className="sidebar common-header" data-menu={menu || undefined} onKeyDown={event => { if (event.key === "Escape") { setMenu(false); event.currentTarget.querySelector<HTMLButtonElement>(".workspace-nav-toggle")?.focus(); } }}>
+          <button className="workspace-nav-toggle" aria-label="Navigation" aria-expanded={menu} aria-controls="workspace-navigation" onClick={() => setMenu(!menu)}><Menu size={21}/></button>
           <NavLink to="/" className="brand">
-            <span className="brand-icon">
-              <BookOpen size={23} />
-            </span>
-            leafmark<span className="brand-dot">.</span>
+            Leafmark
           </NavLink>
-          <nav>
-            {[
-              ["/", LibraryBig, "Library"],
-              ["/notes", Highlighter, "Highlights & notes"],
-              ["/notebooks", NotebookPen, "Notebooks & research"],
-              ["/settings", Settings2, "Reading & settings"],
-            ].map(([path, Icon, label]) => {
-              const I = Icon as typeof BookOpen;
-              return (
-                <NavLink
-                  end={path === "/"}
-                  key={String(path)}
-                  aria-label={String(label)}
-                  title={String(label)}
-                  to={String(path)}
-                >
-                  <I size={20} />
-                  <span>{String(label)}</span>
-                  {path === "/settings" && conflicts > 0 && (
-                    <b className="nav-badge">{conflicts}</b>
-                  )}
-                </NavLink>
-              );
-            })}
+          <nav id="workspace-navigation" aria-label="Workspace">
+            {([
+              ["/", LibraryBig, "Library", location.pathname === "/"],
+              ["/notes", Highlighter, "Highlights", location.pathname === "/notes"],
+              ["/notebooks", NotebookPen, "Notebooks", location.pathname === "/notebooks" && !research],
+              ["/notebooks?view=research", Search, "Research", research],
+              ["/settings", Settings2, "Settings", location.pathname === "/settings"],
+            ] as const).map(([path, Icon, label, active]) =>
+              <Link key={path} to={path} aria-current={active ? "page" : undefined} className={active ? "current" : "workspace-link"} onClick={() => setMenu(false)}>
+                <Icon size={18}/><span>{label}</span>{label === "Settings" && conflicts > 0 && <b>{conflicts}</b>}
+              </Link>)}
           </nav>
           <div className="sidebar-bottom">
-            <div className="quiet-quote">
-              A place for every book.
-              <br />A little time for you.
-            </div>
             <button
               className={`sync-status ${sync.state}`}
               onClick={() => void synchronize()}
@@ -235,23 +230,6 @@ function Shell({ accessNotice }: { accessNotice: ReactNode }) {
           <Route path="*" element={<Library notify={notify} />} />
         </Routes>
       </div>
-      {!reading && (
-        <nav className="mobile-nav">
-          <NavLink to="/" end>
-            <LibraryBig size={21} />
-            <span>Library</span>
-          </NavLink>
-          <NavLink to="/notes">
-            <Highlighter size={21} />
-            <span>Notes</span>
-          </NavLink>
-          <NavLink to="/settings">
-            <Settings2 size={21} />
-            <span>Settings{conflicts ? " •" : ""}</span>
-          </NavLink>
-          <NavLink to="/notebooks"><NotebookPen size={21} /><span>Notebooks</span></NavLink>
-        </nav>
-      )}
       {toast && (
         <div className="toast" role="status">
           <span>{toast}</span>
@@ -281,13 +259,9 @@ function SignIn({ error, setError, onSignIn }: {
           <span className="brand-icon">
             <BookOpen size={24} />
           </span>
-          leafmark.
+          Leafmark
         </div>
-        <h1>
-          Your next chapter
-          <br />
-          is waiting.
-        </h1>
+        <h1>Open your library</h1>
         <p className="muted">
           Sign in to your private library. Your books, notes, and place will be
           right here.

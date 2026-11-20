@@ -11,6 +11,7 @@ async function openNote(page: Page) {
   await expect(page.locator(".notebook-detail-actions")).toContainText("Field journal");
   await page.getByRole("button", { name: "New note", exact: true }).click();
   await expect(page.getByRole("textbox", { name: "Topic note content" })).toHaveAttribute("contenteditable", "true");
+  await page.getByRole("button", {name:"Tools",exact:true}).click();
 }
 
 test("notebook text boxes resize, move freely and reopen with their text", async ({ page }, info) => {
@@ -117,7 +118,7 @@ test("long notebook pages scroll independently of the notebook navigation and fo
       type: "paragraph", content: [{ type: "text", text: `Study entry ${i + 1}` }],
     })) });
   });
-  const header = page.getByRole("heading", { name: "Notebooks" });
+  const header = page.getByRole("button", { name: "Pages", exact: true });
   const toolbar = page.getByRole("toolbar", { name: "Topic note formatting" });
   const start = { head: (await header.boundingBox())!.y, tools: (await toolbar.boundingBox())!.y };
   const last = editor.getByText("Study entry 45", { exact: true });
@@ -354,6 +355,7 @@ test("a group of attachments can move freely and be copied to a different page",
   const left = (await floated.last().boundingBox())!.x;
   expect(left).toBeGreaterThan(before + 70);
   await page.getByRole("button", { name: "Copy attachments" }).click();
+  await page.getByRole("button", {name:"Pages",exact:true}).click();
   await page.getByRole("button", { name: "New note", exact: true }).click();
   await expect(writing).toHaveAttribute("contenteditable", "true");
   await page.getByRole("button", { name: "Paste attachments" }).click();

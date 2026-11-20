@@ -7,7 +7,7 @@ type Card = { id:string; text:string; title:string; subtitle:string };
 const tile = { w:244, h:174 };
 export function CategoryBoard({ category, cards, filings, open }: {category:string; cards:Card[]; filings:CardFiling[]; open:(id:string,button:HTMLElement)=>void}) {
   const frame=useRef<HTMLDivElement>(null);
-  const [size,setSize]=useState({w:800,h:600});
+  const [size,setSize]=useState({w:0,h:0});
   const [camera,setCamera]=useState({x:16,y:16,z:1});
   const [draft,setDraft]=useState<{id:string;pos:Point}>();
   const [error,setError]=useState("");
@@ -30,6 +30,12 @@ export function CategoryBoard({ category, cards, filings, open }: {category:stri
     const z=Math.min(1,(size.w-32)/(Math.max(...points.map(p=>p.x))-x+tile.w),(size.h-32)/(Math.max(...points.map(p=>p.y))-y+tile.h));
     setCamera({x:16-x*z,y:16-y*z,z});
   }
+  const fitted = useRef(false);
+  useEffect(() => {
+    if (fitted.current || !size.w || !size.h || !cards.length || !positions.has(cards[0].id)) return;
+    fitted.current = true;
+    fit();
+  }, [size, cards, filings]);
   const zoom=(factor:number)=>setCamera(c=>{const z=Math.max(.05,Math.min(3,c.z*factor));return {z,x:size.w/2+(c.x-size.w/2)*z/c.z,y:size.h/2+(c.y-size.h/2)*z/c.z};});
   return <section aria-label="Category board"><div className="board-tools"><button onClick={()=>zoom(.8)} aria-label="Zoom out board">−</button><span>{Math.round(camera.z*100)}%</span><button onClick={()=>zoom(1.25)} aria-label="Zoom in board">+</button><button onClick={fit}>Fit cards</button></div>
     <div ref={frame} className="category-board" tabIndex={0} aria-label="Pan board, or focus a card and use arrow keys to move it"

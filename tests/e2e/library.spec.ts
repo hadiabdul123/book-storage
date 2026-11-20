@@ -169,6 +169,7 @@ test("annotation edits, filters, exports, JSON restore and malformed backups", a
   await dialog.getByRole("button", { name: "green", exact: true }).click();
   await dialog.getByRole("button", { name: "Save changes" }).click();
   await page.getByRole("dialog", { name: "Quote card" }).getByRole("button", { name: "Close", exact: true }).click();
+  if (await page.getByRole("button", {name:"Filters & collections", expanded:false}).isVisible()) await page.getByRole("button", {name:"Filters & collections"}).click();
   await page.getByText("More filters", { exact: true }).click();
   await page
     .getByRole("textbox", { name: "Search annotations" })

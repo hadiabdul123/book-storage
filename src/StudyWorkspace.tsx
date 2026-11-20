@@ -229,14 +229,15 @@ export function StudyWorkspace({ study, books, options, messages, resultId, onSe
     </header>
     <form className="study-question" onSubmit={event => { event.preventDefault(); void run("sources"); }}>
       {followUp && <div className="study-follow-up">Following up on <strong>{followUp.question}</strong><button className="icon-button" type="button" aria-label="Start an independent question" onClick={() => setFollowUp(undefined)}><X size={16} /></button></div>}
-      <label htmlFor="study-question">Your question</label>
+      <label htmlFor="study-question">Research question</label>
       <textarea id="study-question" ref={questionInput} aria-label="Research question" rows={2} maxLength={1500}
         placeholder="Enter a question or search for a passage" value={question} onChange={event => changeQuestion(event.target.value)} />
       <div className="study-question-actions">
-        <button type="button" className="secondary" disabled={preparing} onClick={() => void run("find")}><FileSearch size={17} />Find passages</button>
+
         <button type="submit" className="primary" disabled={preparing}><MessageSquare size={16} />{online ? "Investigate" : "Queue question"}</button>
         <button type="button" className="secondary" disabled={preparing} onClick={() => openAction("compare")}><Columns2 size={17} />Compare sources</button>
         <button type="button" className="secondary" disabled={preparing} onClick={() => openAction("review")}><BookOpen size={16} />Review chapters</button>
+        <button type="button" className="secondary" disabled={preparing} onClick={() => void run("find")}><FileSearch size={17} />Find passages</button>
         <details className="study-more"><summary><MoreHorizontal size={18} />More actions</summary><div>
           <button type="button" disabled={preparing} onClick={event => { event.currentTarget.closest("details")!.open = false; void run("web"); }}><Globe size={16} />Search the web</button>
           {study.selection && <button type="button" disabled={preparing} onClick={event => { event.currentTarget.closest("details")!.open = false; void run("explain"); }}>Explain passage</button>}

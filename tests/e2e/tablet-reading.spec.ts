@@ -33,7 +33,14 @@ test("tablet bookshelf and every navigation destination fit portrait, landscape 
   for (const size of [{ width: 810, height: 1080 }, { width: 1280, height: 800 }, { width: 540, height: 1080 }]) {
     await page.setViewportSize(size);
     await noOverflow(page);
-    if (size.width >= 760 && size.width < 1200) expect((await page.locator(".sidebar").boundingBox())!.width).toBe(84);
+    if (size.width > 760) {
+      await expect(page.getByRole("navigation", {name:"Workspace"}).getByRole("link", {name:"Highlights"})).toBeVisible();
+      expect((await page.locator(".common-header").boundingBox())!.width).toBe(size.width);
+    } else {
+      await page.getByRole("button", {name:"Navigation",exact:true}).click();
+      await expect(page.getByRole("navigation", {name:"Workspace"})).toBeVisible();
+      await page.getByRole("button", {name:"Navigation",exact:true}).click();
+    }
     await screenshot(page, `library-${size.width}`);
     for (const route of ["/notes", "/notebooks", "/settings", "/"]) {
       await page.goto(`/#${route}`);

@@ -6,8 +6,8 @@ import { Dialog } from "./components";
 import type { SourceRef } from "./researchTypes";
 import { saveResearchClip, type ClipTarget } from "./notebookStore";
 
-export function SaveResearch({ text, sources, passage, studyId, onClose }: {
-  studyId?: string; text: string; sources: SourceRef[]; passage?: SourceRef; onClose: () => void;
+export function SaveResearch({ text, sources, passage, studyId, notebookOnly, onClose }: {
+  notebookOnly?: boolean; studyId?: string; text: string; sources: SourceRef[]; passage?: SourceRef; onClose: () => void;
 }) {
   const notebooks = useLiveQuery(() => list("notebook"), []) || [];
   const notes = useLiveQuery(() => list("notebook-note"), []) || [];
@@ -15,12 +15,12 @@ export function SaveResearch({ text, sources, passage, studyId, onClose }: {
   const [destination, setDestination] = useState(passage ? "passage" : "new");
   const [noteId, setNoteId] = useState("");
   const [notebookId, setNotebookId] = useState("");
-  const [notebookTitle, setNotebookTitle] = useState("Research");
-  const [title, setTitle] = useState(passage?.excerpt.slice(0, 60) || "Research note");
+  const [notebookTitle, setNotebookTitle] = useState(notebookOnly ? "Reading notes" : "Research");
+  const [title, setTitle] = useState(passage?.excerpt.slice(0, 60) || (notebookOnly ? text.slice(0, 60) : "Research note"));
   const [bookId, setBookId] = useState(passage?.locator?.type === "pdf" ? passage.bookId || "" : "");
   const [page, setPage] = useState(passage?.locator?.type === "pdf" ? passage.locator.page : 1);
   const [error, setError] = useState(""), [busy, setBusy] = useState(false), [saved, setSaved] = useState(false);
-  return <Dialog title="Save research to…" onClose={onClose}>
+  return <Dialog title={notebookOnly ? "Add to notebook" : "Save research to…"} onClose={onClose}>
     {saved ? <><p role="status">Excerpt and sources saved on this device.</p><button className="primary" onClick={onClose}>Done</button></> : <form className="clip-form" onSubmit={async e => {
       e.preventDefault(); setBusy(true); setError("");
       try {
@@ -41,8 +41,8 @@ export function SaveResearch({ text, sources, passage, studyId, onClose }: {
       <blockquote className="clip-preview">{text}</blockquote>
       <label>Destination<select aria-label="Save destination" value={destination} onChange={e => setDestination(e.target.value)}>
         {passage?.bookId && passage.locator && <option value="passage">Note on the selected passage</option>}
-        <option value="card">Save as card in Highlights &amp; notes</option>
-        <option value="page">PDF page notebook</option><option value="note">Existing topic note</option><option value="new">New topic note</option>
+        {!notebookOnly && <option value="card">Save as card in Highlights &amp; notes</option>}
+        {!notebookOnly && <option value="page">PDF page notebook</option>}<option value="note">Existing topic note</option><option value="new">New topic note</option>
       </select></label>
       {destination === "page" && <><label>PDF<select required value={bookId} onChange={e => setBookId(e.target.value)}><option value="">Choose a PDF</option>{books.filter(b => b.format === "pdf").map(b => <option key={b.id} value={b.id}>{b.title}</option>)}</select></label><label>Page<input type="number" min={1} required value={page} onChange={e => setPage(Number(e.target.value))} /></label></>}
       {destination === "note" && <label>Topic note<select required value={noteId} onChange={e => setNoteId(e.target.value)}><option value="">Choose a note</option>{notes.filter(n => notebooks.some(b => b.id === n.notebookId)).map(n => <option key={n.id} value={n.id}>{notebooks.find(b => b.id === n.notebookId)?.title} / {n.title}</option>)}</select></label>}
