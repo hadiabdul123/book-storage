@@ -82,6 +82,9 @@ import {
   type InteractionHandle,
 } from "./ReaderInteractions";
 const ReadAlong = lazy(() => import("./ReadAlong").then(module => ({ default: module.ReadAlong })));
+import { flushTopicNote } from "./notebookStore";
+import type { StudyClip } from "./TopicEditor";
+const StudyNotebook = lazy(() => import("./StudyNotebook").then(m => ({default:m.StudyNotebook})));
 const noTextBoxes: PdfTextBox[] = [];
 
 export function Reader({ notify }: { notify: (message: string) => void }) {
@@ -200,6 +203,9 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
     viewport?.addEventListener("resize", resize);
     return () => viewport?.removeEventListener("resize", resize);
   }, [book?.id]);
+  const [clip, setClip] = useState<StudyClip>();
+  const [paneSize, setPaneSize] = useState(38);
+  const sideNote = useRef("");
   const notebook = useRef<NotebookHandle | null>(null);
   const [notebookPage, setNotebookPage] = useState(1),
     [pinned, setPinned] = useState(false),
@@ -216,6 +222,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   const openNotebookRef = useRef<(page: number) => void>(() => {});
   async function flushNotebook() {
     if (textBoxDraft) { notify("Save or cancel the text box first."); return false; }
+    if (sideNote.current && !(await flushTopicNote(sideNote.current))) return false;
     return (await notebook.current?.flush()) ?? true;
   }
   function closeTextBoxes() {
@@ -376,7 +383,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
     [jumped, setJumped] = useState(false);
   const backgroundAllowed = useRef(false);
   const backgroundBlocked = useRef(true);
-  backgroundBlocked.current = loading || !!panel || !!editing || region || drawing || textBoxMode;
+  backgroundBlocked.current = loading || (!!panel && panel !== "study-notebook") || !!editing || region || drawing || textBoxMode;
   backgroundAllowed.current = !backgroundBlocked.current;
   const chrome = useReaderChrome(
     shell,
@@ -736,6 +743,8 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   return (
     <main
       ref={shell}
+      data-study-open={panel === "study-notebook" || undefined}
+      style={panel === "study-notebook" ? { "--study-size": paneSize + "%" } as React.CSSProperties : undefined}
       className={`reader-shell reader-side-tools theme-${prefs.theme}${drawing ? " drawing-active" : ""}${textBoxMode ? " pdf-text-box-active" : ""}${chrome.visible ? " controls-visible" : " reading-mode"}${chrome.menu ? " controls-menu-open" : ""}${swipeEnabled ? " swipe-pages" : ""}${hidePageControls ? " hide-page-controls" : ""}${panel ? " panel-open" : ""}`}
       data-original-pdf-colors={pdfOriginalColors}
       data-loading={loading || savedPrefs === null || localView === undefined}
@@ -759,7 +768,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
         const anchor = (event.target as HTMLElement).closest<HTMLAnchorElement>(
           'a[href^="#/"]',
         );
-        if (anchor && (notebook.current || textBoxDraft)) {
+        if (anchor && (notebook.current || sideNote.current || textBoxDraft)) {
           event.preventDefault();
           const href = anchor.getAttribute("href")!;
           void flushNotebook().then((ok) => {
@@ -848,6 +857,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
           <MoreHorizontal size={22} />
         </button>
         <div className="reader-tools">
+          {book.format === "pdf" && <button className="icon-button" aria-label="Study notebook" aria-pressed={panel === "study-notebook"} onClick={() => void changePanel(panel === "study-notebook" ? "" : "study-notebook")}><NotebookPen size={20} /></button>}
           {book.format === "pdf" && <button className="icon-button reader-text-box-overflow" aria-label="Text box" title="Text box" aria-pressed={textBoxMode} disabled={loading} onClick={() => void toggleTextBoxes()}><Type size={20} /></button>}
           {tools.filter(([name]) => name !== "contents" && name !== "settings").map(([name, Icon, label]) => (
             <button
@@ -936,7 +946,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
         place={() => void placeTextBox()} save={() => void storeTextBox()} remove={() => void storeTextBox(true)}
         exportPdf={() => void downloadMarkedPdf()} cancel={closeTextBoxes} />}
       <div className="reader-workspace">
-        {panel && <button className="reader-panel-backdrop" aria-label="Close reading panel"
+        {panel && panel !== "study-notebook" && <button className="reader-panel-backdrop" aria-label="Close reading panel"
           onClick={() => void changePanel("")} />}
         <div
           className="reading-column"
@@ -981,7 +991,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
             aria-label="Book content"
             tabIndex={0}
           />
-          <ComfortLayer {...comfort} host={host} enabled={opened && book.format === "pdf" && !drawing && !region && !textBoxMode && !panel} />
+          {book.format === "pdf" && <ComfortLayer {...comfort} host={host} enabled={opened && !drawing && !region && !textBoxMode && !panel} />}
         </div>
         {panel && (
           <aside className={`reader-panel ${panel === "research" ? "research-reader-panel" : ""}`}>
@@ -994,6 +1004,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
                     notes: "Your annotations",
                     settings: "Reading settings",
                     "page-notes": "Page notebooks",
+                    "study-notebook": "Study notebook",
                     meaning: "Meaning",
                     research: "Research",
                     listen: "Listen",
@@ -1009,6 +1020,11 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
               </button>
             </header>
             <div className="panel-body">
+              {panel === "study-notebook" && <Suspense fallback={<p>Opening notebook...</p>}>
+                <label className="study-size">Pane size<input type="range" aria-label="Notebook pane size" min={28} max={65} value={paneSize} onChange={e=>setPaneSize(+e.target.value)} /></label>
+                <StudyNotebook clip={clip} selectedNote={sideNote} inserted={() => {setClip(undefined); notify("Inserted with a link to the PDF.");}}
+                  region={region} crop={() => {interactions.current?.dismiss(); (adapter.current as PdfReader)?.setRegionMode(!region); setRegion(!region);}} />
+              </Suspense>}
               {panel === "listen" && <div ref={setListenHost} />}
               {panel === "research" && <ResearchPanel book={book} selection={researchSelection} />}
               {panel === "page-notes" && book.format === "pdf" && (
@@ -1291,7 +1307,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
                         </p>
                       </>
                     )}
-                  <ComfortSettings {...comfort} />
+                  {book.format === "pdf" && <ComfortSettings {...comfort} />}
                   <fieldset className="reading-theme-settings">
                     <legend>Page theme</legend>
                     <div className="theme-options">
@@ -1626,7 +1642,14 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
         controls={actionsHost}
         secondaryControls={secondaryActionsHost}
         ready={!loading}
-        suspended={panel !== "" || drawing}
+        suspended={(panel !== "" && panel !== "study-notebook") || drawing}
+        onStudy={async (selection, point) => {
+          if (book.format !== "pdf" || !(await flushNotebook())) return;
+          const file = selection.text.startsWith("Region on page ") ? await (adapter.current as PdfReader).captureRegion(selection.locator) : undefined;
+          setClip({ text:selection.text, file, point, source:{ id:uid(), kind:"book", title:book.title, bookId:book.id, locator:selection.locator, excerpt:selection.text.slice(0,2400) } });
+          interactions.current?.dismiss(); adapter.current?.clearSelection();
+          setPanel("study-notebook"); chrome.setMenu(false);
+        }}
         notify={notify}
         onResearch={openResearch}
         onListen={openListen}

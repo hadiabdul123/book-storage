@@ -1,6 +1,6 @@
 export type InkPoint = [number, number, number];
 export type InkTarget = { type: "pdf"; bookId: string; hash: string; page: number } | { type: "notebook"; noteId: string; blockId: string };
-export type InkStyle = { tool: "pen" | "highlighter" | "eraser"; color: string; width: number; penOnly?: boolean };
+export type InkStyle = { tool: "pen" | "highlighter" | "eraser" | "lasso"; color: string; width: number; penOnly?: boolean };
 export type InkStroke = {
   id: string; target: InkTarget; tool: "pen" | "highlighter"; color: string; width: number;
   points: InkPoint[]; createdAt: string;

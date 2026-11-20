@@ -1,6 +1,7 @@
+import { bindInkLasso, type LassoStroke } from "./inkLasso";
 import { getStrokePoints, getStrokeOutlinePoints } from "perfect-freehand";
 import "./ink.css";
-import { db, save } from "./db";
+import { db, get, save } from "./db";
 import { now, uid } from "./model";
 import { sameInkTarget, validInkStroke, type InkPoint, type InkStroke, type InkStyle, type InkTarget } from "./inkTypes";
 export type InkProjection = (x: number, y: number) => number[];
@@ -33,10 +34,11 @@ export function paintInk(svg: SVGSVGElement, strokes: InkStroke[], project?: Ink
     cache.set(stroke.id, { path, stroke });
   }
 }
+type InkChange = { before?: InkStroke; after?: InkStroke };
 export class InkHistory {
   pending = new Map<string, { stroke: InkStroke; deleted: boolean }>();
-  undoStack: { stroke: InkStroke; deleted: boolean }[] = [];
-  redoStack: { stroke: InkStroke; deleted: boolean }[] = [];
+  undoStack: InkChange[][] = [];
+  redoStack: InkChange[][] = [];
   async perform(stroke: InkStroke, deleted = false) {
     if (!validInkStroke(stroke)) throw new Error("This drawing could not be saved: invalid stroke.");
     this.pending.set(stroke.id, { stroke, deleted });
@@ -44,7 +46,7 @@ export class InkHistory {
     const key = `ink-draft:${stroke.id}`;
     await db.meta.put({ key, value: JSON.stringify({ stroke, deleted }) });
     await save("ink-stroke", stroke, deleted); this.pending.delete(stroke.id); await db.meta.delete(key).catch(() => {});
-    this.undoStack.push({ stroke, deleted }); this.redoStack = [];
+    this.undoStack.push([deleted ? { before:stroke } : { after:stroke }]); this.redoStack = [];
   }
   visible(strokes: InkStroke[]) {
     const result = new Map(strokes.map(s => [s.id, s]));
@@ -52,12 +54,29 @@ export class InkHistory {
     return [...result.values()];
   }
   async retry() { for (const action of [...this.pending.values()]) await this.perform(action.stroke, action.deleted); }
+  async edit(changes: InkChange[]) {
+    if (!changes.length) return;
+    await this.apply(changes);
+    this.undoStack.push(changes);
+    this.redoStack = [];
+  }
+  private async apply(changes: InkChange[]) {
+    await db.transaction("rw", db.rows, db.outbox, db.conflicts, db.meta, async () => {
+      for (const {before, after} of changes) {
+        const stroke = after || before!;
+        if (!validInkStroke(stroke)) throw new Error("The selected ink is outside the page limits.");
+        const current = await get("ink-stroke", stroke.id);
+        if (JSON.stringify(current) !== JSON.stringify(before))
+          throw new Error("This drawing changed. Select the strokes again.");
+        await save("ink-stroke", stroke, !after);
+      }
+    });
+  }
   async move(redo = false) {
     const from = redo ? this.redoStack : this.undoStack, to = redo ? this.undoStack : this.redoStack;
-    const action = from.at(-1); if (!action) return;
-    const current = await db.rows.get(`ink-stroke:${action.stroke.id}`);
-    if (!current || current.deleted !== (redo ? !action.deleted : action.deleted)) throw new Error("This stroke changed on another device. Reopen the drawing before editing it.");
-    await save("ink-stroke", action.stroke, redo ? action.deleted : !action.deleted);
+    const action = from.at(-1);
+    if (!action) return;
+    await this.apply(redo ? action : action.map(({before,after}) => ({ before:after, after:before })));
     from.pop(); to.push(action);
   }
 }
@@ -69,6 +88,8 @@ export async function recoverInkDrafts() {
 export function bindInkSurface(svg: SVGSVGElement, options: {
   target: InkTarget; strokes: () => InkStroke[]; style: () => InkStyle; enabled: () => boolean;
   project?: InkProjection; unproject?: InkProjection;
+  history: InkHistory;
+  lassoStrokes?: () => LassoStroke[];
   retainCommitted?: boolean;
   commit: (stroke: InkStroke, deleted?: boolean) => Promise<void>;
   error: (message: string) => void;
@@ -83,8 +104,14 @@ export function bindInkSurface(svg: SVGSVGElement, options: {
     for (const id of hidden) if (!saved.some(s => s.id === id) && !pending.has(id)) hidden.delete(id);
     return [...saved, ...pending.values()].filter(s => !hidden.has(s.id));
   };
+  const identity: InkProjection = (x,y) => [x,y];
+  const lasso = bindInkLasso(svg, {
+    enabled: () => options.enabled() && options.style().tool === "lasso", color: () => options.style().color,
+    history:options.history, error:options.error,
+    candidates: options.lassoStrokes || (() => strokes().map(stroke => ({stroke, project:options.project || identity, unproject:options.unproject || identity}))),
+  });
   const snapshot = (): InkStroke => ({ id: "preview", target: options.target, tool: gestureStyle?.tool === "highlighter" ? "highlighter" : "pen", color: gestureStyle?.color || "#315c86", width: gestureStyle?.width || 2, points, createdAt: now() });
-  const paint = () => { frame = 0; if (!destroyed) paintInk(svg, [...strokes(), ...(points.length && gestureStyle?.tool !== "eraser" ? [snapshot()] : [])], options.project, forcePaint); forcePaint = false; };
+  const paint = () => { frame = 0; if (!destroyed) paintInk(svg, [...strokes(), ...(points.length && gestureStyle?.tool !== "eraser" ? [snapshot()] : [])], options.project, forcePaint); forcePaint = false; lasso.refresh(); };
   const schedule = () => { if (!frame) frame = requestAnimationFrame(paint); };
   const coordinate = (event: PointerEvent): InkPoint => {
     const matrix = svg.getScreenCTM();
@@ -118,7 +145,7 @@ export function bindInkSurface(svg: SVGSVGElement, options: {
     if (pointerType === "pen" && event.pointerType === "touch") return;
     if (!options.enabled()) return;
     const style = options.style();
-    if ((style.penOnly && event.pointerType !== "pen") || event.button > 0) return;
+    if (style.tool === "lasso" || (style.penOnly && event.pointerType !== "pen") || event.button > 0) return;
     // A palm may already be resting on the page when the nib arrives.
     // The pen owns its stroke regardless of the order those contacts arrived.
     if (event.pointerType === "pen") { cancel(); contacts.clear(); }
@@ -160,5 +187,5 @@ export function bindInkSurface(svg: SVGSVGElement, options: {
   const released = (e: PointerEvent) => contacts.delete(e.pointerId);
   svg.ownerDocument.addEventListener("pointerup", released, true); svg.ownerDocument.addEventListener("pointercancel", released, true);
   paint();
-  return { paint: () => { forcePaint = true; schedule(); }, cancel, flush, destroy() { destroyed = true; cancel(); cancelAnimationFrame(frame); svg.removeEventListener("pointerdown", down); svg.removeEventListener("pointermove", move); svg.removeEventListener("pointerup", up); svg.removeEventListener("pointercancel", abort); svg.ownerDocument.removeEventListener("pointerdown", second, true); svg.ownerDocument.removeEventListener("pointerup", released, true); svg.ownerDocument.removeEventListener("pointercancel", released, true); } };
+  return { paint: () => { forcePaint = true; schedule(); }, cancel, flush, destroy() { destroyed = true; lasso.destroy(); cancel(); cancelAnimationFrame(frame); svg.removeEventListener("pointerdown", down); svg.removeEventListener("pointermove", move); svg.removeEventListener("pointerup", up); svg.removeEventListener("pointercancel", abort); svg.ownerDocument.removeEventListener("pointerdown", second, true); svg.ownerDocument.removeEventListener("pointerup", released, true); svg.ownerDocument.removeEventListener("pointercancel", released, true); } };
 }

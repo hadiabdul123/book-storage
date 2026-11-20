@@ -1,0 +1,26 @@
+.card-gallery .notes-browser-layout { display:block; border:0; background:transparent; }
+.card-gallery:not(.notes-detail-open) .notes-preview-pane { display:none; }
+.card-gallery .notes-passage-list { max-height:none; border:0; background:transparent; padding:0; overflow:visible; }
+.card-gallery .notes-passage-list section { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,225px),1fr)); gap:12px; }
+.card-gallery .notes-passage-list h2 { display:none; }
+.card-gallery .notes-passage-list .workspace-item, .card-gallery .notes-passage-list section > button { background:var(--page-bg,#fff); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+.card-gallery .notes-passage-list .notes-passage-open { height:100%; min-height:155px; padding:14px 15px; display:flex; flex-direction:column; align-items:flex-start; gap:5px; background:transparent; }
+.card-gallery .notes-passage-text { order:-1; font:400 16px/1.55 Literata,serif; margin-bottom:auto; padding-bottom:12px; overflow-wrap:anywhere; }
+.card-sources nav button[aria-pressed=true], .card-collection-actions button[aria-pressed=true] { color:var(--accent); background:#dce9e5; }
+.card-sources nav button small { margin-inline-start:auto; font-variant-numeric:tabular-nums; }
+.board-tools { display:flex; align-items:center; gap:8px; padding:8px 0; }
+.board-tools button,.card-collection-actions button { min-height:40px; }
+.category-board { position:relative; width:100%; height:clamp(320px,65dvh,720px); overflow:hidden; background:#e9ece5; border-radius:12px; touch-action:none; user-select:none; }
+.category-board > button { position:absolute; inset:0 auto auto 0; transform-origin:0 0; display:flex; flex-direction:column; align-items:start; gap:12px; justify-content:space-between; background:#fffdf5; border:1px solid #d4d2c5; box-shadow:0 2px 6px #313b3112; border-radius:5px; padding:16px; text-align:left; cursor:grab; }
+.category-board button span { display:-webkit-box; -webkit-line-clamp:5; -webkit-box-orient:vertical; overflow:hidden; font:400 16px/1.45 Literata,serif; }
+.category-board button small { color:#54665d; overflow:hidden; max-width:100%; text-overflow:ellipsis; white-space:nowrap; }
+@media(max-width:599px){.card-gallery .notes-passage-list section{grid-template-columns:1fr;} .card-gallery .notes-passage-list .notes-passage-open{min-height:110px;} }
+.library-page .page-header h1,.notebooks-page .page-header h1,.notes-page .page-header h1,.settings-page .page-header h1 { font-family:Literata,serif; font-weight:500; letter-spacing:-.035em; }
+.card-collection-actions [role=group] { display:inline-flex; gap:2px; background:#eeeee8; padding:3px; border-radius:9px; }
+.card-collection-actions [role=group] button { padding-inline:12px; border-radius:7px; }
+.card-sources nav button { display:flex; align-items:center; gap:8px; justify-content:space-between; }
+.notes-browser .card-filters > div { width:min(21rem,calc(100vw - 40px)); max-height:58dvh; overflow-y:auto; }
+.notes-browser .card-filters fieldset { border:0; padding:0; display:grid; gap:4px; }
+.notes-browser .card-filters fieldset label { display:flex; align-items:center; gap:6px; }
+.card-gallery .notes-passage-open:focus-visible,.category-board button:focus-visible { outline:3px solid #376979; outline-offset:-3px; }
+@media(hover:hover){.card-gallery .workspace-item:hover,.category-board button:hover { box-shadow:0 4px 14px #2d40321c; }}

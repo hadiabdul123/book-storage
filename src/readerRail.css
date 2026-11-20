@@ -31,3 +31,27 @@
 .reader-side-tools .reader-host .pdf-ocr-button { left:55px; }
 .reader-side-tools .reader-header button[aria-pressed=true] { background:var(--accent-soft,#d9e8ed); }
 @media(prefers-reduced-motion:no-preference) { .reader-shell.reader-side-tools .reader-header { transition:opacity 150ms ease,translate 150ms ease; } .reader-side-tools.reading-mode .reader-header { translate:-6px 0; } }
+.reader-shell[data-study-open] .reader-workspace { padding-right:var(--study-size); }
+.reader-shell[data-study-open] .reader-panel { width:var(--study-size); top:0; max-width:none; }
+.reader-shell[data-study-open] .panel-body { overflow:auto; display:block; padding:10px; }
+.study-size, .study-destinations { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.study-size input { flex:1; }
+.study-notebook .topic-editor { min-width:0; }
+.study-notebook .notebook-paper, .study-notebook .note-paper-column { min-width:0; width:100%; }
+.study-destinations, .study-pending { border-bottom:1px solid var(--line); padding:8px 0; }
+.study-pending { display:grid; gap:6px; }
+@media(max-width:700px) {
+  .reader-shell[data-study-open] .reader-workspace { padding-right:0; padding-bottom:calc(var(--study-size) + var(--reader-footer-height,56px)); }
+  .reader-shell[data-study-open] .reader-panel { top:auto; width:100%; height:var(--study-size); bottom:var(--reader-footer-height,56px); border-radius:14px 14px 0 0; }
+}
+
+.reader-shell.reader-side-tools.drawing-active .reader-header { left:env(safe-area-inset-left,0px); }
+.reader-shell.reader-side-tools.drawing-active .reader-workspace { padding-left:calc(var(--rail-size) + env(safe-area-inset-left,0px)); }
+@media(max-width:700px) {
+  .reader-shell[data-study-open] .reader-workspace { padding-bottom:0; }
+  .reader-shell[data-study-open] .reading-column { height:calc(100% - var(--study-size) - var(--reader-footer-height)); margin-block:0; }
+  .reader-shell[data-study-open] .reader-header { max-height:calc(100% - var(--study-size) - var(--reader-footer-height) - 10px); }
+  .reader-shell[data-study-open] .reader-panel { z-index:36; }
+}
+
+.study-drag-label { position:fixed; z-index:75; pointer-events:none; border-radius:6px; background:#263e43; color:white; padding:6px 9px; font-size:13px; box-shadow:0 3px 12px #172a3022; }

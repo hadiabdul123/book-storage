@@ -36,7 +36,9 @@ import { useSearchParams } from "react-router-dom";
 
 const noMedia: NotebookMedia[] = [];
 
-export function TopicEditor({ note, headerHost, toolbarHost }: { note: NotebookNote; headerHost: HTMLElement | null; toolbarHost?: HTMLElement | null }) {
+export type StudyClip = { source: SourceRef; text: string; file?: File; point?: { x: number; y: number } };
+export type StudyInsert = (clip: StudyClip) => Promise<void>;
+export function TopicEditor({ note, headerHost, toolbarHost, insertHandle }: { insertHandle?: React.RefObject<StudyInsert | null>; note: NotebookNote; headerHost: HTMLElement | null; toolbarHost?: HTMLElement | null }) {
   const [title, setTitle] = useState(note.title), [tags, setTags] = useState(note.tags.join(", "));
   const [status, setStatus] = useState("Opening note…");
   const [loaded, setLoaded] = useState(false);
@@ -306,13 +308,28 @@ export function TopicEditor({ note, headerHost, toolbarHost }: { note: NotebookN
   const mediaParam = params.get("media"), timeParam = params.get("at");
   useEffect(() => { const next = readCue(location.href, note.id); if (next) setCue(next); }, [mediaParam, timeParam, note.id]);
   useEffect(() => { if (drawing) setPaperTool("select"); }, [drawing]);
-  function insertQuote(text: string, source: SourceRef) {
-    if (!editor || editor.isDestroyed || !quoteAnchor || editor.state.doc !== quoteAnchor.doc) return false;
-    const { position } = quoteAnchor;
+  useEffect(() => {
+    if (!insertHandle || !editor || !loaded) return;
+    insertHandle.current = async clip => {
+      const { source, point } = clip;
+      let exists = false;
+      editor.state.doc.descendants(node => { if (node.type.name === "citation" && node.attrs.source?.id === source.id) exists = true; });
+      const position = (point && editor.view.posAtCoords({ left: point.x, top: point.y })?.pos) ?? editor.state.selection.to;
+      if (!exists && !insertQuote(clip.file ? "" : clip.text, source, { position, doc: editor.state.doc }, clip.file ? source.id : undefined))
+        throw new Error("Place the caret in the note and try again.");
+      if (!(await flush())) throw new Error("Could not save the clip. Keep the note open and retry.");
+      if (clip.file && !(await get("notebook-image", source.id)))
+        await attachMedia(note.id, clip.file, { after: source.id, order: 0 }, source.id);
+    };
+    return () => { insertHandle.current = null; };
+  }, [editor, loaded, insertHandle, note.id]);
+  function insertQuote(text: string, source: SourceRef, anchor = quoteAnchor, imageAnchor?: string) {
+    if (!editor || editor.isDestroyed || !anchor || editor.state.doc !== anchor.doc) return false;
+    const { position } = anchor;
     const { schema } = editor.state;
     const citation = schema.nodeFromJSON(citationNode(source));
     const quote = text.match(/[\s\S]{1,50000}/gu)?.map(part => schema.nodeFromJSON(paragraph(part))) || [];
-    const blocks = Fragment.fromArray([...quote, citation]);
+    const blocks = Fragment.fromArray([...quote, ...(imageAnchor ? [schema.nodes.paragraph.create({ inkAnchor: imageAnchor })] : []), citation]);
     const tr = closeHistory(editor.state.tr).replaceRange(position, position, new Slice(blocks, 0, 0));
     let after: number | undefined;
     tr.doc.nodesBetween(tr.mapping.map(position, -1), tr.mapping.map(position, 1), (node, at) => {

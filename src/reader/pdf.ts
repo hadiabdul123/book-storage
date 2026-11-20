@@ -61,6 +61,26 @@ function viewportRect(viewport: PageViewport, rect: Rect): Rect {
   return normalizeRect([x1, y1, x2, y2]);
 }
 export class PdfReader implements ReaderAdapter {
+  async captureRegion(locator: Locator) {
+    if (locator.type !== "pdf" || locator.hash !== this.book.hash) throw new Error("Select a region in this PDF.");
+    const state = this.pages[locator.page - 1];
+    const rect = locator.regions?.find(item => item.page === locator.page)?.rects[0];
+    if (!state || !rect) throw new Error("Select a region on one page.");
+    const rotation = state.viewport.rotation;
+    const bounds = viewportRect(state.page.getViewport({ scale: 1, rotation }), rect);
+    const scale = Math.min(2, 1600 / Math.max(1, bounds[2] - bounds[0], bounds[3] - bounds[1]));
+    const viewport = state.page.getViewport({ scale, rotation });
+    const [left, top, right, bottom] = viewportRect(viewport, rect);
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.ceil(right - left));
+    canvas.height = Math.max(1, Math.ceil(bottom - top));
+    try {
+      await state.page.render({ canvas, viewport, transform: [1, 0, 0, 1, -left, -top] }).promise;
+      const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(result =>
+        result ? resolve(result) : reject(new Error("Could not capture this region.")), "image/png"));
+      return new File([blob], "Page " + state.n + ".png", { type: "image/png" });
+    } finally { canvas.width = canvas.height = 0; }
+  }
   async context(selection: import("./types").Selection) {
     if (selection.locator.type !== "pdf") return selection.text;
     const state = this.pages.find(p => p.n === (selection.locator.type === "pdf" ? selection.locator.page : 0));
@@ -1410,7 +1430,7 @@ export class PdfReader implements ReaderAdapter {
       state.element.append(svg);
       const binding = bindInkSurface(svg, {
         target: { type: "pdf", bookId: this.book.id, hash: this.book.hash, page: state.n },
-        strokes: () => this.allInk(), style: () => this.inkStyle, enabled: () => this.drawing && !this.layingOut && this.host.getAttribute("aria-busy") !== "true" && !this.host.classList.contains("pdf-zooming"),
+        history: this.inkHistory, strokes: () => this.allInk(), style: () => this.inkStyle, enabled: () => this.drawing && !this.layingOut && this.host.getAttribute("aria-busy") !== "true" && !this.host.classList.contains("pdf-zooming"),
         project: (x, y) => state.viewport.convertToViewportPoint(x, y), unproject: (x, y) => state.viewport.convertToPdfPoint(x, y),
         commit: (stroke, deleted) => this.inkHistory.perform(stroke, deleted), error: message => this.events.onError(message),
       });

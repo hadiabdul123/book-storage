@@ -9,7 +9,7 @@ import {
   type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
-import { Bookmark as BookmarkIcon, Undo2, Redo2, X, Eraser, Highlighter, Sparkles, StickyNote, MoreHorizontal } from "lucide-react";
+import { Bookmark as BookmarkIcon, Undo2, Redo2, NotebookPen, X, Eraser, Highlighter, Sparkles, StickyNote, MoreHorizontal } from "lucide-react";
 import { db } from "./db";
 import {
   colors,
@@ -59,6 +59,7 @@ export const ReaderInteractions = forwardRef<
     notify: (message: string) => void;
     onDefinition: (page: number, text: string) => Promise<void>;
     onResearch: (selection: Selection) => Promise<void>;
+    onStudy: (selection: Selection, point?: { x: number; y: number }) => Promise<void>;
     onListen: (selection: Selection) => Promise<void>;
   }
 >(function ReaderInteractions(
@@ -76,6 +77,7 @@ export const ReaderInteractions = forwardRef<
     notify,
     onDefinition,
     onResearch,
+    onStudy,
     onListen,
   },
   ref,
@@ -107,6 +109,10 @@ export const ReaderInteractions = forwardRef<
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const draftsRef = useRef(drafts);
   const popup = useRef<HTMLDivElement>(null);
+  const clipDrag = useRef<{ x: number; y: number; moved: boolean } | undefined>(undefined);
+  const dragLabel = useRef<HTMLDivElement | null>(null);
+  const clearDragLabel = () => { dragLabel.current?.remove(); dragLabel.current = null; };
+  useEffect(() => clearDragLabel, [selected, open]);
   const popupTouch = useRef<{ button: HTMLButtonElement; x: number; y: number; at: number } | undefined>(undefined);
   const [layout, setLayout] = useState<{
     left: number;
@@ -694,6 +700,38 @@ export const ReaderInteractions = forwardRef<
     }
   }
   const [filing, setFiling] = useState<string>();
+  const clipAction = (compact: boolean) => <button aria-label="Insert into notebook" title="Insert into notebook, or drag to the open note" style={{touchAction:"none"}} disabled={busy}
+    onPointerDown={event => {
+      event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId);
+      clipDrag.current = { x: event.clientX, y: event.clientY, moved: false };
+    }}
+    onPointerMove={event => {
+      const start=clipDrag.current;
+      if (!start || !event.buttons || Math.hypot(event.clientX-start.x,event.clientY-start.y)<8) return;
+      if (!dragLabel.current) {
+        const label=document.createElement("div"); label.className="study-drag-label";label.setAttribute("aria-hidden","true");
+        (host.current?.closest(".reader-shell") || document.body).append(label); dragLabel.current=label;
+      }
+      const overNote=document.elementFromPoint(event.clientX,event.clientY)?.closest(".study-notebook");
+      dragLabel.current.textContent=overNote ? "Drop into note" : "Drag to your note";
+      dragLabel.current.style.left=Math.min(innerWidth-122,Math.max(6,event.clientX-45))+"px";
+      dragLabel.current.style.top=Math.max(3,event.clientY-46)+"px";
+    }}
+    onPointerCancel={() => { clipDrag.current = undefined; clearDragLabel(); }}
+    onPointerUp={event => {
+      clearDragLabel();
+      const start = clipDrag.current;
+      if (!start || !selected) return;
+      start.moved = Math.hypot(event.clientX - start.x, event.clientY - start.y) > 8;
+      if (start.moved && document.elementFromPoint(event.clientX,event.clientY)?.closest(".study-notebook")) {
+        const point = { x: event.clientX, y: event.clientY };
+        void attempt(() => onStudy(selected,point));
+      }
+    }}
+    onClick={() => {
+      if (!clipDrag.current?.moved && selected) void attempt(() => onStudy(selected));
+      clipDrag.current = undefined;
+    }}>{compact ? <NotebookPen size={18} /> : "Insert into notebook"}</button>;
   return (
     <>
       {filing && <CardCategories ids={[filing]} close={() => setFiling(undefined)} />}
@@ -768,7 +806,7 @@ export const ReaderInteractions = forwardRef<
       {layout.markers.map((marker) => {
         const b = bookmarks.find((b) => b.id === marker.id);
         if (!b) return null;
-        return (
+          return (
           <button
             key={marker.id}
             className="passage-bookmark"
@@ -820,6 +858,7 @@ export const ReaderInteractions = forwardRef<
             <button aria-label={selectedBookmark ? "Remove passage bookmark" : "Bookmark passage"} aria-pressed={!!selectedBookmark} onPointerDown={e => e.preventDefault()} onClick={() => void attempt(togglePassage)}><BookmarkIcon size={19} fill={selectedBookmark ? "currentColor" : "none"} /></button>
             <button aria-label="Explain" title="Explain with Groq" disabled={busy || selected.text.length > 100 || selected.text.startsWith("Region on page")} onPointerDown={e => e.preventDefault()} onClick={() => setMode("meaning")}><Sparkles size={19} /></button>
             <button aria-label={target?.note ? "Edit note" : "Add note"} disabled={ambiguous} onPointerDown={e => e.preventDefault()} onClick={() => setMode(mode === "note" ? "tools" : "note")}><StickyNote size={19} /></button>
+            {book.format === "pdf" && clipAction(true)}
             <button aria-label="More passage actions" aria-expanded={mode === "more"} onPointerDown={e => e.preventDefault()} onClick={() => setMode(mode === "more" ? "tools" : "more")}><MoreHorizontal size={19} /></button>
           </div>
           <div className="passage-popup-top">
@@ -875,6 +914,7 @@ export const ReaderInteractions = forwardRef<
             </div>
           )}
           <div className="passage-actions">
+            {book.format === "pdf" && clipAction(false)}
             {!selected.text.startsWith("Region on page") && <button type="button" onPointerDown={e => e.preventDefault()} onClick={() => {
               if (!navigator.clipboard) { notify("Clipboard access is unavailable in this browser."); return; }
               void navigator.clipboard.writeText(selected.text).then(() => notify("Copied passage."), () => notify("Copy was blocked. Allow clipboard access and try again."));

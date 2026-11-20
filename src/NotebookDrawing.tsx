@@ -18,7 +18,7 @@ function DrawingView({ node, extension, updateAttributes, selected }: NodeViewPr
     const element = svg.current;
     binding.current = bindInkSurface(element, {
       target: { type: "notebook", noteId: extension.options.noteId, blockId: node.attrs.blockId },
-      strokes: () => history.current.visible(latest.current.strokes), style: () => latest.current.style, enabled: () => latest.current.editing,
+      history: history.current, strokes: () => history.current.visible(latest.current.strokes), style: () => latest.current.style, enabled: () => latest.current.editing,
       commit: (stroke, deleted) => history.current.perform(stroke, deleted), error: setMessage,
     });
     return () => binding.current?.destroy();

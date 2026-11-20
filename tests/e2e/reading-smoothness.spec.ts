@@ -338,7 +338,7 @@ test("repeated curls reuse one isolated renderer and idle without animation call
   await clickTool(page, "Reading settings");
   await page.getByRole("combobox", { name: "Navigation", exact: true }).selectOption("paginated");
   await page.getByRole("button", { name: "Close panel", exact: true }).click();
-  await page.locator('.pdf-page[data-page="1"]').hover({ position: { x: 30, y: 100 } });
+  await page.locator('.pdf-page[data-page="1"]').hover({ position: { x: 120, y: 100 } });
   await expect(page.locator(".reader-host")).toHaveAttribute("aria-busy", "false");
   await expect.poll(() => page.locator(".turn-surface-cache img").evaluateAll(images => images.length >= 2 && images.every(image => (image as HTMLImageElement).complete && (image as HTMLImageElement).naturalWidth > 0))).toBe(true);
   const turns = await observePaperTurns(page);

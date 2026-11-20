@@ -84,6 +84,10 @@ export async function restoreAnnotationBackup(data: unknown, books: Book[]) {
         if (!(await matches(item.annotationId)) || await db.rows.get(`highlight-followup:${item.id}`)) { skipped++; continue; }
         await save("highlight-followup", item); restored++;
       }
+      for (const view of library.views || []) {
+        if (await db.rows.get("highlight-view:" + view.id)) { skipped++; continue; }
+        await save("highlight-view",view); restored++;
+      }
       for (const c of library.categories) {
         if (await db.rows.get("quote-category:" + c.id)) { skipped++; continue; }
         await save("quote-category",c); restored++;

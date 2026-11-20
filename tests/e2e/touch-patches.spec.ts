@@ -290,7 +290,7 @@ test("phone toolbar taps are prompt even when Chrome clears a collapsed selectio
   }));
   expect(latency).toBeLessThan(220);
   // A second deliberate quick tap must not be swallowed by a double-tap timer.
-  await page.touchscreen.tap(25, 400);
+  await page.touchscreen.tap(190, 400);
   await expect(page.locator(".reader-header")).toBeHidden();
 });
 

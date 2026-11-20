@@ -69,6 +69,7 @@ export function NotebookPaperInk({ editor, noteId, paper, mode, style, saveNote,
   const scratch = useRef<SVGSVGElement>(null);
   const overlays = useLiveQuery(async () => (await list("notebook-overlay")).filter(drawing => drawing.noteId === noteId), [noteId]) || [];
   const strokes = useLiveQuery(async () => (await list("ink-stroke")).filter(s => s.target.type === "notebook" && s.target.noteId === noteId), [noteId]) || [];
+  const strokeRef = useRef(strokes); strokeRef.current = strokes;
   const [selected, setSelected] = useState<string>();
   const [preview, setPreview] = useState<NotebookOverlay>();
   const [anchorBoxes, setAnchorBoxes] = useState<Record<string, AnchorBox>>({});
@@ -140,6 +141,20 @@ export function NotebookPaperInk({ editor, noteId, paper, mode, style, saveNote,
     const binding = bindInkSurface(scratch.current, {
       target, strokes: () => [], style: () => latest.current.style,
       enabled: () => latest.current.mode === "draw" && latest.current.style.tool !== "eraser",
+      history,
+      lassoStrokes: () => {
+        const svg = scratch.current;
+        const camera = svg?.getScreenCTM();
+        if (!svg || !camera) return [];
+        const paths = new Map(Array.from(paper.current?.querySelectorAll<SVGPathElement>(".paper-ink-art [data-stroke]") || [], path => [path.dataset.stroke,path]));
+        return strokeRef.current.flatMap(stroke => {
+          const matrix = paths.get(stroke.id)?.getScreenCTM();
+          if (!matrix) return [];
+          const forward = camera.inverse().multiply(matrix), reverse = forward.inverse();
+          const convert = (m:DOMMatrix) => (x:number,y:number) => { const p=new DOMPoint(x,y).matrixTransform(m);return [p.x,p.y]; };
+          return [{stroke,project:convert(forward),unproject:convert(reverse)}];
+        });
+      },
       retainCommitted: false,
       commit: stroke => track(async () => {
         const [x, y] = stroke.points[0];
@@ -167,6 +182,7 @@ export function NotebookPaperInk({ editor, noteId, paper, mode, style, saveNote,
   }, [editor, noteId, paper, history, bindingRef]);
 
   useEffect(() => { draft.current = undefined; if (mode === "write") setSelected(undefined); }, [mode]);
+  useEffect(() => { bindingRef.current?.paint(); }, [mode, style, strokes, bindingRef]);
   const ink = history.visible(strokes);
   const erasing = mode === "draw" && style.tool === "eraser";
   function begin(event: ReactPointerEvent<HTMLButtonElement>, overlay: NotebookOverlay, anchor: AnchorBox, bounds: DrawingBounds, edge?: ResizeEdge) {
@@ -220,7 +236,7 @@ export function NotebookPaperInk({ editor, noteId, paper, mode, style, saveNote,
         if (!anchor) return null;
         const origin = frameFor(anchor, drawing);
         return <g key={drawing.id} transform={`translate(${origin.left} ${origin.top}) scale(${origin.unitX} ${origin.unitY})`}>
-          {ink.filter(s => s.target.type === "notebook" && s.target.blockId === drawing.id).map(s => <path key={s.id} d={inkPath(s)} fill={s.color} opacity={s.tool === "highlighter" ? .3 : 1}
+          {ink.filter(s => s.target.type === "notebook" && s.target.blockId === drawing.id).map(s => <path key={s.id} data-stroke={s.id} d={inkPath(s)} fill={s.color} opacity={s.tool === "highlighter" ? .3 : 1}
             onPointerDown={event => {
               if (event.button !== 0 || (!erasing && mode !== "select")) return;
               event.preventDefault();

@@ -16,10 +16,10 @@ export function attachmentExtension(file: File) {
   return extension;
 }
 
-export async function attachMedia(noteId: string, file: File, placement?: MediaPlacement) {
+export async function attachMedia(noteId: string, file: File, placement?: MediaPlacement, id: string = uid()) {
   const extension = attachmentExtension(file);
   const bytes = await file.arrayBuffer();
-  const media: NotebookMedia = { id: uid(), noteId, title: file.name.trim().slice(0, 200), extension, size: file.size, hash: await mediaHash(bytes), createdAt: now(), placement };
+  const media: NotebookMedia = { id, noteId, title: file.name.trim().slice(0, 200), extension, size: file.size, hash: await mediaHash(bytes), createdAt: now(), placement };
   await db.transaction("rw", [db.mediaFiles, db.rows, db.outbox, db.conflicts, db.meta], async () => {
     if (!(await get("notebook-note", noteId))) throw new Error("This notebook page has been removed.");
     await db.mediaFiles.add({ id: media.id, bytes, uploaded: false });

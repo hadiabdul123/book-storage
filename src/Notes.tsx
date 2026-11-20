@@ -1,5 +1,6 @@
+import "./studyGallery.css";
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { BrowsePages, SourceNavigator, pageOf, useBrowseState } from "./browse";
+import { BrowsePages, pageOf, useBrowseState } from "./browse";
 import { Link, useNavigate } from "react-router-dom";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Search, Download, Highlighter, Copy, FileText } from "lucide-react";
@@ -12,7 +13,8 @@ import { ItemMenu, type ItemAction } from "./ItemMenu";
 import { EditHighlightTags, HighlightFollowups, HighlightLabels } from "./HighlightStudyPanel";
 import { highlightStudyData, priorities, setHighlightPriority, type HighlightFollowup, type HighlightPriority } from "./highlightStudy";
 import { CardCategories } from "./CardCategories";
-import { cardLibrary, emptyCards } from "./cardStore";
+import { CategoryBoard } from "./CategoryBoard";
+import { cardLibrary, emptyCards, viewKeys, unpackFacet, packFacet } from "./cardStore";
 import { sourceHref, sourceLabel } from "./sourceReferences";
 import { SourceLink } from "./Citation";
 import { Dialog } from "./components";
@@ -58,7 +60,13 @@ export function Notes() {
     for (const f of library.filings) if (ids.has(f.categoryId)) map.set(f.cardId, [...(map.get(f.cardId) || []), f.categoryId]);
     return map;
   }, [library]);
-  const fitsCategory = (id: string) => !category || (category === "unfiled" ? !categoryMap.has(id) : categoryMap.get(id)?.includes(category));
+  const categories=unpackFacet(category), bookIds=unpackFacet(bookId), tags=unpackFacet(tag);
+  const toggleFacet=(key:string, values:string[], id:string)=>browse.update({[key]:id ? packFacet(values.includes(id)?values.filter(v=>v!==id):[...values,id]) : "",item:"",page:"1",...(key==="book"?{notebook:""}:{})});
+  const [viewName,setViewName]=useState("");
+  const [savingView,setSavingView]=useState(false);
+  const groupSort=browse.value("groupSort","name");
+  const mode=browse.value("layout","gallery");
+  const boardCategory=categories.length===1 && categories[0]!=="unfiled"?categories[0]:"";
   const [filing, setFiling] = useState<string[]>();
   const [bulk, setBulk] = useState(false);
   const [checked, setChecked] = useState<string[]>([]);
@@ -113,13 +121,13 @@ export function Notes() {
       { label: "Clear priority", disabled: !priorityMap.has(annotation.id), run: () => changePriority() },
     ];
   }
-  const filtered = annotations
+  const candidates = annotations
     .filter(
       (a) =>
-        fitsCategory(a.id) && (!category || a.type !== "page-note") && bookMap.has(a.bookId) &&
-        (!bookId || a.bookId === bookId) &&
+        bookMap.has(a.bookId) &&
+
         (!color || a.color === color) &&
-        (!tag || a.tags.includes(tag)) &&
+
         (!priority || (a.type !== "page-note" && (priority === "unmarked" ? !priorityMap.has(a.id) : priorityMap.get(a.id) === priority))) &&
         (type === "all" || (a.type || "highlight") === type) &&
         `${a.text} ${a.note} ${a.locator.type === "pdf" ? a.locator.page : ""} ${a.tags.join(" ")} ${bookMap.get(a.bookId)?.title} ${followupMap.get(a.id)?.map(note => note.text).join(" ") || ""}`
@@ -148,11 +156,34 @@ export function Notes() {
       drawingGroups.get(key)!.strokes.push(s);
     }
   }
-  const drawings = [...drawingGroups].filter(([, d]) => !category && !color && !tag && !priority && (!bookId || d.sourceId === `book:${bookId}`) && (!notebookSource || d.sourceId === `notebook:${notebookSource}`) && `${d.title} ${d.subtitle}`.toLowerCase().includes(query.toLowerCase()));
-  const researchCards = library.cards.filter(c => fitsCategory(c.id) && !notebookSource && !priority && !tag && !color && (!bookId || c.sources.some(s => s.bookId === bookId))
+  const drawings = [...drawingGroups].filter(([, d]) => !color && !priority && (!notebookSource || d.sourceId === `notebook:${notebookSource}`) && `${d.title} ${d.subtitle}`.toLowerCase().includes(query.toLowerCase()));
+  const researchCards = library.cards.filter(c => !notebookSource && !priority && !color
     && ["all","research"].includes(type) && (c.text + " " + c.sources.map(s => s.title).join(" ")).toLowerCase().includes(query.toLowerCase()))
     .sort((a,b) => sort === "oldest" ? a.createdAt.localeCompare(b.createdAt) : b.createdAt.localeCompare(a.createdAt));
-  const rows = [...researchCards.map(c => ({ id: c.id, title: c.kind === "quote" ? "Saved quotation" : "Research note", sourceId: "research", subtitle: c.sources[0]?.title || "Research", text: c.text, color: "#839975", annotation: undefined, drawing: undefined })),...(notebookSource ? [] : filtered).map(a => ({ id: a.id, sourceId: `book:${a.bookId}`, title: bookMap.get(a.bookId)?.title || "Book", subtitle: a.locator.type === "pdf" ? `Page ${a.locator.page}` : a.locator.type === "epub" ? "Book passage" : "Document passage", text: a.text || a.note, color: colors[a.color], annotation: a, drawing: undefined as typeof drawings[number][1] | undefined })), ...(type === "all" || type === "drawing" ? drawings.map(([id, d]) => ({ id, sourceId: d.sourceId, title: d.title, subtitle: d.subtitle, text: "Handwritten notes and marks", color: "#315c86", annotation: undefined, drawing: d })) : [])];
+  const candidatesRows = [...researchCards.map(c => ({ id: c.id, title: c.kind === "quote" ? "Saved quotation" : "Research note", sourceId: "research", subtitle: c.sources[0]?.title || "Research", text: c.text, color: "#839975", annotation: undefined, drawing: undefined })),...(notebookSource ? [] : candidates).map(a => ({ id: a.id, sourceId: `book:${a.bookId}`, title: bookMap.get(a.bookId)?.title || "Book", subtitle: a.locator.type === "pdf" ? `Page ${a.locator.page}` : a.locator.type === "epub" ? "Book passage" : "Document passage", text: a.text || a.note, color: colors[a.color], annotation: a, drawing: undefined as typeof drawings[number][1] | undefined })), ...(type === "all" || type === "drawing" ? drawings.map(([id, d]) => ({ id, sourceId: d.sourceId, title: d.title, subtitle: d.subtitle, text: "Handwritten notes and marks", color: "#315c86", annotation: undefined, drawing: d })) : [])];
+  const researchById=new Map(researchCards.map(c=>[c.id,c]));
+  const dates=new Map([...annotations,...researchCards].map(c=>[c.id,c.createdAt]));
+  const rank=(id:string)=>priorityMap.get(id)==="important"?0:priorityMap.get(id)==="lower"?2:1;
+  const countBooks=new Map<string,number>(), countCategories=new Map<string,number>(), countTags=new Map<string,number>();
+  const count=(map:Map<string,number>,values:string[])=>{for(const id of values)map.set(id,(map.get(id)||0)+1);};
+  const matches=(filter:string[],values:string[])=>!filter.length || values.some(id=>filter.includes(id));
+  const rows=candidatesRows.filter(r=>{
+    const sources=r.sourceId.startsWith("book:")?[r.sourceId.slice(5)]:[...new Set(researchById.get(r.id)?.sources.flatMap(s=>s.bookId?[s.bookId]:[])||[])];
+    const topics=r.drawing||r.annotation?.type==="page-note"?[]:categoryMap.get(r.id)||["unfiled"];
+    const labels=r.annotation?.tags||[];
+    const b=matches(bookIds,sources),c=matches(categories,topics),t=matches(tags,labels);
+    if(c&&t)count(countBooks,sources);
+    if(b&&t)count(countCategories,topics);
+    if(b&&c)count(countTags,labels);
+    return b&&c&&t;
+  }).sort((a,b)=>{
+    if(sort==="reading")return a.title.localeCompare(b.title)||(a.annotation&&b.annotation?readingOrder(a.annotation.locator,b.annotation.locator):a.subtitle.localeCompare(b.subtitle,undefined,{numeric:true}));
+    if(sort==="priority"&&rank(a.id)!==rank(b.id))return rank(a.id)-rank(b.id);
+    const date=(dates.get(a.id)||"").localeCompare(dates.get(b.id)||"");
+    return (sort==="oldest"?date:-date)||a.id.localeCompare(b.id);
+  });
+  const filteredInk = rows.flatMap(r => r.drawing?.strokes || []);
+  const filtered=rows.flatMap(r=>r.annotation?[r.annotation]:[]);
   const cards = rows.filter(r => !r.drawing && r.annotation?.type !== "page-note");
   const cardIndex = cards.findIndex(r => r.id === opened);
   const openCard = cards[cardIndex];
@@ -169,10 +200,12 @@ export function Notes() {
   useEffect(() => { setPdfItem(""); setClipboard(""); }, [active?.id]);
   const detail = !!selected && !!active;
   const grouped = [...new Set(page.items.map(r => r.sourceId))];
-  const drawingCount = (id: string) => [...drawingGroups.values()].filter(d => d.sourceId === id).length;
-  const sourceItems = [...books.map(b => ({ id: `book:${b.id}`, title: b.title, detail: b.author, count: annotations.filter(a => a.bookId === b.id).length + drawingCount(`book:${b.id}`) })), ...notebooks.map(n => ({ id: `notebook:${n.id}`, title: n.title, detail: "Notebook drawings", count: drawingCount(`notebook:${n.id}`) }))];
+  const groupOrder=(a:{title:string;count:number},b:{title:string;count:number})=>(groupSort==="count"?b.count-a.count:0)||a.title.localeCompare(b.title);
+  const sourceItems=[...books.map(b=>({ id:"book:"+b.id,title:b.title,detail:b.author,count:countBooks.get(b.id)||0 })),...notebooks.map(n=>({id:"notebook:"+n.id,title:n.title,detail:"Notebook drawings",count:rows.filter(r=>r.sourceId==="notebook:"+n.id).length}))].sort(groupOrder);
+  const catItems=[{id:"unfiled",name:"Unfiled"},...library.categories].map(c=>({...c,title:c.name,count:countCategories.get(c.id)||0})).sort(groupOrder);
+  const filterState=Object.fromEntries(viewKeys.map(k=>[k,browse.value(k)]));
   return (
-    <div className={`notes-page notes-browser ${detail ? "notes-detail-open" : ""}`}>
+    <div className={`notes-page notes-browser ${mode==="gallery" && !detail ? "card-gallery" : ""} ${detail ? "notes-detail-open" : ""}`}>
       <header className="page-header">
         <div>
           <h1>
@@ -190,20 +223,20 @@ export function Notes() {
             aria-label="Export notes"
             value=""
             onChange={async (e) => {
-              if (e.target.value && (type === "drawing" || !!notebookSource)) { void import("./researchBackup").then(m => m.exportInkBackup(drawings.flatMap(([, d]) => d.strokes))); return; }
+              if (e.target.value && (type === "drawing" || !!notebookSource)) { void import("./researchBackup").then(m => m.exportInkBackup(filteredInk)); return; }
               const format = e.target.value as "" | "md" | "csv" | "json";
               if (format)
                 exportAnnotations(
                   filtered,
                   books,
                   format,
-                  type === "all" ? drawings.flatMap(([, d]) => d.strokes).filter(s => s.target.type === "pdf") : [],
+                  type === "all" ? filteredInk.filter(s => s.target.type === "pdf") : [],
                   study,
-                  format === "json" && type === "all" && !color && !tag && !priority
+                  format === "json" && type === "all" && !color && !tag && !priority && !category && !notebookSource
                     ? (await list("pdf-text-box")).filter(box =>
-                      (!bookId || box.bookId === bookId) && box.text.toLowerCase().includes(query.trim().toLowerCase()))
+                      (!bookIds.length || bookIds.includes(box.bookId)) && box.text.toLowerCase().includes(query.trim().toLowerCase()))
                     : [],
-                  format === "json" ? { ...library, cards: researchCards } : undefined,
+                  format === "json" ? { ...library, cards: researchCards.filter(c=>cards.some(r=>r.id===c.id)) } : undefined,
                 );
             }}
           >
@@ -264,35 +297,42 @@ export function Notes() {
           onChange={(e) => setSort(e.target.value)}
         >
           <option value="newest">Newest first</option>
-          <option value="reading">Reading order</option>
+          <option value="reading">Book and page</option><option value="priority">Priority</option>
           <option value="oldest">Oldest first</option>
         </select>
         <select aria-label="Filter by tag" value={tag} onChange={e => setTag(e.target.value)}><option value="">Every tag</option>{[...new Set(annotations.flatMap(a => a.tags))].sort().map(t => <option key={t}>{t}</option>)}</select>
         <select aria-label="Filter by priority" value={priority} onChange={e => change("priority", e.target.value)}>
           <option value="">Every priority</option>{Object.entries(priorities).map(([id, label]) => <option key={id} value={id}>{label}</option>)}<option value="unmarked">Unmarked highlights</option>
         </select>
+          <label>Order books and categories <select value={groupSort} onChange={e=>change("groupSort",e.target.value)}><option value="name">Name</option><option value="count">Highlight count</option></select></label>
+          <fieldset><legend>Tags</legend>{[...new Set(annotations.flatMap(a=>a.tags))].sort().map(t=><label key={t}><input type="checkbox" checked={tags.includes(t)} onChange={()=>toggleFacet("tag",tags,t)}/>{t} ({countTags.get(t)||0})</label>)}</fieldset>
+          <label>Saved views <select value="" onChange={e=>{const v=library.views.find(v=>v.id===e.target.value);if(v)browse.update({...Object.fromEntries(viewKeys.map(k=>[k,""])),...v.filters,page:"1",item:""});}}><option value="">Choose a view</option>{(library.views||[]).map(v=><option key={v.id} value={v.id}>{v.name}</option>)}</select></label>
+          <label>View name <input maxLength={80} value={viewName} onChange={e=>setViewName(e.target.value)} /></label>
+          <button disabled={!viewName.trim()||savingView} onClick={async()=>{setSavingView(true);try{await save("highlight-view",{id:library.views.find(v=>v.name===viewName.trim())?.id||uid(),name:viewName.trim(),filters:filterState});setViewName("");}catch(e){setActionError(String(e));}finally{setSavingView(false);}}}>Save view</button>
         </div></details>
       </div>
       <div className="filter-summary"><span>{rows.length} matching saved items</span>{(category || query || bookId || notebookSource || color || tag || priority || type !== "all") && <button onClick={() => browse.update({ q: "", book: "", notebook: "", color: "", tag: "", priority: "", category: "", type: "", page: "1", item: "" })}>Clear filters</button>}</div>
       {actionError && <p role="alert">{actionError}</p>}
-      <div className="card-collection-actions"><button className="secondary" onClick={() => { setBulk(!bulk); setChecked([]); }}>{bulk ? "Finish selection" : "Select cards"}</button>
+      <div className="card-collection-actions"><div role="group" aria-label="Highlight layout">{["gallery","list","board"].map(v=><button key={v} aria-pressed={mode===v} onClick={()=>browse.update({layout:v,item:""})}>{v[0].toUpperCase()+v.slice(1)}</button>)}</div><button className="secondary" onClick={() => { setBulk(!bulk); setChecked([]); }}>{bulk ? "Finish selection" : "Select cards"}</button>
         {bulk && <><button onClick={() => setChecked([...new Set([...checked, ...page.items.filter(r => !r.drawing && r.annotation?.type !== "page-note").map(r => r.id)])])}>Select page</button>
         <button disabled={!checked.length} onClick={() => setFiling(checked)}>File selected ({checked.length})</button></>}
       </div>
       <div className="source-layout"><aside className="card-sources"><details open><summary>Categories</summary><nav aria-label="Categories">
-        {[{ id: "", name: "All highlights & notes" }, { id: "unfiled", name: "Unfiled" }, ...library.categories].map(c => <button key={c.id} aria-current={category === c.id ? "page" : undefined} onClick={() => browse.update({ category:c.id, page:"1", item:"" })}>{c.name}</button>)}
+        <button onClick={()=>toggleFacet("category",categories,"")}>All highlights &amp; notes</button>
+        {catItems.map(c=><button key={c.id} aria-label={c.name} aria-pressed={categories.includes(c.id)} onClick={()=>toggleFacet("category",categories,c.id)}>{c.name}<small>{c.count}</small></button>)}
         <button className="text-button" onClick={() => setFiling([])}>Add or manage categories</button></nav></details>
-        <SourceNavigator label="Books & notebooks" value={bookId ? `book:${bookId}` : notebookSource ? `notebook:${notebookSource}` : ""} items={sourceItems} onChange={id => browse.update({ book: id.startsWith("book:") ? id.slice(5) : "", notebook: id.startsWith("notebook:") ? id.slice(9) : "", page: "1", item: "" })} /></aside><div>
-      {rows.length ? (
+        <details open className="source-navigator"><summary>Books &amp; notebooks</summary><nav aria-label="Books & notebooks"><button onClick={()=>browse.update({book:"",notebook:"",page:"1",item:""})}>All sources</button>
+        {sourceItems.map(s=><button key={s.id} aria-pressed={s.id.startsWith("book:")?bookIds.includes(s.id.slice(5)):notebookSource===s.id.slice(9)} onClick={()=>s.id.startsWith("book:")?toggleFacet("book",bookIds,s.id.slice(5)):browse.update({notebook:s.id.slice(9),book:"",page:"1",item:""})}><span>{s.title}<em>{s.detail}</em></span><small>{s.count}</small></button>)}</nav></details></aside><div>
+      {mode==="board" ? boardCategory ? <CategoryBoard key={boardCategory} category={boardCategory} filings={library.filings.filter(f=>f.categoryId===boardCategory).sort((a,b)=>a.id.localeCompare(b.id))} cards={cards} open={(id,button)=>{setOrigin(button);setOpened(id);}} /> : <p className="notice">Choose one category to open its board.</p> : rows.length ? (
         <div className="notes-browser-layout">
-          <nav className="notes-passage-list" aria-label="Saved passages and drawings"><p className="notes-result-count">{rows.length} saved {rows.length === 1 ? "item" : "items"}</p>{grouped.map(source => <section key={source}><h2>{page.items.find(r => r.sourceId === source)?.title}</h2>{page.items.filter(r => r.sourceId === source).map(r => {
+          <nav className="notes-passage-list" aria-label="Saved passages and drawings"><p className="notes-result-count">{rows.length} saved {rows.length === 1 ? "item" : "items"}</p>{(mode==="gallery"?["gallery"]:grouped).map(source => <section key={source}><h2>{page.items.find(r => r.sourceId === source)?.title}</h2>{page.items.filter(r => mode==="gallery" || r.sourceId === source).map(r => {
             const open = <button key={r.id} className="notes-passage-open" aria-current={active?.id === r.id ? "page" : undefined} style={{ borderLeftColor: r.color }} aria-pressed={bulk ? checked.includes(r.id) : undefined} onClick={e => {
               if (!r.drawing && r.annotation?.type !== "page-note") {
                 if (bulk) { setChecked(ids => ids.includes(r.id) ? ids.filter(id => id !== r.id) : [...ids,r.id]); return; }
                 setOrigin(e.currentTarget); setOpened(r.id);
               } else browse.update({ item:r.id },false);
               setPdfItem(""); setClipboard("");
-            }}><small>{r.subtitle}</small>
+            }}><small>{mode==="gallery"?r.title+" / ":""}{r.subtitle}</small>
               {r.annotation && <HighlightLabels tags={r.annotation.tags} priority={priorityMap.get(r.id)} />}
               {categoryMap.has(r.id) && <small>{library.categories.filter(c => categoryMap.get(r.id)?.includes(c.id)).map(c => c.name).join(" · ")}</small>}
               <span className="notes-passage-text">{r.text.slice(0, 150)}</span>{r.annotation?.note && <em>{r.annotation.note.slice(0, 80)}</em>}
