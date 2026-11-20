@@ -30,7 +30,7 @@ test("PDF text box stays on its page through editing, zoom, rotation and a sprea
   const beforeMove = await draft.evaluate(el => el.style.transform);
   await page.getByRole("button", { name: "Move text box", exact: true }).press("ArrowRight");
   await expect.poll(() => draft.evaluate(el => el.style.transform)).not.toBe(beforeMove);
-  await page.getByRole("button", { name: "Resize text box", exact: true }).press("ArrowDown");
+  await page.getByRole("button", { name: "Change box height", exact: true }).press("ArrowDown");
   await expect(draft).toHaveCSS("height", "86px");
   if (info.project.name === "desktop") {
     const grip = page.getByRole("button", { name: "Resize text box", exact: true });
@@ -43,6 +43,7 @@ test("PDF text box stays on its page through editing, zoom, rotation and a sprea
     await page.mouse.move(x + 25, y + 18, { steps: 5 });
     await page.mouse.up();
     await expect.poll(() => draft.evaluate(el => Number.parseFloat(el.style.width))).toBeGreaterThan(width);
+    expect(await editor.evaluate(el => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThan(16);
   }
   await expect(page.getByRole("combobox", { name: "Background", exact: true })).toHaveValue("transparent");
   await page.getByRole("combobox", { name: "Text size", exact: true }).selectOption("14");

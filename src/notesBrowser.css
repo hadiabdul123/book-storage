@@ -35,8 +35,8 @@
 .highlight-pdf-preview label { display:flex; gap:8px; align-items:center; margin-bottom:10px; }
 .highlight-pdf-surface { position:relative; background:#fff; max-width:950px; margin-inline:auto; }
 .highlight-pdf-surface canvas { width:100%; height:auto; vertical-align:top; }
-.highlight-pdf-surface svg { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
-.highlight-pdf-surface rect { fill:#efaa22; fill-opacity:.35; stroke:#99650e; stroke-width:1; vector-effect:non-scaling-stroke; }
+.highlight-pdf-surface svg { mix-blend-mode:multiply; position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
+.highlight-pdf-surface rect { fill-opacity:.46; stroke:none; }
 .with-pdf-preview { grid-template-columns:600px minmax(0,1fr); }
 .notes-pdf-dialog.dialog { width:min(820px, calc(100vw - 24px)); height:auto; max-height:calc(100dvh - 24px); overflow:auto; overscroll-behavior:contain; padding:0; }
 .notes-pdf-dialog .highlight-pdf-preview { border:0; border-radius:0; }

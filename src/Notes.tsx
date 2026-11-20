@@ -164,7 +164,7 @@ export function Notes() {
   const activeBook = activeAnnotation && bookMap.get(activeAnnotation.bookId);
   const previewLocator = activeAnnotation?.locator.type === "pdf" && activeBook?.hash === activeAnnotation.locator.hash ? activeAnnotation.locator : undefined;
   const previewOpen = !!previewLocator && !!active && pdfItem === active.id;
-  const pdf = previewOpen && activeBook && previewLocator && <Suspense fallback={<div className="pdf-preview-loading"><p role="status">Opening PDF preview…</p><button className="text-button" onClick={closePdf}>Close PDF page</button></div>}><PdfPreview key={active.id} book={activeBook} locator={previewLocator} onClose={closePdf} /></Suspense>;
+  const pdf = previewOpen && activeBook && previewLocator && <Suspense fallback={<div className="pdf-preview-loading"><p role="status">Opening PDF preview…</p><button className="text-button" onClick={closePdf}>Close PDF page</button></div>}><PdfPreview key={active.id} color={active.color} book={activeBook} locator={previewLocator} onClose={closePdf} /></Suspense>;
   const tagsAnnotation = annotations.find(annotation => annotation.id === editingTags);
   useEffect(() => { setPdfItem(""); setClipboard(""); }, [active?.id]);
   const detail = !!selected && !!active;

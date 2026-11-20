@@ -6,7 +6,31 @@ import type { Book, Locator, Rect } from "./model";
 import { pdfLibrary, pdfOpenError, pdfOptions } from "./pdf";
 import { downloadBook } from "./sync";
 
-export function HighlightPdfPreview({ book, locator, onClose }: { book: Book; locator: Extract<Locator, { type: "pdf" }>; onClose: () => void }) {
+// Merge word boxes only within a common baseline and a normal word space.
+export function markerLines(rects: Rect[]): Rect[] {
+  const rows: Rect[][] = [];
+  for (const rect of [...rects].sort((a,b) => (a[1]+a[3]/2) - (b[1]+b[3]/2))) {
+    if (rect[2] <= 0 || rect[3] <= 0) continue;
+    const row = rows[rows.length - 1];
+    const anchor = row?.[0];
+    if (anchor && Math.abs(rect[1]+rect[3]/2-anchor[1]-anchor[3]/2) <= Math.min(rect[3],anchor[3])*0.4) row.push(rect);
+    else rows.push([rect]);
+  }
+  return rows.flatMap(row => {
+    const marks: Rect[] = [];
+    for (const [x,y,w,h] of row.sort((a,b) => a[0]-b[0])) {
+      const prior = marks[marks.length-1];
+      if (!prior || x-prior[0]-prior[2] > Math.min(h,prior[3])*0.62) { marks.push([x,y,w,h]); continue; }
+      const bottom = Math.max(prior[1]+prior[3],y+h);
+      prior[2] = Math.max(prior[2],x+w-prior[0]);
+      prior[1] = Math.min(prior[1],y);
+      prior[3] = bottom-prior[1];
+    }
+    return marks;
+  });
+}
+
+export function HighlightPdfPreview({ book, locator, color, onClose }: { color: string; book: Book; locator: Extract<Locator, { type: "pdf" }>; onClose: () => void }) {
   const pages = [...new Set([locator.page, ...(locator.regions || []).map(region => region.page)])].sort((a, b) => a - b);
   const [number, setNumber] = useState(locator.page);
   const [width, setWidth] = useState(0);
@@ -72,7 +96,7 @@ export function HighlightPdfPreview({ book, locator, onClose }: { book: Book; lo
         const [otherX, otherY] = view.convertToViewportPoint(rect[2], rect[3]);
         return [Math.min(x, otherX), Math.min(y, otherY), Math.abs(x - otherX), Math.abs(y - otherY)];
       });
-      setLayout({ width: view.width, height: view.height, rects }); setStatus("");
+      setLayout({ width: view.width, height: view.height, rects: markerLines(rects) }); setStatus("");
     }
     void renderPage().catch(e => { if (active) { setStatus(""); setError(e.message); } });
     return () => { active = false; paint?.cancel(); };
@@ -88,7 +112,7 @@ export function HighlightPdfPreview({ book, locator, onClose }: { book: Book; lo
     <div ref={surface} className="highlight-pdf-surface">
       <canvas ref={canvas} role="img" aria-label={`Page ${number} of ${book.title}`} hidden={!layout} />
       {layout && <svg aria-hidden="true" viewBox={`0 0 ${layout.width} ${layout.height}`}>
-        {layout.rects.map(([x, y, width, height], i) => <rect key={i} x={x} y={y} width={width} height={height} />)}
+        {layout.rects.map(([x, y, width, height], i) => <rect fill={color} key={i} x={x} y={y} width={width} height={height} />)}
       </svg>}
     </div>
   </section>;

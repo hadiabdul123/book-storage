@@ -32,3 +32,6 @@
   .reader-shell.controls-menu-open .reader-tools .reader-text-box-overflow { display: inline-flex; }
   .pdf-text-box-tools > span { display: none; }
 }
+
+.pdf-text-box-edit .pdf-text-box-width { right:-10px; top:50%; transform:translateY(-50%); cursor:ew-resize; }
+.pdf-text-box-edit .pdf-text-box-height { bottom:-10px; left:50%; transform:translateX(-50%); cursor:ns-resize; }

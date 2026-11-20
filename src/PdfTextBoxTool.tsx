@@ -29,14 +29,23 @@ export function PdfTextBoxTool({ draft, surface, saved, saving, placing, update,
     if (input.current) input.current.selectionStart = input.current.selectionEnd = input.current.value.length;
   }, [draft?.id, surface?.element]);
 
-  function change(box: PdfTextBox, dx: number, dy: number, resize: boolean) {
+  function change(box: PdfTextBox, dx: number, dy: number, mode: "move" | "scale" | "width" | "height") {
     if (!surface) return;
     const [x, y] = boxPoint(box, dx, dy);
-    const next = resize ? { ...box, width: box.width + dx, height: box.height + dy } : { ...box, x, y };
-    update(fitPdfTextBox(next, surface.bounds, resize));
+    if (mode === "scale") {
+      const ratio = 1 + (dx * box.width + dy * box.height) / (box.width ** 2 + box.height ** 2);
+      const room = fitPdfTextBox({ ...box, width: 100000, height: 100000 }, surface.bounds, true);
+      const max = Math.min(room.width / box.width, room.height / box.height, 72 / box.fontSize);
+      const min = Math.min(1, Math.max(8 / box.fontSize, 48 / box.width, 32 / box.height));
+      const scale = Math.max(min, Math.min(ratio, max));
+      update({ ...box, width: box.width * scale, height: box.height * scale, fontSize: Math.round(box.fontSize * scale * 10) / 10 });
+      return;
+    }
+    const next = mode === "move" ? { ...box, x, y } : { ...box, width: box.width + (mode === "width" ? dx : 0), height: box.height + (mode === "height" ? dy : 0) };
+    update(fitPdfTextBox(next, surface.bounds, mode !== "move"));
   }
 
-  function handle(resize: boolean) {
+  function handle(mode: "move" | "scale" | "width" | "height") {
     const point = (e: PointerEvent) => {
       const rect = surface!.element.getBoundingClientRect();
       const viewport = surface!.viewport;
@@ -56,7 +65,7 @@ export function PdfTextBoxTool({ draft, surface, saved, saving, placing, update,
         const active = drag.current;
         if (!active || active.pointer !== e.pointerId || active.viewport !== surface?.viewport) return;
         const [dx, dy] = boxDelta(active.box.rotation, active.start, point(e));
-        change(active.box, dx, dy, resize);
+        change(active.box, dx, dy, mode);
       },
       onLostPointerCapture() { drag.current = undefined; },
       onPointerCancel() { drag.current = undefined; },
@@ -67,7 +76,7 @@ export function PdfTextBoxTool({ draft, surface, saved, saving, placing, update,
         const delta = moves[e.key];
         if (!draft || !delta) return;
         e.preventDefault();
-        change(draft, ...delta, resize);
+        change(draft, ...delta, mode);
       },
     };
   }
@@ -110,8 +119,10 @@ export function PdfTextBoxTool({ draft, surface, saved, saving, placing, update,
           if (event.key === "Escape" && !saving) { event.preventDefault(); event.stopPropagation(); cancel(); }
           if (event.key === "Enter" && (event.ctrlKey || event.metaKey) && !saving) { event.preventDefault(); save(); }
         }} />
-      <button type="button" className="pdf-text-box-move" aria-label="Move text box" disabled={saving} {...handle(false)}><GripHorizontal size={17} /></button>
-      <button type="button" className="pdf-text-box-resize" aria-label="Resize text box" disabled={saving} {...handle(true)}><MoveDiagonal2 size={16} /></button>
+      <button type="button" className="pdf-text-box-move" aria-label="Move text box" disabled={saving} {...handle("move")}><GripHorizontal size={17} /></button>
+      <button type="button" className="pdf-text-box-width" aria-label="Change box width" disabled={saving} {...handle("width")}>&#8596;</button>
+      <button type="button" className="pdf-text-box-height" aria-label="Change box height" disabled={saving} {...handle("height")}>&#8596;</button>
+      <button type="button" className="pdf-text-box-resize" aria-label="Resize text box" disabled={saving} {...handle("scale")}><MoveDiagonal2 size={16} /></button>
     </div>, surface.element)}
   </>;
 }
