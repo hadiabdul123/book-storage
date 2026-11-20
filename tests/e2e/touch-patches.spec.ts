@@ -47,7 +47,7 @@ test("toolbar survives pointer gaps and bookmarks remain clickable beside a sele
 }, info) => {
   test.skip(info.project.name !== "desktop");
   await openPdf(page);
-  await page.mouse.move(200, 8);
+  await page.mouse.move(4, 120);
   await expect(page.locator(".reader-header")).toBeVisible();
   await page.mouse.move(200, 110);
   await page.waitForTimeout(600);

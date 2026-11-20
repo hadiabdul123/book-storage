@@ -65,7 +65,7 @@ test("desktop hover reveals controls and leaving hides them", async ({
 }, info) => {
   test.skip(info.project.name !== "desktop");
   await open(page);
-  await page.mouse.move(100, 8);
+  await page.mouse.move(4, 150);
   await expect(page.locator(".reader-header")).toBeVisible();
   await page.mouse.move(100, 400);
   await expect(page.locator(".reader-header")).toBeHidden();

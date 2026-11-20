@@ -178,7 +178,7 @@ export function ReadAlong({ book, adapter, host, controls, start, selected }: {
       if (!playing()) return;
       if (preferences.current.follow) {
         const viewport = host.current?.getBoundingClientRect();
-        const top = Math.max(viewport?.top ?? 0, host.current?.closest(".reader-shell")?.querySelector(".reader-header")?.getBoundingClientRect().bottom ?? 0);
+        const top = viewport?.top ?? 0;
         if (!viewport || !reader.bounds(item.locator).some(rect => rect.top >= top && rect.bottom <= viewport.bottom - 64))
           await reader.goTo(item.locator);
       }

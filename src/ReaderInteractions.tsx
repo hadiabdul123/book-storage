@@ -412,16 +412,11 @@ export const ReaderInteractions = forwardRef<
         ),
       };
       const shell = host.current.closest(".reader-shell");
-      const header = shell?.querySelector<HTMLElement>(".reader-header");
+
       const footer = shell?.querySelector<HTMLElement>(".reader-footer");
       // Overlay controls restrict popup placement, not passage/bookmark visibility.
       let popupTop = clip.top,
         popupBottom = clip.bottom;
-      if (header && getComputedStyle(header).visibility !== "hidden")
-        popupTop = Math.max(
-          clip.top,
-          header.getBoundingClientRect().bottom + 8,
-        );
       if (footer && getComputedStyle(footer).visibility !== "hidden")
         popupBottom = Math.min(
           clip.bottom,
@@ -485,10 +480,7 @@ export const ReaderInteractions = forwardRef<
             ),
           )
         : 0;
-      const markerTop =
-        header && getComputedStyle(header).visibility !== "hidden"
-          ? Math.max(clip.top, header.getBoundingClientRect().bottom + 8)
-          : clip.top;
+      const markerTop = clip.top;
       const markerBottom =
         footer && getComputedStyle(footer).visibility !== "hidden"
           ? Math.min(clip.bottom, footer.getBoundingClientRect().top - 8)

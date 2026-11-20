@@ -10,6 +10,7 @@ import "./styles.css";
 import App from "./App";
 import "./tablet.css";
 import "./workspacePaper.css";
+import "./readerRail.css";
 
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },

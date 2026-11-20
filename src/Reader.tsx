@@ -29,6 +29,7 @@ import {
   Headphones,
   Type,
 } from "lucide-react";
+import { ComfortLayer, ComfortSettings, useReaderComfort } from "./ReaderComfort";
 import { PdfTextBoxTool } from "./PdfTextBoxTool";
 import { belongsToPdf, fitPdfTextBox, layoutBoxText, validPdfTextBox, type BoxRotation, type PdfTextBox } from "./pdfTextBoxes";
 import type { PdfReader } from "./reader/pdf";
@@ -168,6 +169,18 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   };
   const paginated = book?.format === "pdf" ? pdfLayout.navigation === "paginated" : prefs.flow === "paginated";
   useEffect(() => setSwipeToTurn(effectiveView.swipeToTurn ?? paginated), [id, effectiveView.swipeToTurn, paginated]);
+  const comfort = useReaderComfort();
+  const [railTip, setRailTip] = useState<{label:string;y:number}>();
+  const tipTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const clearTip = () => { clearTimeout(tipTimer.current); setRailTip(undefined); };
+  const tipFor = (target:EventTarget | null) => {
+    const button = target instanceof Element ? target.closest<HTMLElement>("button,a") : null;
+    clearTimeout(tipTimer.current);
+    if (!button) { setRailTip(undefined); return; }
+    const label = button.getAttribute("aria-label") || button.textContent?.trim();
+    if (label) tipTimer.current=setTimeout(()=>{ const r=button.getBoundingClientRect(); setRailTip({label,y:r.top+r.height/2}); },400);
+  };
+  useEffect(()=>()=>clearTimeout(tipTimer.current),[]);
   const shell = useRef<HTMLElement>(null);
   const fullscreen = useReaderFullscreen(shell, notify);
   const [quietFullscreen, setQuietFullscreen] = useState(false);
@@ -723,14 +736,14 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   return (
     <main
       ref={shell}
-      className={`reader-shell theme-${prefs.theme}${drawing ? " drawing-active" : ""}${textBoxMode ? " pdf-text-box-active" : ""}${chrome.visible ? " controls-visible" : " reading-mode"}${chrome.menu ? " controls-menu-open" : ""}${swipeEnabled ? " swipe-pages" : ""}${hidePageControls ? " hide-page-controls" : ""}${panel ? " panel-open" : ""}`}
+      className={`reader-shell reader-side-tools theme-${prefs.theme}${drawing ? " drawing-active" : ""}${textBoxMode ? " pdf-text-box-active" : ""}${chrome.visible ? " controls-visible" : " reading-mode"}${chrome.menu ? " controls-menu-open" : ""}${swipeEnabled ? " swipe-pages" : ""}${hidePageControls ? " hide-page-controls" : ""}${panel ? " panel-open" : ""}`}
       data-original-pdf-colors={pdfOriginalColors}
       data-loading={loading || savedPrefs === null || localView === undefined}
       onPointerMoveCapture={(event) => {
         if (
           event.pointerType === "mouse" &&
-          event.clientY <=
-            (shell.current?.getBoundingClientRect().top || 0) + 28
+          event.clientX <=
+            (shell.current?.getBoundingClientRect().left || 0) + 12 && !event.buttons
         )
           chrome.reveal();
       }}
@@ -801,9 +814,11 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
       )}
       <header
         className="reader-header"
+        aria-label="Reader tools"
+        onPointerOver={e => { if (e.pointerType === "mouse") tipFor(e.target); }} onFocusCapture={e => tipFor(e.target)} onBlurCapture={clearTip} onScroll={clearTip}
         onPointerDownCapture={chrome.reveal}
         onPointerEnter={chrome.reveal}
-        onPointerLeave={chrome.leave}
+        onPointerLeave={() => { clearTip(); chrome.leave(); }}
       >
         <Link to="/" className="icon-button" aria-label="Back to library">
           <ArrowLeft size={21} />
@@ -910,6 +925,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
           </button>
         </div>
       </header>
+      {railTip && chrome.visible && <div className="rail-tip" role="tooltip" style={{top:railTip.y}}>{railTip.label}</div>}
       {drawing && <Suspense fallback={<div className="ink-toolbar" role="status">Opening drawing tools…</div>}><InkToolbar style={inkStyle} change={setInkStyle}
         undo={() => void (adapter.current as import("./reader/pdf").PdfReader)?.undoInk().catch(e => notify(messageOf(e)))}
         redo={() => void (adapter.current as import("./reader/pdf").PdfReader)?.undoInk(true).catch(e => notify(messageOf(e)))}
@@ -965,6 +981,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
             aria-label="Book content"
             tabIndex={0}
           />
+          <ComfortLayer {...comfort} host={host} enabled={opened && book.format === "pdf" && !drawing && !region && !textBoxMode && !panel} />
         </div>
         {panel && (
           <aside className={`reader-panel ${panel === "research" ? "research-reader-panel" : ""}`}>
@@ -1274,6 +1291,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
                         </p>
                       </>
                     )}
+                  <ComfortSettings {...comfort} />
                   <fieldset className="reading-theme-settings">
                     <legend>Page theme</legend>
                     <div className="theme-options">

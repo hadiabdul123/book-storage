@@ -289,8 +289,8 @@ test("reader search, bookmarks, page layout, theme and region notes survive relo
   // Navigation now preserves fit/zoom. At fit-width the page can extend
   // beneath the overlay toolbar; draw within the visible reading surface.
   const header = await page.locator(".reader-header").boundingBox();
-  const startX = Math.max(0, bounds!.x) + 40;
-  const startY = Math.max(bounds!.y, (header?.y || 0) + (header?.height || 0)) + 24;
+  const startX = Math.max(0, bounds!.x, (header?.x || 0) + (header?.width || 0)) + 20;
+  const startY = Math.max(0,bounds!.y) + 65;
   expect(await page.evaluate(({ x, y }) =>
     !!document.elementFromPoint(x, y)?.closest(".pdf-page"),
     { x: startX, y: startY })).toBe(true);
