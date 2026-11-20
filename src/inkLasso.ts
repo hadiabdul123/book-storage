@@ -16,7 +16,7 @@ export function bindInkLasso(svg: SVGSVGElement, options: {
   enabled: () => boolean; candidates: () => LassoStroke[];
   history: InkHistory; color: () => string; error: (message: string) => void;
 }) {
-  const scope=()=>svg.closest(".drawing-block") || svg.closest(".notebook-detail") || svg.closest(".topic-editor,.reader-shell");
+  const scope=()=>svg.closest(".drawing-block") || svg.closest(".notebook-detail") || svg.closest(".study-notebook,.reader-shell");
   const graphics=document.createElementNS(ns,"g");
   graphics.setAttribute("class","ink-lasso");
   const shape=document.createElementNS(ns,"path"), grip=document.createElementNS(ns,"circle");

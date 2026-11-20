@@ -385,6 +385,7 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
     const media = [...rows.values()].find(row => row.kind === "notebook-media").value;
     await expect.poll(() => first.locator("audio").evaluate((element: HTMLAudioElement) => element.duration)).toBe(3);
     await first.locator("audio").evaluate((element: HTMLAudioElement) => { element.currentTime = 1.5; });
+    await writing.press("ControlOrMeta+a");
     await first.getByRole("button", { name: "More actions for seminar.wav" }).click();
     await first.getByRole("menuitem", { name: "Insert timestamp", exact: true }).click();
     await expect.poll(() => JSON.stringify(rows.get(`notebook-note:${media.noteId}`)?.value.document)).toContain("&at=1.5");

@@ -332,7 +332,7 @@ export function TopicEditor({ note, headerHost, toolbarHost, insertHandle }: { i
     const blocks = Fragment.fromArray([...quote, ...(imageAnchor ? [schema.nodes.paragraph.create({ inkAnchor: imageAnchor })] : []), citation]);
     const tr = closeHistory(editor.state.tr).replaceRange(position, position, new Slice(blocks, 0, 0));
     let after: number | undefined;
-    tr.doc.nodesBetween(tr.mapping.map(position, -1), tr.mapping.map(position, 1), (node, at) => {
+    tr.doc.descendants((node, at) => {
       if (node === citation) after = at + node.nodeSize;
     });
     if (after === undefined) return false;
@@ -435,7 +435,7 @@ export function TopicEditor({ note, headerHost, toolbarHost, insertHandle }: { i
           {lasso.box && <div className="notebook-media-lasso" style={lasso.box} aria-hidden="true" />}
           {editor && loaded && <NotebookMediaLayer editor={editor} files={files || noMedia} cue={cue} paper={paper} selected={selectedMedia} onSelect={toggleMedia} onFree={toggleFree} onDragInline={dragInline} onMoveFree={positions => updateMedia(() => positionMedia(note.id, positions))} onMove={bumpMedia} onTimestamp={value => {
             switchTool("write");
-            editor.chain().focus().insertContent([{ type: "text", text: mediaLabel(value.time), marks: [{ type: "link", attrs: { href: cueHref(note.id, value), target: "_self", rel: null, class: null } }] }, { type: "text", text: " " }]).run();
+            editor.chain().focus().insertContentAt(editor.state.selection.to, [{ type: "text", text: mediaLabel(value.time), marks: [{ type: "link", attrs: { href: cueHref(note.id, value), target: "_self", rel: null, class: null } }] }, { type: "text", text: " " }]).run();
           }} />}
           {editor && loaded && <NotebookPaperInk editor={editor} noteId={note.id} paper={paper} mode={paperTool} style={inkStyle} history={inkHistory} notice={setNotice} saveNote={flush} bindingRef={inkBinding} writes={inkWrites} openDrawing={drawing} />}
         </div>

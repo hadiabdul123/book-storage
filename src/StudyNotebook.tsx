@@ -19,6 +19,8 @@ export function StudyNotebook({ clip, inserted, selectedNote, crop, region }: {
   const [destination, setDestination] = useState("");
   const [busy, setBusy] = useState(false), [error,setError] = useState("");
   const insert = useRef<StudyInsert | null>(null);
+  const newNoteMenu = useRef<HTMLDetailsElement>(null);
+  const [toolbar, setToolbar] = useState<HTMLElement | null>(null);
   const note = notes?.find(n => n.id === chosen);
   useEffect(() => { selectedNote.current = note?.id || ""; return () => { selectedNote.current = ""; }; }, [selectedNote, note?.id]);
   function choose(id: string) {
@@ -39,13 +41,14 @@ export function StudyNotebook({ clip, inserted, selectedNote, crop, region }: {
         await saveNotebookNote({ id, notebookId, title:"Untitled note", document:emptyDocument(), tags:[], createdAt:now(), updatedAt:now() });
       });
       choose(id);
+      if (newNoteMenu.current) newNoteMenu.current.open = false;
     } catch(e) { setError(String(e)); } finally { setBusy(false); }
   }
-  async function add() {
+  async function add(atCaret = false) {
     if (!clip || busy) return;
     if (!insert.current) { setError("The note is opening. Try inserting again in a moment."); return; }
     setBusy(true); setError("");
-    try { await insert.current(clip); inserted(); }
+    try { await insert.current(atCaret ? {...clip,point:undefined} : clip); inserted(); }
     catch(e) { setError(String(e)); } finally { setBusy(false); }
   }
   const attempted = useRef("");
@@ -60,13 +63,14 @@ export function StudyNotebook({ clip, inserted, selectedNote, crop, region }: {
       <option value="">Choose a note</option>{notebooks?.map(book => <optgroup key={book.id} label={book.title}>
         {notes?.filter(n => n.notebookId === book.id).map(n => <option key={n.id} value={n.id}>{n.title}</option>)}</optgroup>)}
     </select></label>
-    <details><summary>New note</summary><label>Notebook<select value={destination || notebooks?.[0]?.id || ""} onChange={e=>setDestination(e.target.value)}>
+    <details ref={newNoteMenu}><summary>New note</summary><label>Notebook<select value={destination || notebooks?.[0]?.id || ""} onChange={e=>setDestination(e.target.value)}>
       {!notebooks?.length && <option value="">Study notes</option>}
       {notebooks?.map(b=><option key={b.id} value={b.id}>{b.title}</option>)}</select></label>
       <button disabled={busy || !notebooks} onClick={()=>void createNote()}>Create note</button></details>
     <button disabled={busy} aria-pressed={region} onClick={crop}>Clip PDF region</button></div>
-    {clip && <div className="study-pending"><q>{clip.text.slice(0,140)}</q><button disabled={!note || busy} onClick={()=>void add()}>Insert at caret</button></div>}
+    {clip && (!clip.point || !note || error) && <div className="study-pending"><q>{clip.text.slice(0,140)}</q><button disabled={!note || busy} onClick={()=>void add(true)}>Insert at caret</button></div>}
     {error && <p role="alert">{error}</p>}
-    {note && <TopicEditor key={note.id} note={note} headerHost={null} insertHandle={insert} />}
+    {note && <><details className="study-writing-tools"><summary>Writing tools</summary><div ref={setToolbar} /></details>
+      <TopicEditor key={note.id} note={note} headerHost={null} toolbarHost={toolbar} insertHandle={insert} /></>}
   </section>;
 }

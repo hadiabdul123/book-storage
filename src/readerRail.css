@@ -55,3 +55,10 @@
 }
 
 .study-drag-label { position:fixed; z-index:75; pointer-events:none; border-radius:6px; background:#263e43; color:white; padding:6px 9px; font-size:13px; box-shadow:0 3px 12px #172a3022; }
+
+.reader-shell .study-size { margin:0; font-size:13px; }
+.reader-shell .study-destinations label { margin:0; flex:1; min-width:90px; }
+.reader-shell .study-destinations label select { width:100%; margin:2px 0; }
+.study-destinations details summary,.study-writing-tools summary { cursor:pointer; padding:8px 0; }
+.study-writing-tools { margin-block:6px; }
+.study-notebook .topic-editor .topic-title-label { margin:4px 0; }

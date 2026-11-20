@@ -209,7 +209,7 @@ test("layout, appearance and zoom apply across books; zoomed edge taps turn spre
   await expect(page.locator('.pdf-page[data-page="1"]')).toBeVisible();
   await clickTool(page, "Reading settings"); await expect(page.getByRole("combobox", { name: "Zoom", exact: true })).toHaveValue("1.5");
   await page.getByRole("link", { name: "Back to library", exact: true }).click();
-  await page.locator("input[type=file]").setInputFiles({ name: "Another book.pdf", mimeType: "application/pdf", buffer: numberedPdf(3) });
+  await page.locator(".library-page input[type=file]").setInputFiles({ name: "Another book.pdf", mimeType: "application/pdf", buffer: numberedPdf(3) });
   await expect(page.locator(".book-card")).toHaveCount(2);
   await page.locator(".book-card").filter({ hasText: "Another book" }).locator(".book-cover-link").click();
   await expect(page.locator(".reader-shell")).toHaveAttribute("data-loading", "false");
