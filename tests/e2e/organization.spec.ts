@@ -68,7 +68,7 @@ test("large libraries use source IDs, bounded lists, complete exports and resear
   const backup = JSON.parse(await readFile((await (await download).path())!, "utf8")); expect(backup.annotations).toHaveLength(5000);
   await page.getByRole("navigation", { name: "Books & notebooks", exact: true }).getByRole("button").filter({ has: page.getByText("Author 0", { exact: true }) }).click();
   await expect(page).toHaveURL(/book=book0/); await page.locator(".notes-passage-open").first().click();
-  await expect(page.locator(".annotation-card")).toContainText("in book 0");
+  await expect(page.getByRole("dialog", { name: "Quote card" })).toContainText("in book 0");
   await page.reload(); await expect(page.locator(".annotation-card")).toContainText("in book 0");
   await page.goto("/#/notebooks");
   const noteRows = page.getByRole("complementary", { name: "Notebook pages" }).locator("nav .workspace-item > button:first-child");

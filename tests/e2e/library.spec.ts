@@ -1,4 +1,4 @@
-import { openTools, clickTool, showSavedItem } from "./controls";
+import { openTools, clickTool } from "./controls";
 import { test, expect, type Page } from "@playwright/test";
 import path from "node:path";
 import { readFile } from "node:fs/promises";
@@ -157,9 +157,9 @@ test("annotation edits, filters, exports, JSON restore and malformed backups", a
   await saveNote(page);
   await page.goto("/#/notes");
   await expect(page.locator(".annotation-card")).toHaveCount(1);
-  await showSavedItem(page);
-  await page.getByRole("button", { name: "Edit", exact: true }).click();
-  const dialog = page.getByRole("dialog");
+  await page.locator(".notes-passage-open").first().click();
+  await page.getByRole("dialog", { name: "Quote card" }).getByRole("button", { name: "Edit highlight" }).click();
+  const dialog = page.getByRole("dialog", { name: "Edit annotation", exact: true });
   await dialog
     .getByRole("textbox", { name: "Your note" })
     .fill("Updated research note");
@@ -168,6 +168,8 @@ test("annotation edits, filters, exports, JSON restore and malformed backups", a
     .fill("review, important");
   await dialog.getByRole("button", { name: "green", exact: true }).click();
   await dialog.getByRole("button", { name: "Save changes" }).click();
+  await page.getByRole("dialog", { name: "Quote card" }).getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByText("More filters", { exact: true }).click();
   await page
     .getByRole("textbox", { name: "Search annotations" })
     .fill("important");
@@ -193,7 +195,8 @@ test("annotation edits, filters, exports, JSON restore and malformed backups", a
     expect(bytes.toString()).toContain("Updated research note");
     if (format === "json") backup = bytes;
   }
-  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await page.locator(".notes-passage-open").first().click();
+  await page.getByRole("dialog", { name: "Quote card" }).getByRole("button", { name: "Edit highlight" }).click();
   await dialog.getByRole("button", { name: "Delete annotation" }).click();
   await expect(page.locator(".annotation-card")).toHaveCount(0);
   await page.goto("/#/settings");
@@ -217,9 +220,9 @@ test("annotation edits, filters, exports, JSON restore and malformed backups", a
   });
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.goto("/#/notes");
-  await showSavedItem(page);
+  await page.locator(".notes-passage-open").first().click();
   await expect(
-    page.locator(".notes-preview-pane").getByText("Updated research note", { exact: true }),
+    page.getByRole("dialog", { name: "Quote card" }).getByText("Updated research note", { exact: true }),
   ).toBeVisible();
   await page.getByRole("link", { name: "Go to passage" }).click();
   await expect(page.locator(".pdf-highlight").first()).toBeVisible();
