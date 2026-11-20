@@ -25,7 +25,8 @@ async function readStoredDeviceReading(id: string): Promise<DeviceReading> {
   return { ...appearance, rotation: legacy.rotation, pdfOriginalColors: legacy.pdfOriginalColors };
 }
 const journalKey = "device-reading:pending:v1";
-type JournalEntry = { id: string; token: string; value: DeviceReading };
+type ReadingChange = Omit<DeviceReading,"pdfLayout"> & { pdfLayout?: Partial<PdfLayout> };
+type JournalEntry = { id: string; token: string; value: ReadingChange };
 function readJournal(): JournalEntry[] {
   try { const value = JSON.parse(localStorage.getItem(journalKey) || "[]"); return Array.isArray(value) ? value.filter(v => typeof v?.id === "string" && typeof v?.token === "string" && v.value && typeof v.value === "object") : []; } catch { return []; }
 }
@@ -64,11 +65,11 @@ export async function initializeDeviceReading(id: string, seed: DeviceReading): 
   });
   return readDeviceReading(id);
 }
-export async function writeDeviceReading(id: string, patch: DeviceReading | ((prior: DeviceReading) => DeviceReading)) {
+export async function writeDeviceReading(id: string, patch: ReadingChange | ((prior: DeviceReading) => ReadingChange)) {
   await db.transaction("rw", db.meta, async () => {
     const prior = await readStoredDeviceReading(id);
     const update = typeof patch === "function" ? patch(prior) : patch;
-    const global = { ...prior, ...update };
+    const global = mergeReading(prior, update);
     for (const key of documentKeys) delete global[key];
     await db.meta.put({ key: defaultsKey, value: JSON.stringify(global) });
     const document = await storedReading(`device-reading:${id}`);
@@ -77,8 +78,11 @@ export async function writeDeviceReading(id: string, patch: DeviceReading | ((pr
   });
 }
 type ReadingPatch = Parameters<typeof writeDeviceReading>[1];
-function mergeReading(prior: DeviceReading, change: DeviceReading): DeviceReading {
-  return { ...prior, ...change, ...(change.pdfLayout ? { pdfLayout: { ...prior.pdfLayout, ...change.pdfLayout } as PdfLayout } : {}) };
+function mergeReading(prior: DeviceReading, change: ReadingChange): DeviceReading {
+  const { pdfLayout, ...rest } = change;
+  const next = { ...prior, ...rest };
+  if (pdfLayout) next.pdfLayout = { ...defaultPdfLayout, ...prior.pdfLayout, ...pdfLayout };
+  return next;
 }
 type QueuedReading = { entry: JournalEntry; resolve: () => void; reject: (e: unknown) => void };
 let queued: QueuedReading[] = [];

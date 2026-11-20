@@ -49,3 +49,15 @@ it("keeps shared choices in input order across books and recovers failed older w
   expect(await readDeviceReading("older-book")).toMatchObject({ theme: "sepia", rotation: 90 });
   expect(localStorage.getItem("device-reading:pending:v1")).toBeNull();
 });
+
+it("a navigation change keeps the fit most recently committed by another book", async () => {
+  const first = queueDeviceReading("first-pdf", {pdfLayout:{columns:2,fit:"width"}});
+  await flushDeviceReading(); await first;
+  await readDeviceReading("first-pdf");
+  const fit = queueDeviceReading("second-pdf", {pdfLayout:{fit:"page"}});
+  await flushDeviceReading(); await fit;
+  const turn = queueDeviceReading("first-pdf", {pdfLayout:{navigation:"paginated"}});
+  const zoom = queueDeviceReading("first-pdf", {zoom:1.5});
+  await flushDeviceReading(); await Promise.all([turn,zoom]);
+  expect((await readDeviceReading("first-pdf")).pdfLayout).toEqual({columns:2,fit:"page",navigation:"paginated"});
+});

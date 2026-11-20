@@ -683,7 +683,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
     setSettingsSaveError(false);
     setOptimisticView(prior => ({ ...prior, pdfLayout: { ...pdfLayout, ...prior.pdfLayout, ...patch } }));
     try {
-      await writeDeviceReading(id, prior => ({ pdfLayout: { ...devicePdfLayout(prior, pdfPrefs?.pdfLayout, phone), ...patch } }));
+      await writeDeviceReading(id, { pdfLayout: patch });
     } catch (e) {
       setSettingsSaveError(true);
       notify(messageOf(e));
@@ -1302,12 +1302,11 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
                             onChange={(e) => {
                               const enabled = e.target.checked;
                               setSwipeToTurn(enabled); setOptimisticView(prior => ({ ...prior, swipeToTurn: enabled }));
-                              void writeDeviceReading(id, prior => ({
+                              void writeDeviceReading(id, {
                                 swipeToTurn: enabled,
                                 ...(book.format === "pdf"
                                   ? {
                                       pdfLayout: {
-                                        ...devicePdfLayout(prior, pdfPrefs?.pdfLayout, phone),
                                         navigation: enabled
                                           ? "paginated"
                                           : "continuous",
@@ -1317,7 +1316,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
                                   : {
                                       flow: enabled ? "paginated" : "scrolled",
                                     }),
-                              })).catch((error) => {
+                              }).catch((error) => {
                                 setSettingsSaveError(true);
                                 notify(messageOf(error));
                               });
