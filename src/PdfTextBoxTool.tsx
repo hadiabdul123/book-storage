@@ -12,6 +12,7 @@ type Props = {
   surface: ReturnType<PdfReader["textBoxSurface"]>;
   saved: boolean;
   saving: boolean;
+  placing: boolean;
   update: (box: PdfTextBox) => void;
   place: () => void;
   save: () => void;
@@ -20,7 +21,7 @@ type Props = {
   cancel: () => void;
 };
 
-export function PdfTextBoxTool({ draft, surface, saved, saving, update, place, save, remove, exportPdf, cancel }: Props) {
+export function PdfTextBoxTool({ draft, surface, saved, saving, placing, update, place, save, remove, exportPdf, cancel }: Props) {
   const input = useRef<HTMLTextAreaElement>(null);
   const drag = useRef<{ pointer: number; start: [number, number]; box: PdfTextBox; viewport: NonNullable<Props["surface"]>["viewport"] }>(undefined);
   useLayoutEffect(() => {
@@ -85,7 +86,7 @@ export function PdfTextBoxTool({ draft, surface, saved, saving, update, place, s
         <button type="button" disabled={saving} onClick={cancel}>Cancel</button>
       </> : <>
         <span>Tap the page to place a text box or select one to edit.</span>
-        <button type="button" onClick={place}>Place on current page</button>
+        <button type="button" disabled={placing} onClick={place}>{placing ? "Opening text box…" : "Place on current page"}</button>
         <button type="button" onClick={exportPdf}>Export marked PDF</button>
         <button type="button" onClick={cancel}>Done</button>
       </>}

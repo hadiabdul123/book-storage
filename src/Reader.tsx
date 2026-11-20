@@ -94,6 +94,8 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   const [textBoxDraft, setTextBoxDraft] = useState<PdfTextBox>();
   const [editingSavedBox, setEditingSavedBox] = useState(false);
   const [savingBox, setSavingBox] = useState(false);
+  const pendingBoxPlacement = useRef<object | undefined>(undefined);
+  const [placingBox, setPlacingBox] = useState(false);
   const [, setTextBoxLayout] = useState(0);
   const [inkStyle, setInkStyle] = useState(defaultInkStyle);
   const annotations =
@@ -204,28 +206,55 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
     return (await notebook.current?.flush()) ?? true;
   }
   function closeTextBoxes() {
+    pendingBoxPlacement.current = undefined;
+    setPlacingBox(false);
     setTextBoxDraft(undefined);
     setEditingSavedBox(false);
     setTextBoxMode(false);
   }
-  function placeTextBox(page?: number, point?: { x: number; y: number }, existingId?: string) {
-    if (!book || book.format !== "pdf" || textBoxDraft) return;
-    const surface = (adapter.current as PdfReader | null)?.textBoxSurface(page);
-    if (!surface?.ready) { notify("Wait for the PDF page to finish loading."); return; }
+  async function placeTextBox(page?: number, point?: { x: number; y: number }, existingId?: string) {
+    if (!book || book.format !== "pdf" || textBoxDraft || pendingBoxPlacement.current) return;
+    const pdf = adapter.current as PdfReader | null;
+    const initial = pdf?.textBoxSurface(page);
+    if (!pdf || !initial) return;
+    const pageNumber = Number(initial.element.dataset.page);
+    const anchor = (surface: typeof initial, at?: { x: number; y: number }) => {
+      const { element, viewport } = surface;
+      const rect = element.getBoundingClientRect(), readerRect = host.current!.getBoundingClientRect();
+      const x = at?.x ?? (Math.max(rect.left, readerRect.left) + Math.min(rect.right, readerRect.right)) / 2;
+      const y = at?.y ?? (Math.max(rect.top, readerRect.top) + Math.min(rect.bottom, readerRect.bottom)) / 2;
+      return viewport.convertToPdfPoint((x - rect.left) * viewport.width / rect.width,
+        (y - rect.top) * viewport.height / rect.height);
+    };
+    const clicked = point && anchor(initial, point);
+    let surface: typeof initial | undefined = initial;
+    if (!initial.ready) {
+      const request = {};
+      pendingBoxPlacement.current = request;
+      setPlacingBox(true);
+      try {
+        surface = await pdf.prepareTextBoxSurface(pageNumber);
+        if (pendingBoxPlacement.current !== request || pdf !== adapter.current) return;
+      } catch (cause) {
+        if (pendingBoxPlacement.current === request) notify(messageOf(cause));
+        return;
+      } finally {
+        if (pendingBoxPlacement.current === request) {
+          pendingBoxPlacement.current = undefined;
+          setPlacingBox(false);
+        }
+      }
+    }
+    if (!surface?.ready) { notify("The PDF page is not ready for a text box."); return; }
     const existing = existingId && textBoxes.find(box => box.id === existingId && belongsToPdf(box, book));
     if (existing) { setEditingSavedBox(true); setTextBoxDraft(existing); return; }
     if (existingId) { notify("This text box is no longer available."); return; }
-    const { element, viewport } = surface;
-    const rect = element.getBoundingClientRect(), readerRect = host.current!.getBoundingClientRect();
-    const x = point?.x ?? (Math.max(rect.left, readerRect.left) + Math.min(rect.right, readerRect.right)) / 2;
-    const y = point?.y ?? (Math.max(rect.top, readerRect.top) + Math.min(rect.bottom, readerRect.bottom)) / 2;
-    const [pdfX, pdfY] = viewport.convertToPdfPoint(
-      (x - rect.left) * viewport.width / rect.width, (y - rect.top) * viewport.height / rect.height,
-    );
+    const { viewport } = surface;
+    const [pdfX, pdfY] = clicked || anchor(surface);
     const stamp = now();
     setEditingSavedBox(false);
     setTextBoxDraft(fitPdfTextBox({
-      id: uid(), bookId: book.id, hash: book.hash, page: Number(element.dataset.page),
+      id: uid(), bookId: book.id, hash: book.hash, page: pageNumber,
       x: pdfX, y: pdfY, width: 214, height: 82, rotation: viewport.rotation as BoxRotation,
       text: "", fontSize: 16, tint: false, createdAt: stamp, updatedAt: stamp,
     }, viewport.viewBox as import("./model").Rect));
@@ -710,7 +739,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
         const page = textBoxMode && target.closest<HTMLElement>(".reader-host .pdf-page");
         if (page && !target.closest(".pdf-text-box-edit,button,a,input,textarea,select")) {
           event.preventDefault();
-          placeTextBox(Number(page.dataset.page), { x: event.clientX, y: event.clientY },
+          void placeTextBox(Number(page.dataset.page), { x: event.clientX, y: event.clientY },
             target.closest<HTMLElement>("[data-text-box-id]")?.dataset.textBoxId);
           return;
         }
@@ -730,7 +759,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
         const target = (event.target as HTMLElement).closest<HTMLElement>("[data-text-box-id]");
         if (!target) return;
         event.preventDefault();
-        placeTextBox(Number(target.closest<HTMLElement>(".pdf-page")?.dataset.page), undefined, target.dataset.textBoxId);
+        void placeTextBox(Number(target.closest<HTMLElement>(".pdf-page")?.dataset.page), undefined, target.dataset.textBoxId);
       }}
     >
       <button
@@ -887,8 +916,8 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
         close={() => setDrawing(false)} exportPdf={() => void downloadMarkedPdf()} /></Suspense>}
       {textBoxMode && <PdfTextBoxTool draft={textBoxDraft}
         surface={textBoxDraft ? (adapter.current as PdfReader | null)?.textBoxSurface(textBoxDraft.page) : undefined}
-        saved={editingSavedBox} saving={savingBox} update={setTextBoxDraft}
-        place={() => placeTextBox()} save={() => void storeTextBox()} remove={() => void storeTextBox(true)}
+        saved={editingSavedBox} saving={savingBox} placing={placingBox} update={setTextBoxDraft}
+        place={() => void placeTextBox()} save={() => void storeTextBox()} remove={() => void storeTextBox(true)}
         exportPdf={() => void downloadMarkedPdf()} cancel={closeTextBoxes} />}
       <div className="reader-workspace">
         {panel && <button className="reader-panel-backdrop" aria-label="Close reading panel"

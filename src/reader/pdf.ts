@@ -1352,6 +1352,19 @@ export class PdfReader implements ReaderAdapter {
     return { element, viewport, bounds: state.page.view as Rect,
       ready: state.loaded && !this.layingOut && this.host.getAttribute("aria-busy") !== "true" && !this.host.classList.contains("pdf-zooming") };
   }
+  async prepareTextBoxSurface(page: number) {
+    const state = this.pages[page - 1];
+    if (!state) return;
+    let pending: Promise<void>;
+    do {
+      pending = this.viewQueue;
+      await pending;
+      if (this.disposed || state.element.hidden) return;
+      if (pending === this.viewQueue) await this.render(state);
+    } while (!this.disposed && pending !== this.viewQueue);
+    const surface = this.textBoxSurface(page);
+    return surface?.ready ? surface : undefined;
+  }
   private drawTextBoxes(state: PageState) {
     const boxes = this.textBoxesByPage.get(state.n);
     let layer = state.element.querySelector<HTMLElement>(".pdf-text-box-layer");
