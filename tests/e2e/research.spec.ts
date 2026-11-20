@@ -193,6 +193,8 @@ test("book study queues separate cited reviews and compares evidence from every 
   await page.getByRole("button", { name: "Sources (2)", exact: true }).click();
   await page.getByRole("checkbox", { name: "Study Alpha", exact: true }).uncheck();
   await page.getByRole("button", { name: "Save sources", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Study sources" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Sources (1)", exact: true })).toBeVisible();
   await page.getByLabel("Research question").fill("What supports the ecosystem?");
   await page.getByRole("button", { name: "Queue question", exact: true }).click();
   await expect(page.locator(".research-pending")).toContainText("What supports the ecosystem?");
