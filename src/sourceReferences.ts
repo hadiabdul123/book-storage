@@ -25,6 +25,11 @@ export function sourceHref(source: SourceRef): string {
 export function sourceLabel(source: SourceRef) {
   return `${source.title}${source.locator?.type === "pdf" ? ` · page ${source.locator.page}` : ""}`;
 }
+export function originalSource(source: SourceRef): SourceRef {
+  if (!source.annotationId) return source;
+  const { annotationId: _, ...original } = source;
+  return original;
+}
 export const citationNode = (source: SourceRef): RichNode => ({ type: "citation", attrs: { source } });
 export function documentSources(document: RichNode): SourceRef[] {
   const refs = new Map<string, SourceRef>();

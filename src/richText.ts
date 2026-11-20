@@ -1,4 +1,5 @@
 import type { RichNode } from "./model";
+import { validTextBox } from "./notebookTextBox";
 import { validSourceRef, sourceMarkdown } from "./sourceReferences";
 const safeColor = (v: unknown) => typeof v === "string" && (/^#[a-f0-9]{6}$/i.test(v) || /^rgb\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*\)$/i.test(v));
 export const safeNoteFontSize = (v: unknown): v is string => typeof v === "string" && /^(?:1\d|[2-5]\d|6[0-4])px$/.test(v);
@@ -118,7 +119,7 @@ export function validRichDocument(value: unknown): value is RichNode {
       if (!n.attrs || typeof n.attrs !== "object" || Array.isArray(n.attrs))
         return false;
       const keys: Record<string, string[]> = {
-        paragraph: ["inkAnchor"],
+        paragraph: ["inkAnchor", "textBox"],
         heading: ["level", "inkAnchor"],
         orderedList: ["start", "type"],
         taskItem: ["checked"],
@@ -126,6 +127,7 @@ export function validRichDocument(value: unknown): value is RichNode {
       if (Object.keys(n.attrs).some((k) => !(keys[n.type] || []).includes(k)))
         return false;
       if (n.attrs.inkAnchor != null && (typeof n.attrs.inkAnchor !== "string" || !/^[a-zA-Z0-9-]{1,100}$/.test(n.attrs.inkAnchor))) return false;
+      if (n.attrs.textBox !== undefined && (depth !== 1 || !validTextBox(n.attrs.textBox))) return false;
       if (n.type === "heading" && ![1, 2, 3].includes(n.attrs.level))
         return false;
       if (n.type === "taskItem" && typeof n.attrs.checked !== "boolean")

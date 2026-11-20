@@ -25,6 +25,7 @@ import {
   type Preferences,
 } from "../model";
 import type { ReaderAdapter, ReaderEvents, SearchHit, Section } from "./types";
+import { documentNarration } from "./narrationText";
 import { surroundingText } from "../sourceIndex";
 import { pagePalettes } from "../readingAppearance";
 
@@ -433,13 +434,56 @@ export class EpubReader implements ReaderAdapter {
   }
   async sections(): Promise<Section[]> {
     const nav = await this.epub.loaded.navigation;
-    const map = (items: any[]): Section[] =>
-      items.map((i) => ({
-        id: i.href,
-        label: i.label.trim(),
-        children: map(i.subitems || []),
-      }));
+    const map = async (items: typeof nav.toc): Promise<Section[]> => {
+      const result: Section[] = [];
+      for (const item of items) {
+        if (this.disposed) break;
+        const [href, fragment] = item.href.split("#");
+        const section = this.epub.spine.get(href);
+        let start: Locator | undefined;
+        if (section) {
+          let cfi = `epubcfi(${section.cfiBase}!/4/1:0)`;
+          if (fragment) {
+            try {
+              const document = await section.load(this.epub.load.bind(this.epub));
+              const target = document.getElementById(decodeURIComponent(fragment));
+              if (target) cfi = section.cfiFromElement(target);
+            } catch { /* The spine start is still available for this heading. */ }
+          }
+          start = { v: 1, type: "epub", hash: this.book.hash, href: section.href, cfi };
+        }
+        result.push({ id: item.href, label: item.label.trim(), start, children: await map(item.subitems || []) });
+      }
+      return result;
+    };
     return map(nav.toc);
+  }
+  async *narration(start: Locator | undefined, signal: AbortSignal) {
+    const initial = start?.type === "epub" && start.hash === this.book.hash ? start : undefined;
+    const initialSection = initial && this.epub.spine.get(initial.href);
+    type SpineSection = ReturnType<EpubBook["spine"]["get"]>;
+    const sections: SpineSection[] = [];
+    this.epub.spine.each((section: SpineSection) => sections.push(section));
+    const load = this.epub.load.bind(this.epub);
+    for (const section of sections) {
+      signal.throwIfAborted();
+      if (section.index < (initialSection?.index ?? 0)) continue;
+      const document = await section.load(load);
+      const root = document.body;
+      let offset = 0;
+      if (initial && initialSection?.index === section.index) {
+        try {
+          const range = new EpubCFI(initial.cfi).toRange(document);
+          if (range) offset = offsetsForRange(root, range).start;
+        } catch { /* Start at the first readable sentence in the section. */ }
+      }
+      for (const line of documentNarration(root, offset)) {
+        signal.throwIfAborted();
+        const range = rangeForOffsets(root, line.start, line.end);
+        if (range) yield { text: line.text,
+          locator: { v: 1, type: "epub", hash: this.book.hash, cfi: section.cfiFromRange(range), href: section.href } as Locator };
+      }
+    }
   }
   configure(p: Preferences) {
     this.prefs = p;

@@ -39,6 +39,7 @@ test("closing during recognition releases the job so library preparation can res
   await clickTool(page, "Reading settings");
   await page.getByRole("link", { name: "Back to library", exact: true }).click();
   await expect.poll(() => page.evaluate(() => !!(window as any).__heldWorkerStopped)).toBe(true);
+  await page.getByRole("button", { name: /^Details for/ }).click();
   await expect(page.locator(".book-preparation")).toContainText("Text ready", { timeout: 60_000 });
   expect(errors).toEqual([]);
 });
@@ -56,7 +57,9 @@ test("an imported scan is prepared in the library and reopens with saved text an
   });
   await page.goto("/");
   await page.locator("input[type=file]").setInputFiles({ name: "Prepared scan.pdf", mimeType: "application/pdf", buffer: await scanPdf(page, false, 2) });
+  await page.getByRole("button", { name: /^Details for/ }).click();
   await expect(page.locator(".book-preparation")).toContainText("Text ready", { timeout: 60_000 });
+  await page.getByRole("dialog", { name: "Book details" }).getByRole("button", { name: "Close", exact: true }).click();
   expect(await page.evaluate(() => (window as any).__ocrJobs)).toBe(2);
   await page.evaluate(() => { (window as any).__ocrJobs = 0; (window as any).__textJobs = 0; });
   await page.route("**/ocr/**", route => route.abort());

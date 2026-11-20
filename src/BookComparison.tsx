@@ -3,6 +3,7 @@ import { Columns2, NotebookPen } from "lucide-react";
 import { Dialog } from "./components";
 import { SourceLink } from "./Citation";
 import { enqueueResearch } from "./research";
+import { sourceLabel } from "./sourceReferences";
 import { comparisonText, type ComparisonBook } from "../supabase/functions/research/comparison";
 import type { Book } from "./model";
 import type { ResearchMessage, SourceRef } from "./researchTypes";
@@ -56,9 +57,10 @@ export function BookComparisonPicker({ books, selected: initial = [], question: 
   </Dialog>;
 }
 
-export function BookComparisonView({ message, onSave }: {
+export function BookComparisonView({ message, onSave, onInspect }: {
   message: ResearchMessage & { comparison: NonNullable<ResearchMessage["comparison"]> };
   onSave: (text: string, sources: SourceRef[]) => void;
+  onInspect?: (source: SourceRef) => void;
 }) {
   const { comparison, sources } = message;
   const refs = (ids: string[]) => sources.filter(source => ids.includes(source.id));
@@ -69,7 +71,9 @@ export function BookComparisonView({ message, onSave }: {
         <h4>{column.title}</h4>
         {column.answer && <p>{column.answer}</p>}
         {column.gap && <p className="comparison-gap">{column.gap}</p>}
-        {refs(column.sourceIds).map(source => <details key={source.id}>
+        {refs(column.sourceIds).map(source => onInspect ? <button className="text-button comparison-evidence-link" key={source.id} title={sourceLabel(source)} onClick={() => onInspect(source)}>
+          {source.locator?.type === "pdf" ? `Evidence on page ${source.locator.page}` : "Supporting passage"}
+        </button> : <details key={source.id}>
           <summary>{source.locator?.type === "pdf" ? `Evidence on page ${source.locator.page}` : "Supporting passage"}</summary>
           <blockquote>{source.excerpt}</blockquote><SourceLink source={source} />
         </details>)}
@@ -79,7 +83,7 @@ export function BookComparisonView({ message, onSave }: {
     <section className="comparison-synthesis">
       <h4>Agreement and differences</h4>
       <p>{comparison.synthesis.text}</p>
-      {refs(comparison.synthesis.sourceIds).map(source => <SourceLink key={source.id} source={source} />)}
+      {refs(comparison.synthesis.sourceIds).map(source => onInspect ? <button className="text-button comparison-evidence-link" key={source.id} onClick={() => onInspect(source)}>{sourceLabel(source)}</button> : <SourceLink key={source.id} source={source} />)}
     </section>
     <button className="text-button" onClick={() => onSave(comparisonText(comparison), refs([...comparison.columns.flatMap(column => column.sourceIds), ...comparison.synthesis.sourceIds]))}><NotebookPen size={16} />Save comparison</button>
   </article>;

@@ -6,6 +6,7 @@ export default defineConfig({
   base: process.env.VITE_BASE_PATH || "/",
   // Scan the app, excluding HTML in local backups and browser-test artifacts.
   optimizeDeps: { entries: ["index.html"] },
+  worker: { format: "es" },
   server: {
     watch: {
       ignored: [
@@ -55,8 +56,19 @@ export default defineConfig({
           "ocr/*.txt",
         ],
         maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
+        globIgnores: ["**/ort-wasm-*"],
         navigateFallback: "index.html",
         cleanupOutdatedCaches: true,
+        runtimeCaching: [{
+          // Keep the optional narration runtime out of the core offline install.
+          urlPattern: /^https:\/\/cdn\.jsdelivr\.net\/npm\/@huggingface\/transformers@3\.8\.1\/dist\/ort-wasm-/,
+          handler: "CacheFirst",
+          options: { cacheName: "leafmark-narration-runtime-v1", cacheableResponse: { statuses: [200] } },
+        }, {
+          urlPattern: ({ url, sameOrigin }) => sameOrigin && /\/assets\/ort-wasm-/.test(url.pathname),
+          handler: "CacheFirst",
+          options: { cacheName: "leafmark-narration-runtime-v1", cacheableResponse: { statuses: [200] } },
+        }],
       },
     }),
   ],

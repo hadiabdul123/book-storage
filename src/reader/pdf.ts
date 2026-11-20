@@ -20,7 +20,8 @@ import type {
   PageViewport,
   RenderTask,
 } from "pdfjs-dist";
-import { normalizeRect } from "../anchors";
+import { findQuote, normalizeRect, quoteAt } from "../anchors";
+import { narrationSentences } from "./narrationText";
 import { overlap } from "./geometry";
 import {
   type Book,
@@ -174,6 +175,7 @@ export class PdfReader implements ReaderAdapter {
       await this.loadingTask.destroy();
       return;
     }
+    this.events.onPageCount?.(this.pdf.numPages);
     // Read only cache keys up front: a completed large book must not enqueue
     // hundreds of cache-hit "recognition" jobs or load every word into memory.
     const prefixes = [`ocr-v2:${this.book.id}:${this.book.hash}:`, `ocr-v1:${this.book.id}:`];
@@ -1194,27 +1196,84 @@ export class PdfReader implements ReaderAdapter {
   }
   async sections(): Promise<Section[]> {
     const outline = await this.pdf.getOutline();
-    if (!outline)
-      return this.pages.map((p) => ({ id: String(p.n), label: `Page ${p.n}` }));
-    const walk = async (items: any[]): Promise<Section[]> =>
+    if (!outline?.length) return [];
+    const walk = async (items: typeof outline): Promise<Section[]> =>
       Promise.all(
-        items.map(async (item) => {
-          let dest = item.dest;
-          if (typeof dest === "string")
-            dest = await this.pdf.getDestination(dest);
-          const n = dest?.[0]
-            ? (typeof dest[0] === "number"
-                ? dest[0]
-                : await this.pdf.getPageIndex(dest[0])) + 1
-            : 1;
+        items.map(async item => {
+          let start: Locator | undefined;
+          try {
+            const dest = typeof item.dest === "string" ? await this.pdf.getDestination(item.dest) : item.dest;
+            const target = dest?.[0];
+            const page = target == null ? 0 : (typeof target === "number" ? target : await this.pdf.getPageIndex(target)) + 1;
+            if (page >= 1 && page <= this.pages.length) start = { v: 1, type: "pdf", hash: this.book.hash, page, y: 0 };
+          } catch { /* An invalid destination can still have navigable children. */ }
           return {
-            id: String(n),
+            id: start?.type === "pdf" ? String(start.page) : "",
             label: item.title,
             children: await walk(item.items || []),
+            start,
           };
         }),
       );
     return walk(outline);
+  }
+  async prepareNarration(locator: Locator) {
+    const state = locator.type === "pdf" && locator.hash === this.book.hash ? this.pages[locator.page - 1] : undefined;
+    if (state) await this.recognizePage(state, true);
+  }
+  async *narration(start: Locator | undefined, signal: AbortSignal) {
+    const initial = start?.type === "pdf" && start.hash === this.book.hash ? start : undefined;
+    for (let index = Math.max(0, (initial?.page ?? 1) - 1); index < this.pages.length; index++) {
+      signal.throwIfAborted();
+      const state = this.pages[index];
+      const content = await pageText(this.book, state.page);
+      signal.throwIfAborted();
+      const runs: { start: number; end: number; rect: Rect }[] = [];
+      let text = "";
+      function add(value: string, rect: Rect, endLine: boolean) {
+        if (!value.trim()) { if (endLine) text += "\n"; return; }
+        runs.push({ start: text.length, end: text.length + value.length, rect });
+        text += value + (endLine ? "\n" : " ");
+      }
+      for (const item of content.items) {
+        if (!("str" in item)) continue;
+        const [a, b, , , x, y] = item.transform;
+        const scale = Math.hypot(a, b) || 1;
+        const dx = a / scale, dy = b / scale, h = item.height || scale;
+        const rx = x + dx * item.width, ry = y + dy * item.width;
+        const corners = [[x, y], [rx, ry], [x - dy * h, y + dx * h], [rx - dy * h, ry + dx * h]];
+        add(item.str, [Math.min(...corners.map(point => point[0])), Math.min(...corners.map(point => point[1])),
+          Math.max(...corners.map(point => point[0])), Math.max(...corners.map(point => point[1]))], item.hasEOL);
+      }
+      if (!runs.length) for (const word of state.ocrWords ?? await savedOcr(this.book, state.n) ?? []) add(word.text, word.rect, false);
+      signal.throwIfAborted();
+      const locator = { v: 1 as const, type: "pdf" as const, hash: this.book.hash, page: state.n, y: 0 };
+      if (!runs.length) { yield { text: "", locator, missing: true }; continue; }
+      let offset = 0;
+      if (initial?.page === state.n) {
+        const match = initial.quote && findQuote(text, initial.quote);
+        if (match) offset = match.start;
+        else {
+          const rect = initial.regions?.find(region => region.page === state.n)?.rects[0];
+          const y = rect ? viewportRect(state.viewport, rect)[1]
+            : initial.point ? state.viewport.convertToViewportPoint(...initial.point)[1] : initial.y * state.viewport.height;
+          const first = runs.find(run => viewportRect(state.viewport, run.rect)[3] >= y - 6);
+          offset = first?.start ?? text.length;
+        }
+      }
+      for (const sentence of narrationSentences(text, offset)) {
+        signal.throwIfAborted();
+        const rects = runs.filter(run => run.start < sentence.end && run.end > sentence.start).map(run => {
+          const [left, bottom, right, top] = run.rect;
+          if (right - left < top - bottom) return run.rect;
+          const size = run.end - run.start;
+          return [left + (right - left) * Math.max(0, sentence.start - run.start) / size, bottom,
+            left + (right - left) * Math.min(size, sentence.end - run.start) / size, top] as Rect;
+        });
+        yield { text: sentence.text, locator: { ...locator, regions: [{ page: state.n, rects }],
+          quote: quoteAt(text, sentence.start, sentence.end) } };
+      }
+    }
   }
   configure(p: Preferences) {
     const key = JSON.stringify([p, this.host.closest<HTMLElement>(".reader-shell")?.dataset.originalPdfColors]);

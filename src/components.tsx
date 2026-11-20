@@ -1,4 +1,3 @@
-import { BookPreparationStatus } from "./BookPreparation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { X, BookOpen, ArrowUpRight, MoreHorizontal } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -8,7 +7,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { PageNotebook, type NotebookHandle } from "./PageNotebook";
 import { RichTextView } from "./RichTextView";
 import { SourceLink } from "./Citation";
-import { BookSyncStatus } from "./BookSyncStatus";
+import { knownAuthor, type ReadingProgress } from "./readingProgress";
 
 export const messageOf = (error: unknown) => {
   const message = error instanceof Error ? error.message
@@ -54,6 +53,7 @@ export function Dialog({
   return (
     <dialog
       ref={ref}
+      aria-label={title}
       className={wide ? "dialog wide" : "dialog"}
       onCancel={(e) => {
         e.preventDefault();
@@ -105,13 +105,12 @@ export function BookCard({
   book,
   progress,
   onDetails,
-  downloaded,
 }: {
   book: Book;
-  progress: number;
+  progress: ReadingProgress;
   onDetails: () => void;
-  downloaded: boolean;
 }) {
+  const author = knownAuthor(book.author);
   return (
     <article className="book-card">
       <Link to={`/read/${book.id}`} className="book-cover-link">
@@ -132,29 +131,22 @@ export function BookCard({
           <MoreHorizontal size={20} />
         </button>
       </div>
-      <p>{book.author}</p>
-      <div className="book-meta">
-        <span>
-          {book.format.toUpperCase()}
-          {downloaded ? " · Downloaded" : ""}
-        </span>
-        <span>
-          {book.status === "finished"
-            ? "Finished"
-            : progress > 0
-              ? `${Math.round(progress * 100)}%`
-              : ""}
-        </span>
-      </div>
-      <BookSyncStatus id={book.id} />
-      <BookPreparationStatus book={book} />
-      {progress > 0 && (
-        <div className="progress-line">
-          <span style={{ width: `${Math.min(100, progress * 100)}%` }} />
-        </div>
-      )}
+      {author && <p className="book-author" title={author}>{author}</p>}
+      <BookProgress progress={progress} />
     </article>
   );
+}
+
+export function BookProgress({ progress }: { progress: ReadingProgress }) {
+  return <div className="book-progress">
+    <div className="book-progress-label">
+      {progress.pageLabel && <span>{progress.pageLabel}</span>}
+      <span>{progress.percent}%</span>
+    </div>
+    <div className="progress-line" aria-hidden="true">
+      <span style={{ width: `${progress.fraction * 100}%` }} />
+    </div>
+  </div>;
 }
 export function ColorPicker({
   value,

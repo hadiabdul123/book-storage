@@ -83,7 +83,7 @@
   .reader-shell .reader-title strong {
     font-size: 15px;
   }
-  .reader-shell .reader-title > span {
+  .reader-shell .reader-author {
     display: none;
   }
   .reader-shell .reader-menu-toggle {

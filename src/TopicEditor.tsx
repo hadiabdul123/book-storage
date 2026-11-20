@@ -2,19 +2,26 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { DragEvent, PointerEvent } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
+import { closeHistory } from "@tiptap/pm/history";
+import { Fragment, Slice, type Node as EditorNode } from "@tiptap/pm/model";
+import { TextSelection } from "@tiptap/pm/state";
 import { useLiveQuery } from "dexie-react-hooks";
 import StarterKit from "@tiptap/starter-kit";
 import { TaskList, TaskItem } from "@tiptap/extension-list";
 import { db, get } from "./db";
-import type { NotebookNote } from "./researchTypes";
+import type { NotebookNote, SourceRef } from "./researchTypes";
 import type { RichNode } from "./model";
-import { validRichDocument } from "./richText";
+import { paragraph, validRichDocument } from "./richText";
 import { CitationExtension } from "./Citation";
 import { registerNoteFlusher, saveNotebookNote } from "./notebookStore";
 import { noteFormatting } from "./noteFormatting";
 import { NoteFormatButtons } from "./NoteFormatButtons";
 import { DrawingExtension } from "./NotebookDrawing";
-import { Paperclip, PenLine, MousePointer2, Type, ScanLine } from "lucide-react";
+import { Paperclip, PenLine, MousePointer2, Type, ScanLine, Quote, SquarePen } from "lucide-react";
+import { InsertQuote } from "./InsertQuote";
+import { NotebookTextBoxControls } from "./NotebookTextBoxControls";
+import { insertTextBox, notebookJSON, NotebookTextBoxes, validTextBox } from "./notebookTextBox";
+import { citationNode } from "./sourceReferences";
 import { InkToolbar } from "./InkToolbar";
 import { defaultInkStyle } from "./inkTypes";
 import { InkHistory, type bindInkSurface } from "./ink";
@@ -40,6 +47,7 @@ export function TopicEditor({ note, toolbarHost }: { note: NotebookNote; toolbar
   const [inkHistory] = useState(() => new InkHistory());
   const [notice, setNotice] = useState("");
   const [attaching, setAttaching] = useState(false);
+  const [quoteAnchor, setQuoteAnchor] = useState<{ doc: EditorNode; position: number }>();
   const [dropLine, setDropLine] = useState<number>();
   const [selectingMedia, setSelectingMedia] = useState(false);
   const [selectedMedia, setSelectedMedia] = useState<Set<string>>(() => new Set());
@@ -58,10 +66,10 @@ export function TopicEditor({ note, toolbarHost }: { note: NotebookNote; toolbar
   useEffect(() => () => cleanupDrag.current?.(), []);
   const draftKey = `topic-draft:${note.id}`;
   const editor = useEditor({
-    extensions: [NotebookInkAnchors, InlineMediaExtension, CitationExtension, DrawingExtension.configure({ noteId: note.id }), ...noteFormatting(), StarterKit.configure({ heading: { levels: [1, 2, 3] }, blockquote: false, code: false, codeBlock: false, horizontalRule: false, link: { openOnClick: false, autolink: false, linkOnPaste: false }, strike: false }), TaskList, TaskItem.configure({ nested: true })],
+    extensions: [NotebookInkAnchors, NotebookTextBoxes, InlineMediaExtension, CitationExtension, DrawingExtension.configure({ noteId: note.id }), ...noteFormatting(), StarterKit.configure({ heading: { levels: [1, 2, 3] }, blockquote: false, code: false, codeBlock: false, horizontalRule: false, link: { openOnClick: false, autolink: false, linkOnPaste: false }, strike: false }), TaskList, TaskItem.configure({ nested: true })],
     content: note.document, editable: false,
     editorProps: { attributes: { role: "textbox", "aria-label": "Topic note content", "aria-multiline": "true", class: "notebook-writing" } },
-    onUpdate: ({ editor }) => change({ document: editor.getJSON() as RichNode }),
+    onUpdate: ({ editor }) => change({ document: notebookJSON(editor.getJSON() as RichNode) }),
   });
   function change(patch: Partial<NotebookNote>) {
     value.current = { ...value.current, note: { ...value.current.note, ...patch }, revision: value.current.revision + 1 };
@@ -298,10 +306,44 @@ export function TopicEditor({ note, toolbarHost }: { note: NotebookNote; toolbar
   const mediaParam = params.get("media"), timeParam = params.get("at");
   useEffect(() => { const next = readCue(location.href, note.id); if (next) setCue(next); }, [mediaParam, timeParam, note.id]);
   useEffect(() => { if (drawing) setPaperTool("select"); }, [drawing]);
+  function insertQuote(text: string, source: SourceRef) {
+    if (!editor || editor.isDestroyed || !quoteAnchor || editor.state.doc !== quoteAnchor.doc) return false;
+    const { position } = quoteAnchor;
+    const { schema } = editor.state;
+    const citation = schema.nodeFromJSON(citationNode(source));
+    const quote = text.match(/[\s\S]{1,50000}/gu)?.map(part => schema.nodeFromJSON(paragraph(part))) || [];
+    const blocks = Fragment.fromArray([...quote, citation]);
+    const tr = closeHistory(editor.state.tr).replaceRange(position, position, new Slice(blocks, 0, 0));
+    let after: number | undefined;
+    tr.doc.nodesBetween(tr.mapping.map(position, -1), tr.mapping.map(position, 1), (node, at) => {
+      if (node === citation) after = at + node.nodeSize;
+    });
+    if (after === undefined) return false;
+    if (!tr.doc.resolve(after).nodeAfter?.isTextblock) tr.insert(after, schema.nodes.paragraph.create());
+    tr.setSelection(TextSelection.create(tr.doc, after + 1)).scrollIntoView();
+    switchTool("write");
+    setSelectingMedia(false);
+    editor.view.dispatch(tr);
+    editor.view.dispatch(closeHistory(editor.state.tr));
+    setQuoteAnchor(undefined);
+    requestAnimationFrame(() => { if (!editor.isDestroyed) editor.view.focus(); });
+    return true;
+  }
   const ribbon = <div className="notebook-ribbon">
     <div className="notebook-toolbar" role="toolbar" aria-label="Topic note formatting" onMouseDown={e => { if (!(e.target as Element).closest("input,select")) e.preventDefault(); }}>
       <button type="button" aria-pressed={paperTool === "draw"} disabled={!loaded} onClick={() => switchTool(paperTool === "draw" ? "write" : "draw")}><PenLine size={17} />Pen</button>
       <button type="button" disabled={!loaded || attaching} onClick={() => fileInput.current?.click()}><Paperclip size={17} />Attach media</button>
+      <button type="button" disabled={!loaded || !editor} onClick={() => {
+        if (!editor) return;
+        const { $to } = editor.state.selection;
+        const position = $to.depth === 1 && validTextBox($to.parent.attrs.textBox) ? $to.after() : $to.pos;
+        setQuoteAnchor({ doc: editor.state.doc, position });
+      }}><Quote size={17} />Insert quote</button>
+      <button type="button" disabled={!loaded || !editor} onClick={() => {
+        if (!editor) return;
+        switchTool("write"); setSelectingMedia(false);
+        insertTextBox(editor);
+      }}><SquarePen size={17} />Text box</button>
       <button type="button" aria-pressed={selectingMedia} disabled={!loaded || !files?.length} onClick={() => { switchTool("write"); setSelectingMedia(!selectingMedia); setSelectedMedia(new Set()); }}><ScanLine size={16} />Select media</button>
       <button aria-label="Bold" aria-pressed={editor?.isActive("bold") || false} onClick={() => editor?.chain().focus().toggleBold().run()}><b>B</b></button>
       <button aria-label="Italic" onClick={() => editor?.chain().focus().toggleItalic().run()}><i>I</i></button>
@@ -330,7 +372,9 @@ export function TopicEditor({ note, toolbarHost }: { note: NotebookNote; toolbar
       <button className="text-button" aria-pressed={paperTool === "select"} onClick={() => switchTool("select")}><MousePointer2 size={16} />Select drawing</button>
       <button className="text-button" onClick={() => switchTool("write")}><Type size={16} />Write</button>
       <InkToolbar style={inkStyle} change={style => { inkBinding.current?.flush(); setInkStyle(style); switchTool("draw"); }} undo={() => void inkHistory.move().catch(e => setNotice(e.message))} redo={() => void inkHistory.move(true).catch(e => setNotice(e.message))} />
-    </div>}</div>;
+    </div>}
+    {quoteAnchor && <InsertQuote onClose={() => setQuoteAnchor(undefined)} onInsert={insertQuote} />}
+  </div>;
   return <section className="topic-editor" onBlur={e => {
     const target = e.relatedTarget as Node | null;
     if (!e.currentTarget.contains(target) && !toolbarHost?.contains(target)) void flush();
@@ -369,6 +413,7 @@ export function TopicEditor({ note, toolbarHost }: { note: NotebookNote; toolbar
             if (next) { event.preventDefault(); event.stopPropagation(); setCue(next); }
           }} />
           {dropLine !== undefined && <div className="notebook-drop-line" style={{ top: dropLine }} aria-hidden="true" />}
+          {editor && loaded && <NotebookTextBoxControls editor={editor} paper={paper} enabled={paperTool === "write" && !selectingMedia} />}
           {lasso.box && <div className="notebook-media-lasso" style={lasso.box} aria-hidden="true" />}
           {editor && loaded && <NotebookMediaLayer editor={editor} files={files || noMedia} cue={cue} paper={paper} selected={selectedMedia} onSelect={toggleMedia} onFree={toggleFree} onDragInline={dragInline} onMoveFree={positions => updateMedia(() => positionMedia(note.id, positions))} onMove={bumpMedia} onTimestamp={value => {
             switchTool("write");

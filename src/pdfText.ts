@@ -6,6 +6,8 @@ import type { PageOcr } from "./reader/ocr";
 
 export type OcrWord = { text: string; rect: Rect };
 type Edition = Pick<Book, "id" | "hash">;
+export const pdfPageCountPrefix = "pdf-page-count:";
+export const pdfPageCountKey = (hash: string) => pdfPageCountPrefix + hash;
 export const ocrKey = (book: Edition, page: number) => `ocr-v2:${book.id}:${book.hash}:${page}`;
 export const textKey = (book: Edition, page: number) => `pdf-text-v1:${book.id}:${book.hash}:${page}`;
 export const preparationKey = (book: Edition) => `pdf-preparation:${book.id}:${book.hash}`;

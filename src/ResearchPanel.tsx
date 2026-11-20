@@ -12,14 +12,9 @@ import { SaveResearch } from "./SaveResearch";
 import { BookReviewPicker } from "./BookReviewPicker";
 import { BookComparisonPicker, BookComparisonView, queueBookComparison } from "./BookComparison";
 import { reviewQuestion, type ReviewSection } from "./bookReview";
+import { ResearchAnswer } from "./ResearchAnswer";
 import "./researchPanel.css";
 
-function Answer({ text, sources, prefix }: { text: string; sources: SourceRef[]; prefix: string }) {
-  return <>{text.split(/\n\s*\n/).map((paragraph, i) => <p key={i}>{paragraph.split(/(\[S\d+\])/g).map((part, n) => {
-    const ref = sources.find(s => `[${s.id}]` === part);
-    return ref ? <sup key={n}><a href={`#research-source-${prefix}-${ref.id}`} onClick={e => { e.preventDefault(); const target = document.getElementById(`research-source-${prefix}-${ref.id}`); const details = target?.closest("details"); if (details) details.open = true; target?.scrollIntoView({ block: "nearest", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" }); }} title={ref.title}>{part}</a></sup> : <span key={n}>{part}</span>;
-  })}</p>)}</>;
-}
 export function ResearchPanel({ book, selection, notebookId, defaultNoteId, initialThreadId, onThreadChange, libraryFirst = false }: { book?: Book; selection?: SourceRef; notebookId?: string; defaultNoteId?: string; initialThreadId?: string; onThreadChange?: (id: string) => void; libraryFirst?: boolean }) {
   const books = useLiveQuery(() => list("book"), []) || [];
   const notes = useLiveQuery(() => list("notebook-note"), []) || [];
@@ -224,7 +219,7 @@ export function ResearchPanel({ book, selection, notebookId, defaultNoteId, init
             const text = s.toString().trim(); const refs = citedSources(text, m.sources);
             setSelectedClip({ id: m.id, text, sources: refs.length ? refs : m.sources });
           }
-        }}><Answer text={m.answer} sources={m.sources} prefix={m.id} /></div>
+        }}><ResearchAnswer text={m.answer} sources={m.sources} prefix={m.id} /></div>
         {selectedClip?.id === m.id && <div className="research-selection-preview"><NotebookPen size={14} /><span>{selectedClip.text.slice(0, 100)}{selectedClip.text.length > 100 ? "…" : ""}</span><button aria-label="Use whole answer" onClick={() => setSelectedClip(undefined)}><X size={15} /></button></div>}
         <div className="research-answer-actions"><button className="research-save-answer" onPointerDown={e => e.preventDefault()} onClick={() => setClip({ text: selectedClip?.id === m.id ? selectedClip.text : m.answer, sources: selectedClip?.id === m.id ? selectedClip.sources : m.sources })}><NotebookPen size={15} />{selectedClip?.id === m.id ? "Save selected excerpt…" : "Save answer…"}</button><button className="research-copy" aria-label="Copy" title="Copy answer or selected excerpt" onClick={() => {
           const text = selectedClip?.id === m.id ? selectedClip.text : m.answer;

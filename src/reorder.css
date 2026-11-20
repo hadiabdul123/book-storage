@@ -1,7 +1,8 @@
 .reorder-item { position: relative; min-width: 0; }
 .reorder-item > .book-card { height: 100%; }
 .reorder-item > .workspace-more { position: absolute; right: 4px; top: 4px; z-index: 1; width: 38px; background:#fff; border-radius:4px; }
-.books-list .reorder-item > .workspace-more { right:42px; }
+.books-list .reorder-item > .workspace-more { right:0; top:50%; transform:translateY(-50%); }
+.books-list .reorder-item > .book-card { padding-inline-end:44px; }
 .reorder-grip { display: grid; place-items: center; flex: 0 0 30px; min-height: 38px; flex-shrink: 0; cursor: grab; color: #526578; touch-action: none; user-select: none; }
 .reorder-item > .reorder-grip { position: absolute; top: 4px; left: 4px; z-index: 1; width: 34px; background: #fff; border-radius: 4px; }
 [data-reordering], [data-reordering] * { cursor: grabbing !important; user-select: none; }

@@ -429,9 +429,7 @@
   }
   .continue-reading > div:not(.continue-decoration) {
     z-index: 1;
-  }
-  .continue-reading .muted {
-    font-size: 12px;
+    min-width: 0;
   }
   .continue-decoration {
     position: absolute;
@@ -445,15 +443,8 @@
     height: 124px;
     aspect-ratio: auto;
   }
-  .resume-progress {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    font-size: 12px;
-    color: #83909c;
-  }
-  .resume-progress .progress-line {
-    width: 115px;
+  .continue-reading .book-progress {
+    width: min(240px, 100%);
   }
   .resume-button {
     margin-top: 12px;
@@ -541,6 +532,8 @@
     gap: 30px 29px;
   }
   .book-card {
+    display: flex;
+    flex-direction: column;
     min-width: 0;
     max-width: 230px;
   }
@@ -659,20 +652,27 @@
     margin-top: -2px;
     color: #96a1ab;
   }
-  .book-card > p {
+  .book-card > .book-author {
     font-size: 12px;
-    color: #89949e;
-    margin: 5px 0 9px;
+    color: var(--muted);
+    margin: 4px 0 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .book-meta {
+  .book-progress {
+    min-width: 0;
+    display: grid;
+    gap: 5px;
+  }
+  .book-progress-label {
     display: flex;
     justify-content: space-between;
-    font-size: 10px;
-    color: #9aa4ad;
-    gap: 6px;
+    flex-wrap: wrap;
+    font-size: 12px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    gap: 2px 6px;
   }
   .progress-line {
     height: 3px;
@@ -686,8 +686,9 @@
     background: #6b94b7;
     border-radius: 4px;
   }
-  .book-card > .progress-line {
-    margin-top: 8px;
+  .books-grid .book-progress {
+    padding-top: 7px;
+    margin-top: auto;
   }
   .books-list {
     display: flex;
@@ -696,7 +697,8 @@
   }
   .books-list .book-card {
     display: grid;
-    grid-template-columns: 55px minmax(100px, 1.6fr) 1fr 150px;
+    grid-template-columns: 55px minmax(100px, 1.6fr) minmax(0, 1fr) minmax(145px, 1fr);
+    grid-template-areas: "cover title author progress";
     gap: 20px;
     align-items: center;
     max-width: none;
@@ -704,14 +706,18 @@
     border-bottom: 1px solid var(--line);
   }
   .books-list .book-card-title {
+    grid-area: title;
     margin: 0;
   }
-  .books-list .book-card > p {
+  .books-list .book-card > .book-cover-link {
+    grid-area: cover;
+  }
+  .books-list .book-card > .book-author {
+    grid-area: author;
     margin: 0;
   }
-  .books-list .book-card > .progress-line {
-    grid-column: 2/-1;
-    margin-top: -15px;
+  .books-list .book-progress {
+    grid-area: progress;
   }
   .books-list .cover-read {
     display: none;
@@ -1209,9 +1215,22 @@
     text-overflow: ellipsis;
     overflow: hidden;
   }
-  .reader-title > span {
-    color: #94a0aa;
-    font-size: 11px;
+  .reader-byline {
+    display: flex;
+    align-items: baseline;
+    gap: 4px 8px;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.2;
+  }
+  .reader-author {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .reader-location {
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
   }
   .reader-tools {
     display: flex;
@@ -1305,6 +1324,7 @@
     display: flex;
     flex-direction: column;
     gap: 5px;
+    font-variant-numeric: tabular-nums;
   }
   .reader-progress > .progress-line {
     height: 2px;
@@ -1641,14 +1661,13 @@
       grid-template-columns: 1fr;
     }
     .books-list .book-card {
-      grid-template-columns: 48px minmax(100px, 1.5fr) 1fr;
+      grid-template-columns: 48px minmax(0, 1fr);
+      grid-template-areas: "cover title" "cover author" "cover progress";
+      gap: 4px 14px;
+      align-content: center;
     }
-    .books-list .book-meta {
-      grid-column: 2/-1;
-      margin-top: -16px;
-    }
-    .books-list .book-card > .progress-line {
-      display: none;
+    .books-list .book-progress {
+      max-width: 260px;
     }
   }
   @media (max-width: 760px) {
@@ -1704,16 +1723,6 @@
       width: 73px;
       height: 106px;
     }
-    .continue-reading .muted {
-      font-size: 11px;
-    }
-    .resume-progress {
-      gap: 8px;
-      font-size: 10px;
-    }
-    .resume-progress .progress-line {
-      width: 75px;
-    }
     .resume-button {
       font-size: 12px;
       margin-top: 8px;
@@ -1760,18 +1769,8 @@
     .book-card-title .icon-button {
       width: 18px;
     }
-    .book-card > p {
+    .book-card > .book-author {
       font-size: 11px;
-      margin-top: 4px;
-    }
-    .book-meta {
-      font-size: 9px;
-    }
-    .book-meta > span:first-child {
-      max-width: 60%;
-      overflow: hidden;
-      white-space: nowrap;
-      text-overflow: ellipsis;
     }
     .cover-type {
       padding: 16px 9px;
@@ -1858,9 +1857,6 @@
     .reader-title strong {
       font-size: 12px;
     }
-    .reader-title > span {
-      font-size: 10px;
-    }
     .reader-tools {
       gap: 0;
       width: 100%;
@@ -1932,9 +1928,6 @@
       font-size: 12px;
       left: 8px;
       right: 8px;
-    }
-    .book-meta {
-      gap: 3px;
     }
     .export-select {
       font-size: 11px;

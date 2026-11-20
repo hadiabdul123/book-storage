@@ -187,6 +187,7 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
     await first.goto(baseURL!);
     const original = await scanPdf(first, false, 2);
     await first.locator("input[type=file]").setInputFiles({ name: "Shared scan.pdf", mimeType: "application/pdf", buffer: original });
+    await first.getByRole("button", { name: /^Details for/ }).click();
     await expect(first.locator(".book-sync-status")).toContainText("Synced", {
       timeout: 30000,
     });
@@ -199,6 +200,7 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
         .digest("hex"),
     ).toBe(expected);
     await expect(first.locator(".book-preparation")).toContainText("Text ready", { timeout: 60_000 });
+    await first.getByRole("dialog", { name: "Book details" }).getByRole("button", { name: "Close", exact: true }).click();
     await expect.poll(() => [...rows.values()].some(row => row.kind === "book" && row.value.preparedTextPath && objects.has(`${user.id}/${row.value.preparedTextPath}`)), { timeout: 30_000 }).toBe(true);
     expect([...uploads.values()].filter(upload => upload.path.endsWith("/source.pdf"))).toHaveLength(1);
     await first.locator(".book-cover-link").click();
@@ -234,9 +236,11 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
     const second = await phone.newPage();
     await second.goto(baseURL!);
     await expect(second.locator(".book-card")).toHaveCount(1);
+    await second.getByRole("button", { name: /^Details for/ }).click();
     await expect(second.locator(".book-sync-status")).toContainText(
       "Download when opened",
     );
+    await second.getByRole("dialog", { name: "Book details" }).getByRole("button", { name: "Close", exact: true }).click();
     await second.locator(".book-cover-link").click();
     await openTools(second);
     await expect(second.locator(".reader-progress")).toContainText("Page 2", {

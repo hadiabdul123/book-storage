@@ -1,7 +1,9 @@
 import type { Annotation, Locator, Preferences } from "../model";
+import type { NarrationItem } from "./narrationText";
 export interface Section {
   id: string;
   label: string;
+  start?: Locator;
   children?: Section[];
 }
 export interface SearchHit {
@@ -33,6 +35,7 @@ export interface ReaderEvents {
   onPageNote?: (page: number) => void;
   onRegionMode?: (enabled: boolean) => void;
   onLayoutFallback?: (fallback: boolean) => void;
+  onPageCount?: (total: number) => void;
   onLocation: (locator: Locator, progress: number) => void;
   onSelection: (selection: Selection | null, source?: SelectionSource) => void;
   onAnnotation: (id: string) => void;
@@ -48,6 +51,8 @@ export interface ReaderAdapter {
   previous: () => Promise<void>;
   search: (query: string) => Promise<SearchHit[]>;
   sections: () => Promise<Section[]>;
+  narration: (start: Locator | undefined, signal: AbortSignal) => AsyncGenerator<NarrationItem>;
+  prepareNarration?: (locator: Locator) => Promise<void>;
   configure: (preferences: Preferences) => void;
   annotate: (annotations: Annotation[]) => void;
   hasSelection: () => boolean;

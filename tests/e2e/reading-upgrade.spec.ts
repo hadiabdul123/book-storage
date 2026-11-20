@@ -1,11 +1,174 @@
 import { test, expect, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
-import { PDFDocument } from "pdf-lib";
+import { PDFDocument, PDFName, PDFString } from "pdf-lib";
 import { numberedPdf } from "../helpers/numbered-pdf";
 import { textPdf } from "../helpers/text-pdf";
 import { clickTool, showPassageAction } from "./controls";
 test.use({ hasTouch: true });
 test.beforeEach(async ({ page }) => { await page.addInitScript(() => localStorage.setItem("leafmark-controls-pinned", "true")); });
+
+test("contents lists chapter starts and marks the chapter at the current page", async ({ page }) => {
+  const pdf = await PDFDocument.load(numberedPdf(4));
+  const { context } = pdf;
+  const root = context.obj({ Type: "Outlines", Count: 2 });
+  const rootRef = context.register(root);
+  const chapter = (title: string, page: number) => context.obj({
+    Title: PDFString.of(title), Parent: rootRef, Dest: [pdf.getPage(page).ref, PDFName.of("Fit")],
+  });
+  const first = chapter("First chapter", 0), second = chapter("Second chapter", 2);
+  const firstRef = context.register(first), secondRef = context.register(second);
+  first.set(PDFName.of("Next"), secondRef); second.set(PDFName.of("Prev"), firstRef);
+  root.set(PDFName.of("First"), firstRef); root.set(PDFName.of("Last"), secondRef);
+  pdf.catalog.set(PDFName.of("Outlines"), rootRef);
+  await page.goto("/");
+  await page.locator("input[type=file]").setInputFiles({ name: "Outline guide.pdf", mimeType: "application/pdf", buffer: Buffer.from(await pdf.save()) });
+  await page.locator(".book-cover-link").click();
+  await expect(page.locator(".reader-location")).toHaveText("Page 1 of 4");
+  await clickTool(page, "Contents");
+  const contents = page.getByRole("navigation", { name: "Book contents" });
+  await expect(contents).toContainText("2 sections");
+  await expect(contents.locator('[aria-current="location"]')).toContainText("First chapter");
+  await expect(contents.getByLabel("Starts on page 3")).toBeVisible();
+  await contents.getByRole("button", { name: /Second chapter/ }).click();
+  await expect(page.locator(".reader-location")).toHaveText("Page 3 of 4");
+  await clickTool(page, "Contents");
+  await expect(contents.locator('[aria-current="location"]')).toContainText("Second chapter");
+  await contents.getByLabel("Go to page").fill("2");
+  await contents.getByRole("button", { name: "Go", exact: true }).click();
+  await expect(page.locator(".reader-location")).toHaveText("Page 2 of 4");
+});
+
+test("read along starts at a selection and draws a temporary sentence highlight", async ({ page }) => {
+  await page.addInitScript(() => {
+    // The Windows WebKit runner ships without a usable audio backend.
+    if (window.AudioContext || "webkitAudioContext" in window) return;
+    const createUrl = URL.createObjectURL.bind(URL);
+    const media = new Map<string, Blob>();
+    URL.createObjectURL = file => {
+      const url = createUrl(file);
+      if (file instanceof Blob && file.type === "audio/wav") media.set(url, file);
+      return url;
+    };
+    HTMLMediaElement.prototype.play = async function () {
+      const file = media.get(this.src);
+      if (!file) throw new Error("Missing narration WAV");
+      media.delete(this.src);
+      const header = new DataView(await file.arrayBuffer());
+      if (header.getUint32(0) !== 0x52494646 || header.getUint32(8) !== 0x57415645) throw new Error("Invalid narration WAV");
+    };
+    HTMLMediaElement.prototype.pause = function () {};
+  });
+  await page.route(url => url.pathname.endsWith("/narration.worker.ts"), route => route.fulfill({
+    contentType: "text/javascript",
+    body: `self.onmessage = ({ data }) => {
+      const samples = new Float32Array(72000);
+      self.postMessage({ id: data.id, samples, rate: 24000 }, [samples.buffer]);
+    };`,
+  }));
+  await page.goto("/");
+  await page.locator("input[type=file]").setInputFiles({ name: "Narration.pdf", mimeType: "application/pdf",
+    buffer: textPdf(["The first sentence opens the story.", "The second sentence belongs here.", "The third sentence ends the passage."]) });
+  await page.locator(".book-cover-link").click();
+  await page.locator(".textLayer span").getByText("The second sentence belongs here.", { exact: true }).evaluate(element => {
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    const selection = document.getSelection()!;
+    selection.removeAllRanges(); selection.addRange(range);
+    document.dispatchEvent(new Event("selectionchange"));
+  });
+  await showPassageAction(page, "Listen from here");
+  await page.getByRole("button", { name: "Listen from here", exact: true }).click();
+  await page.getByLabel("Playback speed").selectOption("1.25");
+  await page.getByRole("button", { name: "Play from selection" }).click();
+  await expect(page.locator(".read-along blockquote")).toHaveText("The second sentence belongs here.");
+  await expect(page.locator(".narration-layer span").first()).toBeVisible();
+  await page.getByRole("button", { name: "Pause", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Resume", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Next sentence" }).click();
+  await expect(page.locator(".read-along blockquote")).toHaveText("The third sentence ends the passage.");
+  await page.getByRole("button", { name: "Stop narration" }).click();
+  await expect(page.locator(".narration-layer")).toHaveCount(0);
+  await expect(page.locator(".pdf-highlight")).toHaveCount(0);
+});
+
+test("library and reader agree on PDF pages and progress", async ({ page }, info) => {
+  await page.goto("/");
+  await page.locator("input[type=file]").setInputFiles({ name: "Progress guide.pdf", mimeType: "application/pdf", buffer: numberedPdf(4) });
+  const card = page.locator(".book-card");
+  const label = card.locator(".book-progress-label");
+  await expect(label.locator("span")).toHaveText(["4 pages", "0%"]);
+  await expect(card).not.toContainText("Unknown author");
+  await expect(card.locator(".book-preparation, .book-sync-status")).toHaveCount(0);
+  await card.getByRole("button", { name: "Details for Progress guide" }).click();
+  const details = page.getByRole("dialog", { name: "Book details" });
+  await expect(details).toContainText("Available offline");
+  await details.getByRole("textbox", { name: "Author", exact: true }).fill("A. Reader");
+  await details.getByRole("button", { name: "Save changes" }).click();
+  await expect(card.locator(".book-author")).toHaveText("A. Reader");
+
+  // Model a pre-existing PDF with prepared text and a missing page-count cache.
+  const book = await page.evaluate(async () => {
+    const { db, list } = await import("/src/db.ts");
+    const { pdfPageCountKey, preparationKey } = await import("/src/pdfText.ts");
+    const book = (await list("book"))[0];
+    await db.meta.put({ key: preparationKey(book), value: JSON.stringify({ status: "ready", total: 4, done: 4 }) });
+    await db.meta.delete(pdfPageCountKey(book.hash));
+    return { id: book.id, hash: book.hash };
+  });
+  await expect(label.locator("span")).toHaveText(["0%"]);
+  await card.locator(".book-cover-link").click();
+  const header = page.locator(".reader-location");
+  const footer = page.locator(".reader-progress > span");
+  async function expectPage(number: number) {
+    const expected = `Page ${number} of 4`;
+    await expect(header).toBeVisible();
+    await expect(header).toHaveText(expected);
+    await expect(footer).toHaveText(expected);
+  }
+  await expectPage(1);
+  await clickTool(page, "Reading settings");
+  await page.getByRole("combobox", { name: "Pages across", exact: true }).selectOption("1");
+  await page.getByRole("combobox", { name: "Navigation", exact: true }).selectOption("paginated");
+  await page.getByRole("button", { name: "Close panel", exact: true }).click();
+  await expect(page.locator(".reader-host")).not.toHaveAttribute("aria-busy", "true");
+  await page.getByRole("button", { name: "Next page", exact: true }).click();
+  await expectPage(2);
+
+  await clickTool(page, "Reading settings");
+  await page.getByRole("combobox", { name: "Pages across", exact: true }).selectOption("2");
+  await page.getByRole("button", { name: "Close panel", exact: true }).click();
+  await expect(page.locator(".reader-host")).toHaveAttribute("data-columns", "2");
+  await expect(page.locator(".reader-host")).not.toHaveAttribute("aria-busy", "true");
+  const target = encodeURIComponent(JSON.stringify({ type: "pdf", v: 1, hash: book.hash, page: 3, y: 0 }));
+  await page.goto(`/#/read/${book.id}?source=${target}`);
+  await expectPage(3);
+  expect(await header.evaluate(element => element.getBoundingClientRect().right <= innerWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath("reader-page-progress.png") });
+  await clickTool(page, "Reading mode");
+  await expect(header).toBeHidden();
+  await expect(footer).toBeHidden();
+  await page.reload();
+  await expectPage(3);
+  await page.getByRole("link", { name: "Back to library", exact: true }).click();
+  await expect(label.locator("span")).toHaveText(["Page 3 of 4", "75%"]);
+  await expect(page.locator(".continue-reading .book-progress-label span")).toHaveText(["Page 3 of 4", "75%"]);
+  await card.locator(".book-cover-link").click();
+  await expectPage(3);
+  await clickTool(page, "Reading settings");
+  await page.getByLabel("Hide bottom page controls").check();
+  await page.getByRole("button", { name: "Close panel", exact: true }).click();
+  await expect(header).toHaveText("Page 3 of 4");
+  await expect(footer).toHaveCount(0);
+  await page.getByRole("link", { name: "Back to library", exact: true }).click();
+  await page.getByRole("button", { name: "List view" }).click();
+  await expect(page.locator(".books-list .book-progress-label span")).toHaveText(["Page 3 of 4", "75%"]);
+  await page.screenshot({ path: info.outputPath("library-list-progress.png") });
+  await card.getByRole("button", { name: "Details for Progress guide" }).click();
+  await details.getByLabel("Reading status").selectOption("finished");
+  await details.getByRole("button", { name: "Save changes" }).click();
+  await expect(label.locator("span")).toHaveText(["Page 3 of 4", "100%"]);
+});
+
 async function open(page: Page) {
   await page.goto("/");
   await page.locator("input[type=file]").setInputFiles({ name: "Reading practice.pdf", mimeType: "application/pdf", buffer: numberedPdf(4) });

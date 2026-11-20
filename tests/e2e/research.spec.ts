@@ -132,18 +132,24 @@ test("book study queues separate cited reviews and compares evidence from every 
   await expect(page.getByRole("heading", { name: "Study Alpha", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Study Beta", exact: true })).toBeVisible();
   await page.goto("/#/notebooks?view=research");
-  await page.getByRole("button", { name: "New research", exact: true }).click();
-  await page.getByText("Choose books and notes", { exact: true }).click();
+  await page.getByRole("button", { name: "New study", exact: true }).click();
+  await page.getByLabel("Study name").fill("River restoration");
+  await page.getByRole("button", { name: "Create study", exact: true }).click();
+  await page.getByRole("button", { name: "Choose sources", exact: true }).click();
   await page.getByRole("checkbox", { name: "Study Alpha", exact: true }).check();
   await page.getByRole("checkbox", { name: "Study Beta", exact: true }).check();
-  await page.getByText("Choose books and notes", { exact: true }).click();
+  await page.getByRole("button", { name: "Save sources", exact: true }).click();
+  await page.getByText("More actions", { exact: true }).click();
   await page.getByRole("button", { name: "Review chapters" }).click();
   await expect(page.getByRole("dialog")).toContainText("Pages 1–2");
   await page.getByRole("button", { name: "Review 2 sections" }).click();
   await expect(page.getByRole("dialog")).toContainText("2 sections queued");
-  await page.getByRole("button", { name: "Back to conversation", exact: true }).click();
+  await page.getByRole("button", { name: "Back to study", exact: true }).click();
   await page.context().setOffline(true);
-  await page.getByRole("button", { name: "Compare these books", exact: true }).click();
+  await page.getByLabel("Research question").fill("restoration");
+  await page.getByRole("button", { name: "Find passages", exact: true }).click();
+  await expect(page.locator(".study-passages")).toContainText("community support");
+  await page.getByRole("button", { name: "Compare books", exact: true }).click();
   await page.getByLabel("Comparison question").fill("How do these books compare river restoration?");
   await page.getByRole("button", { name: "Start comparison", exact: true }).click();
   await expect.poll(async () => page.evaluate(async () => {
@@ -166,7 +172,7 @@ test("book study queues separate cited reviews and compares evidence from every 
       answer: "Both discuss river restoration. [S1] [S2]", sources, model: "test", createdAt: new Date().toISOString(),
       comparison: {
         columns: pending.request.comparison!.books.map((item, index) => ({
-          ...item, answer: index ? "Community support matters." : "Habitat matters.", gap: "", sourceIds: [sources[index].id],
+          ...item, answer: item.title === "Study Alpha" ? "Habitat matters." : "Community support matters.", gap: "", sourceIds: [sources[index].id],
         })),
         synthesis: { text: "They emphasize different parts of restoration.", sourceIds: sources.map(source => source.id) },
       },
@@ -176,8 +182,47 @@ test("book study queues separate cited reviews and compares evidence from every 
   const comparison = page.getByRole("article", { name: "Book comparison" });
   await expect(comparison.getByRole("region", { name: "Study Alpha" })).toContainText("Habitat matters");
   await expect(comparison.getByRole("region", { name: "Study Beta" })).toContainText("Community support matters");
+  await comparison.getByRole("region", { name: "Study Beta" }).getByRole("button", { name: "Evidence on page 1" }).click();
+  const evidence = page.getByRole("complementary", { name: "Supporting evidence" });
+  await expect(evidence.getByRole("link")).toContainText("Study Beta");
+  await expect(evidence.getByRole("link")).toHaveAttribute("href", /#\/read\/.+\?source=/);
+  await page.screenshot({ path: test.info().outputPath("study-evidence.png"), fullPage: true });
   await comparison.getByRole("button", { name: "Save finding" }).first().click();
   await expect(page.getByRole("dialog")).toContainText("1 source reference");
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByRole("button", { name: "Sources (2)", exact: true }).click();
+  await page.getByRole("checkbox", { name: "Study Alpha", exact: true }).uncheck();
+  await page.getByRole("button", { name: "Save sources", exact: true }).click();
+  await page.getByLabel("Research question").fill("What supports the ecosystem?");
+  await page.getByRole("button", { name: "Queue question", exact: true }).click();
+  await expect(page.locator(".research-pending")).toContainText("What supports the ecosystem?");
+  const queued = await page.evaluate(async () => {
+    const { db } = await import("/src/db.ts");
+    const job = (await db.researchJobs.toArray()).find(job => job.request.question === "What supports the ecosystem?")!;
+    return { titles: [...new Set(job.request.sources.map(source => source.title))], history: job.request.history };
+  });
+  expect(queued).toEqual({ titles: ["Study Beta"], history: [] });
+  await page.context().setOffline(false);
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Sources (1)", exact: true })).toBeVisible();
+  await page.getByRole("combobox", { name: "Study results", exact: true }).selectOption({ label: "Comparison · How do these books compare river restoration?" });
+  await expect(comparison.getByRole("region", { name: "Study Alpha" })).toContainText("Habitat matters");
+  await page.context().setOffline(true);
+  await page.getByRole("button", { name: "Ask a follow-up", exact: true }).click();
+  await page.getByLabel("Research question").fill("What is the strongest support?");
+  await page.getByRole("button", { name: "Queue question", exact: true }).click();
+  await expect(page.locator(".research-pending")).toContainText("What is the strongest support?");
+  expect(await page.evaluate(async () => {
+    const { db } = await import("/src/db.ts");
+    const job = (await db.researchJobs.toArray()).find(job => job.request.question === "What is the strongest support?")!;
+    return job.request.history.map(item => item.question);
+  })).toEqual(["How do these books compare river restoration?"]);
+  await page.getByRole("button", { name: "All studies", exact: true }).click();
+  await page.getByRole("button", { name: "Search library", exact: true }).click();
+  const library = page.getByRole("dialog", { name: "Search library" });
+  await library.getByLabel("Search prepared book text").fill("community");
+  await library.getByRole("button", { name: "Search", exact: true }).click();
+  await expect(library.getByText("River restoration also needs community support.", { exact: true })).toBeVisible();
 });
 
 for (const format of ["epub", "docx"] as const) test(`${format} contextual research retains a navigable source and locally indexes its text`, async ({ page }) => {
@@ -210,4 +255,21 @@ for (const format of ["epub", "docx"] as const) test(`${format} contextual resea
     const { list, db } = await import("/src/db.ts"); const notes = await list("notebook-note"); const source = notes[0].document.content?.find(n => n.type === "citation")?.attrs?.source;
     return source?.locator.type === format && (await db.chunks.count()) > 0;
   }, format)).toBe(true);
+  const saved = await page.evaluate(async () => {
+    const { list, save } = await import("/src/db.ts");
+    const note = (await list("notebook-note"))[0];
+    const source = note.document.content!.find(node => node.type === "citation")!.attrs!.source;
+    const text = source.locator.quote?.exact || source.excerpt;
+    await save("annotation", { id: "format-quote", bookId: source.bookId, locator: source.locator, text,
+      note: "", tags: [], color: "yellow", createdAt: new Date().toISOString() });
+    return { noteId: note.id, sourceTitle: source.title };
+  });
+  await page.goto(`/#/notebooks?note=${saved.noteId}`);
+  await page.getByRole("button", { name: "Insert quote", exact: true }).click();
+  await page.getByRole("dialog", { name: "Insert quote" }).locator(".quote-picker-list button").click();
+  const citations = page.getByRole("textbox", { name: "Topic note content" }).getByRole("link", { name: saved.sourceTitle, exact: true });
+  await expect(citations).toHaveCount(2);
+  await citations.first().click();
+  await expect(page).toHaveURL(/#\/read\/.+\?source=/);
+  await expect(body).toContainText(format === "epub" ? "Alice was beginning" : "Thoughtful reading");
 });

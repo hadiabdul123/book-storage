@@ -22,7 +22,9 @@ import { downloadBook, removeDownload } from "./sync";
 import { useBookPreparation, BookPreparationStatus } from "./BookPreparation";
 import { BookSyncStatus } from "./BookSyncStatus";
 import { type Book, type Collection, uid } from "./model";
-import { BookCard, Cover, Dialog, Empty, messageOf } from "./components";
+import { BookCard, BookProgress, Cover, Dialog, Empty, messageOf } from "./components";
+import { pdfPageCountKey, pdfPageCountPrefix } from "./pdfText";
+import { knownAuthor, readingProgress } from "./readingProgress";
 import { ItemMenu } from "./ItemMenu";
 import { moveActions, orderedBooks, reorder, type Move } from "./reordering";
 import { ReorderGrip, useReorderDrag } from "./useReorderDrag";
@@ -33,6 +35,7 @@ export function Library({ notify }: { notify: (message: string) => void }) {
     collections = useLiveQuery(() => list("collection"), []) || [],
     members = useLiveQuery(() => list("membership"), []) || [],
     files = useLiveQuery(() => db.files.toCollection().primaryKeys(), []) || [];
+  const pageCounts = useLiveQuery(() => db.meta.where("key").startsWith(pdfPageCountPrefix).toArray(), [], []);
   useBookPreparation(books);
   const browse = useBrowseState();
   const hasManualOrder = books.some(book => book.manualOrder !== undefined);
@@ -48,12 +51,20 @@ export function Library({ notify }: { notify: (message: string) => void }) {
     [drag, setDrag] = useState(false),
     [newCollection, setNewCollection] = useState(false);
   const input = useRef<HTMLInputElement>(null);
-  const progress = (id: string) =>
-    positions.find((p) => p.bookId === id)?.progress || 0;
+  const progress = useMemo(() => {
+    const savedPositions = new Map(positions.map(position => [position.bookId, position]));
+    const counts = new Map(pageCounts.map(row => [row.key, Number(row.value)]));
+    return new Map(books.map(book => {
+      const saved = savedPositions.get(book.id);
+      return [book.id, readingProgress(book, saved?.locator, saved?.progress,
+        counts.get(pdfPageCountKey(book.hash)), book.status === "finished")];
+    }));
+  }, [books, positions, pageCounts]);
   const recent = [...positions]
     .sort((a, b) => b.readAt.localeCompare(a.readAt))
-    .map((p) => books.find((b) => b.id === p.bookId))
+    .map((p) => books.find((b) => b.id === p.bookId && b.hash === p.locator.hash))
     .find((b) => b && b.status !== "finished");
+  const recentAuthor = recent ? knownAuthor(recent.author) : "";
   const shown = useMemo(
     () =>
       books
@@ -80,10 +91,10 @@ export function Library({ notify }: { notify: (message: string) => void }) {
             : sort === "author"
               ? a.author.localeCompare(b.author)
               : sort === "progress"
-                ? progress(b.id) - progress(a.id)
+                ? (progress.get(b.id)?.fraction ?? 0) - (progress.get(a.id)?.fraction ?? 0)
                 : b.addedAt.localeCompare(a.addedAt),
         ),
-    [books, query, filter, collection, members, sort, positions, files],
+    [books, query, filter, collection, members, sort, progress, files],
   );
   const page = pageOf(shown, browse.value("page"));
   const canReorder = !query && !collection && filter === "all" && (sort === "manual" || (sort === "recent" && !hasManualOrder));
@@ -185,15 +196,9 @@ export function Library({ notify }: { notify: (message: string) => void }) {
             <Cover book={recent} small />
           </Link>
           <div>
-            <span className="muted">Pick up where you left off</span>
             <h2>{recent.title}</h2>
-            <p>{recent.author}</p>
-            <div className="resume-progress">
-              <div className="progress-line">
-                <span style={{ width: `${progress(recent.id) * 100}%` }} />
-              </div>
-              <span>{Math.round(progress(recent.id) * 100)}% complete</span>
-            </div>
+            {recentAuthor && <p>{recentAuthor}</p>}
+            <BookProgress progress={progress.get(recent.id)!} />
             <Link
               className="text-button resume-button"
               to={`/read/${recent.id}`}
@@ -336,8 +341,7 @@ export function Library({ notify }: { notify: (message: string) => void }) {
             <BookCard
               key={book.id}
               book={book}
-              progress={progress(book.id)}
-              downloaded={files.includes(book.id)}
+              progress={progress.get(book.id)!}
               onDetails={() => setDetail(book)}
             />);
             return canReorder ? <ItemMenu key={book.id} title={book.title} className="reorder-item" reorderId={book.id} icon={<ListOrdered size={18} />} grip={<ReorderGrip title={book.title} />} actions={[

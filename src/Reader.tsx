@@ -26,6 +26,7 @@ import {
   MoreHorizontal,
   Sparkles,
   BookOpen,
+  Headphones,
 } from "lucide-react";
 import { comfortablePreferences } from "./readingAppearance";
 import { useReaderViewport } from "./useReaderViewport";
@@ -54,6 +55,9 @@ import { ResearchPanel } from "./ResearchPanel";
 import type { SourceRef } from "./researchTypes";
 import type { Selection as ReaderSelection } from "./reader/types";
 import { validLocator } from "./validation";
+import { pdfPageCountKey, savePageCache } from "./pdfText";
+import { knownAuthor, readingProgress } from "./readingProgress";
+import { ReaderContents } from "./ReaderContents";
 import "./research.css";
 import { pageNoteId, savePageNote } from "./pageNotes";
 import { emptyDocument, paragraph } from "./richText";
@@ -72,6 +76,7 @@ import {
   ReaderInteractions,
   type InteractionHandle,
 } from "./ReaderInteractions";
+const ReadAlong = lazy(() => import("./ReadAlong").then(module => ({ default: module.ReadAlong })));
 
 export function Reader({ notify }: { notify: (message: string) => void }) {
   const { id = "" } = useParams(),
@@ -177,12 +182,21 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
     [meaningPage, setMeaningPage] = useState(1),
     [layoutFallback, setLayoutFallback] = useState(false);
   const [researchSelection, setResearchSelection] = useState<SourceRef>();
+  const [listenStart, setListenStart] = useState<{ locator?: Locator; selected: boolean }>();
+  const [listenHost, setListenHost] = useState<HTMLElement | null>(null);
   const interactions = useRef<InteractionHandle | null>(null);
   const [actionsHost, setActionsHost] = useState<HTMLElement | null>(null);
   const [secondaryActionsHost, setSecondaryActionsHost] = useState<HTMLElement | null>(null);
   const openNotebookRef = useRef<(page: number) => void>(() => {});
   async function flushNotebook() {
     return (await notebook.current?.flush()) ?? true;
+  }
+  async function openListen(selection?: ReaderSelection) {
+    if (!adapter.current || loading || !(await flushNotebook())) return;
+    setListenStart({ locator: selection?.locator ?? current ?? remotePosition?.locator, selected: !!selection });
+    interactions.current?.dismiss();
+    adapter.current.clearSelection();
+    setDrawing(false); setRegion(false); setPanel("listen"); chrome.setMenu(false);
   }
   async function changePanel(name: string) {
     if (await flushNotebook()) {
@@ -219,10 +233,11 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
     [opened, setOpened] = useState(false),
     [loadAttempt, setLoadAttempt] = useState(0),
     [panel, setPanel] = useState(""),
-    [sections, setSections] = useState<Section[]>([]),
+    [sections, setSections] = useState<Section[]>(),
     [editing, setEditing] = useState<Annotation>(),
     [progress, setProgress] = useState(0),
     [current, setCurrent] = useState<Locator>(),
+    [pdfPageCount, setPdfPageCount] = useState<number>(),
     [query, setQuery] = useState(""),
     [hits, setHits] = useState<SearchHit[]>([]),
     [searching, setSearching] = useState(false),
@@ -334,6 +349,9 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
       position.current = null;
       setError("");
       setCurrent(undefined);
+      setPdfPageCount(undefined);
+      setSections(undefined);
+      setListenStart(undefined);
       const [files, oldView, shared, legacy, stored] = await Promise.all([
         downloadBook(book), readDeviceReading(id), get("preferences", "reader"), get("preferences", `pdf:${id}`), get("position", id),
       ]);
@@ -375,6 +393,11 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
         onPageNote: (page) => openNotebookRef.current(page),
         onRegionMode: setRegion,
         onLayoutFallback: setLayoutFallback,
+        onPageCount: (count) => {
+          if (cancelled) return;
+          setPdfPageCount(count);
+          void savePageCache(book, [{ key: pdfPageCountKey(book.hash), value: String(count) }]).catch(() => {});
+        },
         onLocation: (locator, percentage) => {
           if (cancelled) return;
           setCurrent(locator);
@@ -414,7 +437,8 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
       await reader.open(files.source, files.derived);
       if (cancelled) return;
       reader.annotate(annotationsRef.current);
-      setSections(await reader.sections());
+      void reader.sections().then(items => { if (!cancelled) setSections(items); })
+        .catch(() => { if (!cancelled) setSections([]); });
       const target = params.get("annotation");
       const mark = target ? await get("annotation", target) : undefined;
       try {
@@ -557,20 +581,6 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
       notify(messageOf(e));
     }
   }
-  function toc(items: Section[], depth = 0): React.ReactNode {
-    return items.map((s) => (
-      <div key={`${depth}-${s.id}`}>
-        <button
-          className="toc-item"
-          style={{ paddingLeft: 16 + depth * 14 }}
-          onClick={() => void goTo(s.id)}
-        >
-          {s.label}
-        </button>
-        {s.children && toc(s.children, depth + 1)}
-      </div>
-    ));
-  }
   if (book === undefined)
     return (
       <div className="reader-missing">
@@ -585,6 +595,10 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
     ["research", Sparkles, "Research book"],
     ["settings", Settings2, "Reading settings"],
   ] as const;
+  const reading = readingProgress(book, current ?? remotePosition?.locator,
+    current ? progress : remotePosition?.progress, pdfPageCount);
+  const locationLabel = reading.pageLabel ?? `${reading.percent}% complete`;
+  const author = knownAuthor(book.author);
   return (
     <main
       ref={shell}
@@ -660,7 +674,10 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
         </Link>
         <div className="reader-title">
           <strong>{book.title}</strong>
-          <span>{book.author}</span>
+          <div className="reader-byline">
+            {author && <span className="reader-author">{author}</span>}
+            <span className="reader-location">{locationLabel}</span>
+          </div>
         </div>
         <button className="icon-button" aria-label="Contents" aria-pressed={panel === "contents"}
           onClick={() => void changePanel(panel === "contents" ? "" : "contents")}><List size={20} /></button>
@@ -688,6 +705,8 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
               <Icon size={20} />
             </button>
           ))}
+          <button className="icon-button" aria-label="Listen" title="Listen" aria-pressed={panel === "listen"} disabled={loading}
+            onClick={() => { if (panel === "listen") void changePanel(""); else void openListen(); }}><Headphones size={20} /></button>
           <div className="reader-history-controls" ref={setSecondaryActionsHost} />
           <button className="text-button reading-mode-action" aria-label="Reading mode"
             onClick={async () => {
@@ -812,6 +831,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
                     "page-notes": "Page notebooks",
                     meaning: "Meaning",
                     research: "Research",
+                    listen: "Listen",
                   }[panel]
                 }
               </h2>
@@ -824,6 +844,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
               </button>
             </header>
             <div className="panel-body">
+              {panel === "listen" && <div ref={setListenHost} />}
               {panel === "research" && <ResearchPanel book={book} selection={researchSelection} />}
               {panel === "page-notes" && book.format === "pdf" && (
                 <>
@@ -923,7 +944,8 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
               )}
               {panel === "contents" && (
                 <>
-                  <div>{toc(sections)}</div>
+                  <ReaderContents sections={sections || []} position={current ?? remotePosition?.locator}
+                    label={locationLabel} pages={pdfPageCount} loading={sections === undefined} onGoTo={target => void goTo(target)} />
                   <h3>Bookmarks</h3>
                   {bookmarks.length ? (
                     bookmarks.map((b) => (
@@ -1393,13 +1415,9 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
           <ChevronLeft size={22} />
         </button>
         <div className="reader-progress">
-          <span>
-            {current?.type === "pdf"
-              ? `Page ${current.page}`
-              : `${Math.round(progress * 100)}% complete`}
-          </span>
-          <div className="progress-line">
-            <span style={{ width: `${progress * 100}%` }} />
+          <span>{locationLabel}</span>
+          <div className="progress-line" aria-hidden="true">
+            <span style={{ width: `${reading.fraction * 100}%` }} />
           </div>
         </div>
         {region && (
@@ -1426,6 +1444,10 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
           <ChevronRight size={22} />
         </button>
       </footer>}
+      {listenStart && <Suspense fallback={null}>
+        <ReadAlong key={`${book.id}:${book.hash}`} book={book} adapter={adapter} host={host}
+          controls={listenHost} start={listenStart.locator} selected={listenStart.selected} />
+      </Suspense>}
       <ReaderInteractions
         key={book.id}
         ref={interactions}
@@ -1441,6 +1463,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
         suspended={panel !== "" || drawing}
         notify={notify}
         onResearch={openResearch}
+        onListen={openListen}
         onDefinition={async (page, text) => {
           if (!(await flushNotebook()))
             throw new Error("Save the current notebook first.");

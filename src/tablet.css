@@ -23,7 +23,7 @@
     .library-page, .notes-page, .settings-page, .notebooks-page { padding: 32px 28px 48px; }
     .books-grid { grid-template-columns: repeat(auto-fill, minmax(145px, 1fr)); gap: 30px 24px; }
     .book-card-title h3 { font-size: 15px; }
-    .book-card > p { font-size: 13px; }
+    .book-card > .book-author { font-size: 13px; }
     .filter-row { flex-wrap: wrap; gap: 12px; }
     .filter-row .search-field { flex: 1 1 260px; }
     .page-header { flex-wrap: wrap; gap: 16px; }
@@ -90,7 +90,10 @@
 .reader-shell .reader-history-controls { display: flex; gap: 2px; align-items: center; }
 .reader-shell .reader-tools { align-items: center; }
 .reader-shell .reading-mode-action { white-space: nowrap; min-height: 44px; gap: 8px; }
-.reader-shell .reader-title > span, .reader-shell .reader-footer { color: var(--muted); }
+.reader-shell .reader-location { flex-shrink: 0; color: var(--page-text); }
+.reader-shell .reader-footer { color: var(--muted); }
+.reader-shell .reader-progress > span { font-size: 12px; font-weight: 600; color: var(--page-text); }
+.app.reading > .toast { bottom: calc(76px + env(safe-area-inset-bottom)); }
 .reader-shell .reader-panel,
 .reader-shell .reader-panel.research-reader-panel {
   top: var(--reader-header-height); bottom: var(--reader-footer-height);
@@ -157,13 +160,19 @@
   }
   .reader-shell .reader-header { padding: max(6px, env(safe-area-inset-top)) 8px 6px; gap: 2px; }
   .reader-shell .reader-title strong { font-size: 14px; }
-  .reader-shell .reader-title > span { display: none; }
+  .reader-shell .reader-author { display: none; }
+  .reader-shell .reader-location { flex-shrink: 1; }
   .reader-shell .reader-panel, .reader-shell .reader-panel.research-reader-panel { width: 100%; }
   .reader-shell .reader-panel.research-reader-panel { bottom: 0; }
   .reader-shell .reader-panel.research-reader-panel > header { padding: 8px 16px 4px; }
   .reader-shell .reader-footer { padding: 6px 8px max(6px, env(safe-area-inset-bottom)); gap: 4px; flex-wrap: nowrap; }
   .reader-shell .reader-progress { min-width: 40px; flex: 1; width: auto; }
   .reader-shell .reader-zoom-controls { gap: 0; }
+}
+@media (max-width: 350px) {
+  .reader-shell { --reader-header-height: calc(104px + env(safe-area-inset-top)); }
+  .reader-shell .reader-header, .reader-shell.controls-menu-open .reader-header { flex-wrap: wrap; align-content: center; }
+  .reader-shell .reader-title { flex: 1 0 calc(100% - 49px); }
 }
 @media (max-height: 500px) {
   .reader-shell .reader-panel, .reader-shell .reader-panel.research-reader-panel { bottom: 0; }

@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { wavFixture } from "../helpers/audio-fixture";
+import { textPdf } from "../helpers/text-pdf";
 
 async function openNote(page: Page) {
   await page.goto("/#/notebooks");
@@ -11,6 +12,99 @@ async function openNote(page: Page) {
   await page.getByRole("button", { name: "New note", exact: true }).click();
   await expect(page.getByRole("textbox", { name: "Topic note content" })).toHaveAttribute("contenteditable", "true");
 }
+
+test("notebook text boxes resize, move freely and reopen with their text", async ({ page }, info) => {
+  await openNote(page);
+  const editor = page.getByRole("textbox", { name: "Topic note content" });
+  await editor.fill("A normal paragraph.");
+  await page.getByRole("button", { name: "Text box", exact: true }).click();
+  const box = editor.locator("[data-notebook-text-box]");
+  await expect(box).toBeVisible();
+  await page.keyboard.insertText("A box with my own words.");
+  await expect(box).toHaveText("A box with my own words.");
+  const before = (await box.boundingBox())!.width;
+  await page.getByRole("button", { name: "Resize text box" }).press("ArrowRight");
+  await expect.poll(async () => (await box.boundingBox())!.width).toBeGreaterThan(before);
+  const menu = page.getByRole("button", { name: "More actions for text box", exact: true });
+  await menu.click();
+  await page.getByRole("menuitem", { name: "Move freely" }).click();
+  await expect(box).toHaveAttribute("data-free-box", "true");
+  const move = page.getByRole("button", { name: "Move text box", exact: true });
+  if (info.project.name === "desktop") {
+    await move.scrollIntoViewIfNeeded();
+    const handle = (await move.boundingBox())!;
+    const x = handle.x + handle.width / 2;
+    const y = handle.y + handle.height / 2;
+    const initial = await box.getAttribute("style");
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + 30, y + 40, { steps: 6 });
+    await page.mouse.up();
+    await expect(box).not.toHaveAttribute("style", initial!);
+  } else await move.press("ArrowDown");
+  const style = await box.getAttribute("style");
+  await page.getByRole("button", { name: "Save now", exact: true }).click();
+  await expect(page.locator(".topic-save-status")).toContainText("Saved on this device");
+  await page.reload();
+  await expect(box).toHaveText("A box with my own words.");
+  await expect(box).toHaveAttribute("style", style!);
+  await expect(editor).toContainText("A normal paragraph.");
+});
+
+test("inserting a saved quote offline preserves the selected writing and undoes with its citation", async ({ page, context }) => {
+  await page.goto("/");
+  await page.locator("input[type=file]").setInputFiles([
+    { name: "River journal.pdf", mimeType: "application/pdf", buffer: textPdf(["Opening of journal", "Rivers need healthy floodplains."]) },
+    { name: "Field journal.pdf", mimeType: "application/pdf", buffer: textPdf(["Birds nest near the water."]) },
+  ]);
+  await expect(page.locator(".book-card")).toHaveCount(2);
+  await page.evaluate(async () => {
+    const { list, save } = await import("/src/db.ts");
+    const books = await list("book");
+    for (const [index, text] of ["Rivers need healthy floodplains.", "Birds nest near the water."].entries()) {
+      const book = books.find(book => book.title === (index ? "Field journal" : "River journal"))!;
+      await save("annotation", { id: `excerpt-${index}`, bookId: book.id, text, note: "", tags: [], color: "yellow",
+        locator: { type: "pdf", v: 1, page: index ? 1 : 2, hash: book.hash, y: 0, quote: { exact: text, prefix: "", suffix: "" } },
+        createdAt: new Date().toISOString() });
+    }
+  });
+  await openNote(page);
+  const editor = page.getByRole("textbox", { name: "Topic note content" });
+  await editor.fill("Keep these words and this suffix.");
+  await editor.press("End");
+  await editor.press("Enter");
+  await editor.pressSequentially("Second paragraph.");
+  await editor.evaluate(element => {
+    const { editor } = element as HTMLElement & { editor: import("@tiptap/core").Editor };
+    editor.commands.setTextSelection({ from: 1, to: 17 });
+  });
+  await context.setOffline(true);
+  const picker = page.getByRole("dialog", { name: "Insert quote" });
+  const trigger = page.getByRole("button", { name: "Insert quote", exact: true });
+  await trigger.click();
+  await picker.getByRole("button", { name: "Close" }).click();
+  await expect(editor.locator(".source-citation")).toHaveCount(0);
+  await trigger.click();
+  await picker.getByRole("combobox", { name: "Book", exact: true }).selectOption({ label: "River journal" });
+  await picker.getByLabel("Search highlights").fill("floodplains");
+  await picker.getByRole("button", { name: /Rivers need healthy floodplains/ }).click();
+  await expect(editor).toBeFocused();
+  await expect(editor.locator("p")).toHaveText([
+    "Keep these words", "Rivers need healthy floodplains.", "River journal · page 2", " and this suffix.", "Second paragraph.",
+  ]);
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(editor.locator("p")).toHaveText(["Keep these words and this suffix.", "Second paragraph."]);
+  await page.getByRole("button", { name: "Redo", exact: true }).click();
+  await expect(editor.getByRole("link", { name: "River journal · page 2" })).toBeVisible();
+  await expect(page.locator(".topic-save-status")).toContainText("Saved on this device");
+  await context.setOffline(false);
+  await page.reload();
+  const citation = editor.getByRole("link", { name: "River journal · page 2" });
+  await expect(citation).toHaveAttribute("href", /%22page%22%3A2/);
+  await citation.click();
+  await expect(page.locator(".reader-shell")).toHaveAttribute("data-loading", "false");
+  await expect(page.locator(".pdf-page .textLayer").getByText("Rivers need healthy floodplains.", { exact: true })).toBeInViewport();
+});
 
 test("long notebook pages scroll independently of the notebook navigation and formatting toolbar", async ({ page }) => {
   await openNote(page);

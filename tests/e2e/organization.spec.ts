@@ -77,11 +77,11 @@ test("large libraries use source IDs, bounded lists, complete exports and resear
   await expect(page.getByLabel("Topic note content")).toBeVisible();
   await page.screenshot({ path: test.info().outputPath("notebook-workspace.png"), fullPage: true });
   await page.getByRole("tab", { name: "Research", exact: true }).click();
-  const conversationRows = page.getByRole("navigation", { name: "Saved research conversations" }).locator(".workspace-item > button:first-child");
-  await expect(conversationRows).toHaveCount(50);
-  await page.getByLabel("Search research conversations").fill("Question 99");
-  await expect(conversationRows).toHaveCount(1);
-  await conversationRows.click();
+  const studyRows = page.getByRole("navigation", { name: "Saved studies" }).locator(".workspace-item > button:first-child");
+  await expect(studyRows).toHaveCount(50);
+  await page.getByLabel("Search studies").fill("Question 99");
+  await expect(studyRows).toHaveCount(1);
+  await studyRows.click();
   await expect(page.locator(".research-answer")).toContainText("Saved answer 99");
   expect((await page.locator(".research-conversation").boundingBox())!.height).toBeGreaterThan(150);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

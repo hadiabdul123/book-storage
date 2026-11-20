@@ -54,6 +54,22 @@ export function Notebooks() {
   const run = (action: () => Promise<unknown>) => { setError(""); void action().catch(e => setError(e.message)); };
   useEffect(() => { if (currentId) run(() => ensureNotebookSection(currentId)); }, [currentId]);
   async function flushActive() { if (activeNote && !(await flushTopicNote(activeNote.id))) throw new Error("Save your writing before changing this page."); }
+  async function openPageStudy() {
+    await flushActive();
+    const related = (await list("research-thread")).filter(study => study.notebookId === currentId && !study.bookId && !study.selection)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const existing = activeNote ? related.find(study => study.scope?.noteIds.includes(activeNote.id)) : related[0];
+    const study = existing || {
+      id: uid(), title: activeNote?.title || current?.title || "Research", notebookId: currentId || undefined,
+      scope: { bookIds: [], noteIds: activeNote ? [activeNote.id] : [], highlightIds: [] }, createdAt: now(),
+    };
+    if (!existing) await save("research-thread", study);
+    writeParams(previous => {
+      const next = new URLSearchParams(previous);
+      next.set("view", "research"); next.set("researchNotebook", currentId); next.set("thread", study.id); next.delete("result");
+      return next;
+    });
+  }
   const selectNote = (id: string) => run(async () => { await flushActive(); setParams({ note: id, view: "notes" }); setNavigator(false); });
   const order = (kind: "notebook" | "notebook-section" | "notebook-note", id: string, target: Move) => run(async () => {
     if (kind === "notebook-note") await flushActive();
@@ -141,7 +157,7 @@ export function Notebooks() {
         {!filtered.length && <p className="muted">{query ? "No matching pages." : "Create a page in this section."}</p>}
       </aside>
       <main className="notebook-detail">
-        <div className="notebook-detail-actions"><button className="text-button notebook-navigator-toggle" aria-expanded={navigator} onClick={() => { setFocus(false); setNavigator(!navigator); }}><PanelLeft size={17} />Pages</button><span>{current?.title || "Your ideas, together"} / {currentSections.find(s => s.id === currentSection)?.title || "Notes"}</span><div className="button-row"><button className="text-button" aria-label="Focus notebook page" aria-pressed={focus} onClick={() => { setFocus(!focus); setNavigator(false); }}><Maximize2 size={17} /></button><button className="text-button" aria-pressed={research} onClick={() => run(async () => { await flushActive(); const existing = (await list("research-thread")).filter(t => t.notebookId === currentId && !t.bookId && !t.selection).sort((a,b) => b.createdAt.localeCompare(a.createdAt))[0]; const thread = existing || { id: uid(), title: current?.title || "Research", notebookId: currentId || undefined, createdAt: now() }; if (!existing) await save("research-thread", thread); writeParams(previous => { const next = new URLSearchParams(previous); next.set("view", "research"); next.set("researchNotebook", currentId); next.set("thread", thread.id); return next; }); })}><Sparkles size={17} />Research</button></div></div>
+        <div className="notebook-detail-actions"><button className="text-button notebook-navigator-toggle" aria-expanded={navigator} onClick={() => { setFocus(false); setNavigator(!navigator); }}><PanelLeft size={17} />Pages</button><span>{current?.title || "Your ideas, together"} / {currentSections.find(s => s.id === currentSection)?.title || "Notes"}</span><div className="button-row"><button className="text-button" aria-label="Focus notebook page" aria-pressed={focus} onClick={() => { setFocus(!focus); setNavigator(false); }}><Maximize2 size={17} /></button><button className="text-button" aria-pressed={research} onClick={() => run(openPageStudy)}><Sparkles size={17} />Research</button></div></div>
         {activeNote && <div className="page-organization"><label>Section<select aria-label="Move page to section" value={currentSection} onChange={e => run(() => changeNote(noteId, { sectionId: e.target.value }))}>{currentSections.map(s => <option key={s.id} value={s.id}>{s.title}</option>)}</select></label><button aria-label="Move page up" onClick={() => order("notebook-note", noteId, -1)}><ArrowUp size={16} /></button><button aria-label="Move page down" onClick={() => order("notebook-note", noteId, 1)}><ArrowDown size={16} /></button></div>}
         {activeNote && <div className="notebook-toolbar-host" ref={setToolbarHost} />}
         <div className="notebook-page-scroll" ref={detailScroll} onScroll={e => { if (!navigator) scrollMemory.current.set(noteId, e.currentTarget.scrollTop); }}>

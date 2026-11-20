@@ -10,6 +10,7 @@ async function importFile(page: Page, file: string) {
     .locator("input[type=file]")
     .setInputFiles(path.resolve("tests/fixtures", file));
   await expect(page.locator(".book-card")).toHaveCount(1, { timeout: 45000 });
+  if (file.endsWith(".epub")) await expect(page.locator(".book-progress-label")).toHaveText("0%");
   await page.locator(".book-cover-link").click();
   await openTools(page);
   await expect(page.locator(".reader-loading")).toHaveCount(0, {
@@ -42,6 +43,8 @@ test("real EPUB highlight survives reload, typography changes and passage naviga
   page,
 }) => {
   await importFile(page, "alice.epub");
+  await expect(page.locator(".reader-location")).toHaveText(/^\d+% complete$/);
+  await expect(page.locator(".reader-progress > span")).toHaveText(/^\d+% complete$/);
   await clickTool(page, "Contents");
   const chapter = page
     .locator(".toc-item")
@@ -215,6 +218,8 @@ test("DOCX imports semantic text and keeps linked notes", async ({ page }) => {
   await expect(page.locator(".docx-content")).toContainText(
     "worth remembering",
   );
+  await expect(page.locator(".reader-location")).toHaveText("0% complete");
+  await expect(page.locator(".reader-progress > span")).toHaveText("0% complete");
   await page.locator(".docx-content p").evaluate((p) => {
     const range = document.createRange();
     range.selectNodeContents(p);

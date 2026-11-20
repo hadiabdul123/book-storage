@@ -1,0 +1,10 @@
+.read-along { display: grid; gap: 12px; }
+.read-along > label { display: grid; gap: 4px; margin: 0; }
+.read-along select { max-width: 100%; min-height: 44px; }
+.read-along p { margin: 0; color: var(--muted); }
+.read-along .narration-follow { display: flex; align-items: center; gap: 7px; }
+.narration-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.read-along audio { max-width: 100%; }
+.read-along blockquote { margin: 0; padding: 9px 10px; border-inline-start: 3px solid var(--accent); background: var(--soft); line-height: 1.6; }
+.narration-layer { pointer-events: none; position: fixed; inset: 0; z-index: 5; }
+.narration-layer span { position: fixed; background: #62a6eb55; border-bottom: 2px solid #4689c5; border-radius: 2px; }

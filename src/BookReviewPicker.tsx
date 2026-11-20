@@ -3,8 +3,9 @@ import { Dialog } from "./components";
 import { reviewBatchSize, planBookReview, reviewQuestion, type ReviewSection } from "./bookReview";
 import type { Book } from "./model";
 
-export function BookReviewPicker({ books, focus, previous, onClose, onReview }: {
+export function BookReviewPicker({ books, focus, previous, onClose, onReview, returnLabel = "Back to conversation" }: {
   books: Book[]; focus: string; previous: Set<string>; onClose: () => void; onReview: (sections: ReviewSection[]) => Promise<void>;
+  returnLabel?: string;
 }) {
   const [sections, setSections] = useState<ReviewSection[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
@@ -43,9 +44,9 @@ export function BookReviewPicker({ books, focus, previous, onClose, onReview }: 
         } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
         finally { setBusy(false); }
       }}>{busy ? "Queuing…" : `Review ${selected.length || "selected"} ${selected.length === 1 ? "section" : "sections"}`}</button>
-        <button className="secondary" disabled={busy} onClick={onClose}>Back to conversation</button>
+        <button className="secondary" disabled={busy} onClick={onClose}>{returnLabel}</button>
       </div>
-      {!!reviewed.size && <p role="status">{reviewed.size} sections queued. Open the conversation to read the reviews.</p>}
+      {!!reviewed.size && <p role="status">{reviewed.size} sections queued. Return to the results to read the reviews.</p>}
     </>}
   </Dialog>;
 }

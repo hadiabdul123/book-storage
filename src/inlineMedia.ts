@@ -84,7 +84,7 @@ export function reserveMediaGap(editor: Editor, requested: number, split = true)
   const resolved = tr.doc.resolve(position);
   if (resolved.depth === 1 && resolved.parent.isTextblock) {
     if (!resolved.parentOffset) position = resolved.before();
-    else if (resolved.parentOffset === resolved.parent.content.size) position = resolved.after();
+    else if (resolved.parentOffset === resolved.parent.content.size || resolved.parent.attrs.textBox) position = resolved.after();
     else if (split && canSplit(tr.doc, position)) {
       tr.split(position);
       position++;

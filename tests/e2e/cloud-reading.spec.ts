@@ -15,14 +15,18 @@ test("reading mode, local zoom, and panels preserve a scrollable PDF", async ({
     .locator("input[type=file]")
     .setInputFiles(path.resolve("tests/fixtures/tracemonkey.pdf"));
   await expect(page.locator(".book-card")).toHaveCount(1);
+  await page.getByRole("button", { name: /^Details for/ }).click();
   await expect(page.locator(".book-sync-status")).toContainText(
     "Saved on this device",
   );
+  await page.getByRole("dialog", { name: "Book details" }).getByRole("button", { name: "Close", exact: true }).click();
   await page.locator(".book-cover-link").click();
   await openTools(page);
   await expect(page.locator(".pdf-page .textLayer span").first()).toBeVisible();
   await clickTool(page, "Contents");
-  await page.locator(".toc-item").first().click();
+  const contents = page.getByRole("navigation", { name: "Book contents" });
+  await contents.getByLabel("Go to page").fill("1");
+  await contents.getByRole("button", { name: "Go", exact: true }).click();
   await expect(page.locator(".reader-host")).not.toHaveClass(/passage-arrived/);
   await expect(page.locator(".reader-host")).toHaveClass(/pdf-reader/);
   await page

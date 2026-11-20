@@ -57,6 +57,7 @@ export const ReaderInteractions = forwardRef<
     notify: (message: string) => void;
     onDefinition: (page: number, text: string) => Promise<void>;
     onResearch: (selection: Selection) => Promise<void>;
+    onListen: (selection: Selection) => Promise<void>;
   }
 >(function ReaderInteractions(
   {
@@ -73,6 +74,7 @@ export const ReaderInteractions = forwardRef<
     notify,
     onDefinition,
     onResearch,
+    onListen,
   },
   ref,
 ) {
@@ -894,6 +896,7 @@ export const ReaderInteractions = forwardRef<
                 </button>
               )}
             {!selected.text.startsWith("Region on page") && <button type="button" disabled={busy} onPointerDown={e => e.preventDefault()} onClick={() => { if (selected) void attempt(() => onResearch(selected)); }}>Research</button>}
+            {!selected.text.startsWith("Region on page") && <button type="button" disabled={busy} onPointerDown={e => e.preventDefault()} onClick={() => void attempt(() => onListen(selected))}>Listen from here</button>}
             <button
               disabled={ambiguous}
               aria-pressed={mode === "note"}

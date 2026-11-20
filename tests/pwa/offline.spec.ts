@@ -170,10 +170,10 @@ test("saved PDF notes and rendering assets survive a full offline browser restar
     await page.getByRole("button", { name: "Save now", exact: true }).click();
     await expect(page.locator(".topic-save-status")).toContainText("Saved on this device");
     await page.getByRole("button", { name: "Research", exact: true }).click();
-    await page.getByRole("tab", { name: "Web", exact: true }).click();
     await online.setOffline(true);
     await page.getByRole("textbox", { name: "Research question" }).fill("What evidence supports cosmic expansion?");
-    await page.getByRole("button", { name: "Save question for later" }).click();
+    await page.getByText("More actions", { exact: true }).click();
+    await page.getByRole("button", { name: "Search the web", exact: true }).click();
     await expect(page.locator(".research-pending")).toContainText("cosmic expansion");
     // Keep IndexedDB/CacheStorage, but prevent the ordinary HTTP cache from
     // concealing missing service-worker assets during the offline restart.

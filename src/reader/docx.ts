@@ -16,6 +16,7 @@ import {
   type Preferences,
 } from "../model";
 import type { ReaderAdapter, ReaderEvents, SearchHit, Section } from "./types";
+import { documentNarration } from "./narrationText";
 import { surroundingText } from "../sourceIndex";
 import { pagePalettes } from "../readingAppearance";
 
@@ -174,10 +175,26 @@ export class DocxReader implements ReaderAdapter {
     return hits;
   }
   async sections(): Promise<Section[]> {
+    const offsets = new Map<Element, number>();
+    let offset = 0;
+    for (const node of textNodes(this.article)) {
+      const heading = node.parentElement?.closest("h1,h2,h3");
+      if (heading && !offsets.has(heading)) offsets.set(heading, offset);
+      offset += node.length;
+    }
     return Array.from(this.article.querySelectorAll("h1,h2,h3")).map((h, i) => {
       (h as HTMLElement).dataset.heading = String(i);
-      return { id: String(i), label: h.textContent || "" };
+      const start = offsets.get(h);
+      return { id: String(i), label: h.textContent || "", start: start === undefined ? undefined
+        : { v: 1, type: "docx", hash: this.book.hash, start, end: start } };
     });
+  }
+  async *narration(start: Locator | undefined, signal: AbortSignal) {
+    const offset = start?.type === "docx" && start.hash === this.book.hash ? start.start : 0;
+    for (const line of documentNarration(this.article, offset)) {
+      signal.throwIfAborted();
+      yield { text: line.text, locator: { v: 1, type: "docx", hash: this.book.hash, start: line.start, end: line.end } as Locator };
+    }
   }
   configure(p: Preferences) {
     Object.assign(this.article.style, {

@@ -4,6 +4,9 @@ vi.mock("../src/sync", () => ({ cloud: null }));
 import { db, save, list, get } from "../src/db";
 import { enqueueResearch, runResearchQueue, cancelResearch, retryResearch, ResearchFailure } from "../src/research";
 import type { SourceRef } from "../src/researchTypes";
+import type { Book } from "../src/model";
+import { textKey, ocrKey } from "../src/pdfText";
+import { searchPreparedPassages } from "../src/sourceIndex";
 const source: SourceRef = { id: "S1", kind: "web", title: "Evidence", url: "https://example.org/evidence", excerpt: "Evidence from observations." };
 const result = { answer: "Evidence [S1]", sources: [source], model: "test" };
 const request = { mode: "web" as const, question: "What is the evidence?", searchQuery: "evidence", sources: [], history: [] };
@@ -55,4 +58,28 @@ it("does not save an answer that references a source the server did not provide"
   const id = await enqueueResearch("thread", request);
   await runResearchQueue(async () => ({ ...result, answer: "Invented [S99]" }));
   expect((await db.researchJobs.get(id))?.state).toBe("error"); expect(await list("research-message")).toHaveLength(0);
+});
+
+it("searches prepared PDF text and OCR offline while ignoring older editions and unselected sources", async () => {
+  const book = { id: "book", title: "Restoration", format: "pdf", hash: "a".repeat(64) } as Book;
+  const locator = { type: "pdf", v: 1, hash: book.hash, page: 2, y: 0 } as const;
+  await db.meta.bulkPut([
+    { key: textKey(book, 2), value: JSON.stringify({ styles: {}, items: [
+      { str: "Restoration improves the river", fontName: "test", transform: [1, 0, 0, 1, 0, 0], width: 40, height: 10, hasEOL: false },
+    ] }) },
+    { key: ocrKey(book, 4), value: JSON.stringify([{ text: "Restoration on a scanned page", rect: [0, 0, 1, 1] }]) },
+  ]);
+  await db.chunks.put({
+    id: "outdated", bookId: book.id, hash: "b".repeat(64), unit: 1, text: "Restoration in an old edition", locator, title: "Old edition",
+  });
+  const date = new Date().toISOString();
+  await save("annotation", { id: "hidden", bookId: book.id, locator, text: "Restoration in an unselected highlight", note: "", tags: [], color: "yellow", createdAt: date });
+  await save("notebook-note", { id: "note", title: "Field notes", notebookId: "notebook", tags: [], createdAt: date, updatedAt: date,
+    document: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: `${"other ".repeat(500)}restoration found in a later paragraph` }] }] },
+  });
+  const { hits, indexedBooks } = await searchPreparedPassages("restoration", [book], { bookIds: [book.id], highlightIds: [], noteIds: ["note"] });
+  expect(indexedBooks).toEqual(new Set([book.id]));
+  expect(hits).toHaveLength(3);
+  expect(hits.map(hit => hit.locator?.type === "pdf" ? hit.locator.page : hit.noteId)).toEqual(expect.arrayContaining([2, 4, "note"]));
+  expect(await db.chunks.count()).toBe(1);
 });

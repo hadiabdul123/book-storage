@@ -4,6 +4,7 @@ import JSZip from "jszip";
 import { db, list, save, saveBookFile } from "./db";
 import { type Book, type Format, now, uid } from "./model";
 import { pdfLibrary, pdfOptions, pdfOpenError } from "./pdf";
+import { pdfPageCountKey, preparationKey, savePageCache } from "./pdfText";
 
 export type ImportResult = { book: Book; warnings: string[] };
 export function sanitize(html: string) {
@@ -79,6 +80,7 @@ export async function importBook(file: File): Promise<ImportResult> {
     sourcePath: `${id}/source.${format}`,
   };
   let derived: Blob | undefined;
+  let pdfPageCount: number | undefined;
   if (format === "epub") {
     const epub = ePub(buffer);
     try {
@@ -111,6 +113,7 @@ export async function importBook(file: File): Promise<ImportResult> {
         console.error("PDF document loading failed", error);
         throw pdfOpenError(error);
       });
+      pdfPageCount = document.numPages;
       try {
         const metadata = await document.getMetadata();
         const info = metadata.info as { Title?: string; Author?: string };
@@ -157,7 +160,10 @@ export async function importBook(file: File): Promise<ImportResult> {
     await db.files.delete(id);
     throw error;
   }
-  if (format === "pdf") await db.meta.put({ key: `pdf-preparation:${id}:${hash}`, value: JSON.stringify({ status: "queued", done: 0, total: 0 }) }).catch(() => warnings.push("Book saved. Text preparation will resume when device storage is available."));
+  if (pdfPageCount !== undefined) await savePageCache(book, [
+    { key: pdfPageCountKey(hash), value: String(pdfPageCount) },
+    { key: preparationKey(book), value: JSON.stringify({ status: "queued", done: 0, total: pdfPageCount }) },
+  ]).catch(() => warnings.push("Book saved. Text preparation will resume when device storage is available."));
   await navigator.storage?.persist?.().catch(() => false);
   if (duplicate)
     warnings.push(

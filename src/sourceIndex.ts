@@ -1,7 +1,8 @@
 import { db, list } from "./db";
 import { quoteAt, textNodes } from "./anchors";
 import type { Book, Locator } from "./model";
-import type { IndexedChunk, SourceRef } from "./researchTypes";
+import type { IndexedChunk, ResearchScope, SourceRef } from "./researchTypes";
+import { ocrKey, textKey, validPageText, validWords } from "./pdfText";
 import { downloadBook } from "./sync";
 
 export type TextUnit = { unit: number; text: string; locator: Locator; title: string; missing?: boolean };
@@ -121,8 +122,8 @@ export async function* extractBookText(book: Book, signal: AbortSignal, startUni
   }
 }
 
-const activeIndexes = new Map<string, Promise<void>>();
-export function indexBook(book: Book, signal: AbortSignal, progress?: (message: string) => void): Promise<void> {
+const activeIndexes = new Map<string, Promise<number>>();
+export function indexBook(book: Book, signal: AbortSignal, progress?: (message: string) => void): Promise<number> {
   const existing = activeIndexes.get(book.id);
   if (existing) return existing;
   const task = (async () => {
@@ -133,7 +134,7 @@ export function indexBook(book: Book, signal: AbortSignal, progress?: (message: 
       else await db.chunks.where("bookId").equals(book.id).delete();
     } catch { await db.chunks.where("bookId").equals(book.id).delete(); }
     // Recheck previously blank scanned pages: new local OCR may now be cached.
-    if (state.complete && !state.missing) { progress?.("Text ready on this device"); return; }
+    if (state.complete && !state.missing) { progress?.("Text ready on this device"); return 0; }
     if (state.complete) state = { ...state, next: 0, missing: 0, complete: false };
     for await (const unit of extractBookText(book, signal, state.next)) {
       signal.throwIfAborted();
@@ -149,43 +150,125 @@ export function indexBook(book: Book, signal: AbortSignal, progress?: (message: 
     state.complete = true;
     await db.meta.put({ key, value: JSON.stringify(state) });
     progress?.(state.missing ? `Text ready; ${state.missing} blank or scanned pages/sections have no cached text` : "Text ready on this device");
+    return state.missing;
   })().finally(() => activeIndexes.delete(book.id));
   activeIndexes.set(book.id, task);
   return task;
 }
 const ignored = new Set("the a an and or to of in is it this that what how why are does do from with about explain me my".split(" "));
-export function rankChunks(query: string, chunks: IndexedChunk[], limit = 6): SourceRef[] {
+function rankText<T>(query: string, items: T[], getText: (item: T) => string, limit: number): T[] {
   const terms = [...new Set(query.toLowerCase().match(/[\p{L}\p{N}]{2,}/gu) || [])].filter(t => !ignored.has(t));
   if (!terms.length) return [];
-  const docs = chunks.map(chunk => ({ chunk, tokens: (chunk.text.toLowerCase().match(/[\p{L}\p{N}]+/gu) || []) as string[] }));
-  const average = docs.reduce((n, d) => n + d.tokens.length, 0) / Math.max(1, docs.length);
-  const frequencies = new Map(terms.map(term => [term, docs.filter(d => d.tokens.includes(term)).length]));
-  return docs.map(({ chunk, tokens }) => {
+  const wanted = new Set(terms);
+  const frequencies = new Map<string, number>();
+  let totalLength = 0;
+  const docs = items.map(item => {
+    const tokens = getText(item).toLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
+    totalLength += tokens.length;
     const counts = new Map<string, number>();
-    tokens.forEach(t => counts.set(t, (counts.get(t) || 0) + 1));
+    for (const token of tokens) {
+      if (wanted.has(token)) counts.set(token, (counts.get(token) || 0) + 1);
+    }
+    for (const term of counts.keys()) frequencies.set(term, (frequencies.get(term) || 0) + 1);
+    return { item, counts, length: tokens.length };
+  });
+  const average = totalLength / Math.max(1, docs.length);
+  return docs.map(({ item, counts, length }) => {
     const score = terms.reduce((sum, term) => {
       const f = counts.get(term) || 0, df = frequencies.get(term) || 0;
-      return sum + Math.log(1 + (docs.length - df + 0.5) / (df + 0.5)) * f * 2.2 / (f + 1.2 * (0.25 + 0.75 * tokens.length / Math.max(1, average)));
+      return sum + Math.log(1 + (docs.length - df + 0.5) / (df + 0.5)) * f * 2.2 / (f + 1.2 * (0.25 + 0.75 * length / Math.max(1, average)));
     }, 0);
-    return { chunk, score };
-  }).filter(r => r.score > 0).sort((a, b) => b.score - a.score).slice(0, limit).map(({ chunk }, i) => ({
+    return { item, score };
+  }).filter(r => r.score > 0).sort((a, b) => b.score - a.score).slice(0, limit).map(({ item }) => item);
+}
+
+export function rankChunks(query: string, chunks: IndexedChunk[], limit = 6): SourceRef[] {
+  return rankText(query, chunks, chunk => chunk.text, limit).map((chunk, i) => ({
     id: `S${i + 1}`, kind: "book", title: chunk.title, excerpt: chunk.text, bookId: chunk.bookId, locator: chunk.locator,
   }));
 }
-export async function retrieveSources(query: string, bookIds: string[], noteIds: string[] = [], highlightIds: string[] = []) {
-  const chunks = await db.chunks.where("bookId").anyOf(bookIds).toArray();
-  const notes = (await list("notebook-note")).filter(n => noteIds.includes(n.id));
+
+async function personalSources(noteIds: string[], highlightIds: string[], full = false) {
+  const [notes, annotated, followups] = await Promise.all([
+    noteIds.length ? list("notebook-note") : [],
+    highlightIds.length ? list("annotation") : [],
+    highlightIds.length && !full ? list("highlight-followup") : [],
+  ]);
   const { plainText } = await import("./richText");
   const selected = new Set(highlightIds);
-  const annotated = await list("annotation");
-  const followups = selected.size ? await list("highlight-followup") : [];
-  const terms = query.toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) || [];
-  const refs: SourceRef[] = notes
-    .map(n => ({ id: `N${n.id}`, kind: "note", noteId: n.id, title: n.title, excerpt: plainText(n.document).slice(0, 1500) }));
+  const refs: SourceRef[] = notes.filter(n => noteIds.includes(n.id))
+    .map(n => ({ id: `N${n.id}`, kind: "note", noteId: n.id, title: n.title, excerpt: full ? plainText(n.document) : plainText(n.document).slice(0, 1500) }));
   const highlights: SourceRef[] = annotated.filter(a => selected.has(a.id) && a.type !== "page-note")
     .map(a => ({ id: `A${a.id}`, kind: "book", bookId: a.bookId, annotationId: a.id, title: `Highlight: ${a.text.slice(0, 80)}`,
-      excerpt: [a.text, a.note, ...followups.filter(note => note.annotationId === a.id).map(note => note.text)].filter(Boolean).join("\n\n").slice(0, 1800), locator: a.locator }));
-  const annotations: SourceRef[] = annotated.filter(a => !selected.has(a.id) && bookIds.includes(a.bookId) && a.note && terms.some(t => `${a.text} ${a.note}`.toLowerCase().includes(t))).slice(0, 2)
+      excerpt: full ? a.text : [a.text, a.note, ...followups.filter(note => note.annotationId === a.id).map(note => note.text)].filter(Boolean).join("\n\n").slice(0, 1800), locator: a.locator }));
+  return [...highlights, ...refs].filter(ref => ref.excerpt.trim());
+}
+
+async function currentBookChunks(books: Book[]) {
+  if (!books.length) return [];
+  const editions = new Map(books.map(book => [book.id, book.hash]));
+  const chunks = await db.chunks.where("bookId").anyOf([...editions.keys()]).toArray();
+  return chunks.filter(chunk => editions.get(chunk.bookId) === chunk.hash);
+}
+
+export async function searchPreparedPassages(query: string, books: Book[], scope: ResearchScope, signal?: AbortSignal) {
+  const [chunks, personal] = await Promise.all([currentBookChunks(books), personalSources(scope.noteIds, scope.highlightIds, true)]);
+  const indexed = new Map<string, Set<number>>();
+  for (const chunk of chunks) {
+    const pages = indexed.get(chunk.bookId) || new Set<number>();
+    pages.add(chunk.unit);
+    indexed.set(chunk.bookId, pages);
+  }
+  for (const book of books) {
+    signal?.throwIfAborted();
+    if (book.format !== "pdf") continue;
+    const pages = indexed.get(book.id);
+    const prefixes = [textKey(book, 0).slice(0, -1), ocrKey(book, 0).slice(0, -1)];
+    const cached = new Map<number, string>();
+    for (const [kind, prefix] of prefixes.entries()) {
+      await db.meta.where("key").startsWith(prefix).each(row => {
+        const page = Number(row.key.slice(prefix.length));
+        if (!Number.isSafeInteger(page) || page < 1 || pages?.has(page) || cached.has(page)) return;
+        try {
+          const value: unknown = JSON.parse(row.value);
+          const text = kind === 0 && validPageText(value) ? value.items.map(item => "str" in item ? item.str + (item.hasEOL ? "\n" : " ") : "").join("")
+            : kind === 1 && validWords(value) ? value.map(word => word.text).join(" ") : "";
+          if (text.trim()) cached.set(page, text);
+        } catch { /* Malformed cache entries are skipped. */ }
+      });
+      signal?.throwIfAborted();
+    }
+    for (const [page, text] of cached) chunks.push(...splitUnit(book, {
+      unit: page, text, title: book.title, locator: { v: 1, type: "pdf", hash: book.hash, page, y: 0 },
+    }));
+  }
+  const passages = personal.flatMap(source => {
+    if (source.kind !== "note" || source.excerpt.length <= 1800) return [source];
+    const excerpts: SourceRef[] = [];
+    for (let start = 0; start < source.excerpt.length; start += 1500) {
+      excerpts.push({ ...source, id: `${source.id}:${start}`, excerpt: source.excerpt.slice(start, start + 1800) });
+    }
+    return excerpts;
+  });
+  const ranked = rankText(query, [...chunks.map(chunkSource), ...passages], source => source.excerpt, 12 + passages.length - personal.length);
+  const seenNotes = new Set<string>();
+  const hits = ranked.filter(source => {
+    if (!source.noteId) return true;
+    if (seenNotes.has(source.noteId)) return false;
+    seenNotes.add(source.noteId);
+    return true;
+  }).slice(0, 12);
+  return { hits, indexedBooks: new Set(chunks.map(chunk => chunk.bookId)) };
+}
+
+export async function retrieveSources(query: string, bookIds: string[], noteIds: string[] = [], highlightIds: string[] = [], studyBooks?: Book[]) {
+  const [chunks, personal, annotated] = await Promise.all([
+    studyBooks ? currentBookChunks(studyBooks) : db.chunks.where("bookId").anyOf(bookIds).toArray(),
+    personalSources(noteIds, highlightIds),
+    !studyBooks && bookIds.length ? list("annotation") : [],
+  ]);
+  const terms = query.toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) || [];
+  const annotations: SourceRef[] = annotated.filter(a => !highlightIds.includes(a.id) && bookIds.includes(a.bookId) && a.note && terms.some(t => `${a.text} ${a.note}`.toLowerCase().includes(t))).slice(0, 2)
     .map(a => ({ id: `A${a.id}`, kind: "book", bookId: a.bookId, title: `Reader note: ${a.text.slice(0, 80)}`, excerpt: `${a.text}\n${a.note}`.slice(0, 1500), locator: a.locator }));
   const books = bookIds.map(bookId => {
     const local = chunks.filter(chunk => chunk.bookId === bookId);
@@ -196,7 +279,7 @@ export async function retrieveSources(query: string, bookIds: string[], noteIds:
   });
   const first = books.flatMap(refs => refs.slice(0, 1));
   const more = books.flatMap(refs => refs.slice(1));
-  return [...first, ...highlights, ...refs, ...annotations, ...more].filter(ref => !!ref.excerpt.trim()).slice(0, 7)
+  return [...first, ...personal, ...annotations, ...more].filter(ref => !!ref.excerpt.trim()).slice(0, 7)
     .map((ref, i) => ({ ...ref, id: `S${i + 1}` }));
 }
 
