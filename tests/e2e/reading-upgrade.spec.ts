@@ -39,8 +39,8 @@ test("contents lists chapter starts and marks the chapter at the current page", 
   await expect(page.locator(".reader-location")).toHaveText("Page 2 of 4");
 });
 
-async function provideTestAudioBackend(page: Page) {
-  await page.addInitScript(() => {
+async function provideTestAudioBackend(page: Page, endClips = false) {
+  await page.addInitScript(finish => {
     // The Windows WebKit runner ships without a usable audio backend.
     if (window.AudioContext || "webkitAudioContext" in window) return;
     const createUrl = URL.createObjectURL.bind(URL);
@@ -54,11 +54,12 @@ async function provideTestAudioBackend(page: Page) {
       const file = media.get(this.src);
       if (!file) throw new Error("Missing narration WAV");
       media.delete(this.src);
+      if (finish && this.onended) setTimeout(() => this.dispatchEvent(new Event("ended")), 500);
       const header = new DataView(await file.arrayBuffer());
       if (header.getUint32(0) !== 0x52494646 || header.getUint32(8) !== 0x57415645) throw new Error("Invalid narration WAV");
     };
     HTMLMediaElement.prototype.pause = function () {};
-  });
+  }, endClips);
 }
 
 test("read along starts at a selection and draws a temporary sentence highlight", async ({ page }) => {
@@ -108,19 +109,28 @@ test("read along starts at a selection and draws a temporary sentence highlight"
   await expect(page.locator(".pdf-highlight")).toHaveCount(0);
 });
 
-test("switches to an installed voice from the current sentence while the model is waiting", async ({ page }) => {
-  await provideTestAudioBackend(page);
-  await page.addInitScript(() => {
+async function provideInstalledVoice(page: Page, endClips = false) {
+  await page.addInitScript(finish => {
     const synth = Object.assign(new EventTarget(), {
       getVoices: () => [{ voiceURI: "local-test", name: "Test voice", localService: true, lang: "en-US", default: true }],
       resume() {}, cancel() {},
-      speak(utterance: SpeechSynthesisUtterance) { document.body.dataset.spoken = utterance.text; },
+      speak(utterance: SpeechSynthesisUtterance) {
+        document.body.dataset.spoken = utterance.text;
+        const log = JSON.parse(document.body.dataset.speechLog || "[]");
+        log.push(utterance.text); document.body.dataset.speechLog = JSON.stringify(log);
+        if (finish) setTimeout(() => utterance.onend?.call(utterance, {} as SpeechSynthesisEvent), 50);
+      },
     });
     Object.defineProperty(window, "speechSynthesis", { configurable: true, value: synth });
     Object.defineProperty(window, "SpeechSynthesisUtterance", { configurable: true, value: class {
       constructor(public text: string) {}
     } });
-  });
+  }, endClips);
+}
+
+test("switches to an installed voice from the current sentence while the model is waiting", async ({ page }) => {
+  await provideTestAudioBackend(page);
+  await provideInstalledVoice(page);
   await page.route(url => url.pathname.endsWith("/narration.worker.ts"), route =>
     route.fulfill({ contentType: "text/javascript", body: "self.onmessage = () => {};" }));
   await page.goto("/");
@@ -135,6 +145,25 @@ test("switches to an installed voice from the current sentence while the model i
   await expect(page.locator("body")).toHaveAttribute("data-spoken", "Read this aloud.");
   await expect(page.getByLabel("Voice", { exact: true })).toHaveValue("device:local-test");
   await page.getByRole("button", { name: "Stop narration" }).click();
+});
+
+test("continuous listening reads the next two sentences in order when neural synthesis falls behind", async ({ page }) => {
+  await provideTestAudioBackend(page, true);
+  await provideInstalledVoice(page, true);
+  await page.route(url => url.pathname.endsWith("/narration.worker.ts"), route =>
+    route.fulfill({ contentType: "text/javascript", body: `self.onmessage = ({data}) => {
+      if (data.id === 1) self.postMessage({id:data.id, samples:new Float32Array(12000), rate:24000});
+    }` }));
+  await page.goto("/");
+  await page.locator("input[type=file]").setInputFiles({ name: "Continuous.pdf", mimeType: "application/pdf",
+    buffer: textPdf(["Start here.", "Continue this passage.", "Finish the paragraph."]) });
+  await page.locator(".book-cover-link").click();
+  await expect(page.locator(".textLayer span").first()).toBeVisible();
+  await clickTool(page, "Listen");
+  await page.getByRole("button", {name:"Play from here"}).click();
+  await expect(page.locator("body")).toHaveAttribute("data-speech-log", JSON.stringify(["Continue this passage.", "Finish the paragraph."]));
+  await expect(page.locator(".read-along")).toContainText("You reached the end of the book");
+  await expect(page.getByLabel("Voice", {exact:true})).toHaveValue("af_heart");
 });
 
 test("library and reader agree on PDF pages and progress", async ({ page }, info) => {
