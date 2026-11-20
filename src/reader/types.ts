@@ -36,6 +36,7 @@ export interface ReaderEvents {
   onRegionMode?: (enabled: boolean) => void;
   onLayoutFallback?: (fallback: boolean) => void;
   onPageCount?: (total: number) => void;
+  onTextBoxLayout?: () => void;
   onLocation: (locator: Locator, progress: number) => void;
   onSelection: (selection: Selection | null, source?: SelectionSource) => void;
   onAnnotation: (id: string) => void;

@@ -260,7 +260,8 @@ export function Settings({ notify }: { notify: (m: string) => void }) {
               key={format}
               className="secondary"
               onClick={async () =>
-                exportAnnotations(await list("annotation"), books, format, [], await highlightStudyData())
+                exportAnnotations(await list("annotation"), books, format, [], await highlightStudyData(),
+                  format === "json" ? await list("pdf-text-box") : [])
               }
             >
               <Download size={16} />

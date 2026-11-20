@@ -1,0 +1,30 @@
+.pdf-text-box-layer { position: absolute; inset: 0; z-index: 5; overflow: hidden; pointer-events: none; }
+.pdf-text-box, .pdf-text-box-edit {
+  position: absolute; inset: 0 auto auto 0; transform-origin: top left; box-sizing: border-box;
+}
+.pdf-text-box { overflow: hidden; white-space: pre; pointer-events: none; text-align: left; }
+.pdf-text-box-mode .pdf-page { cursor: crosshair; }
+.pdf-text-box-mode .textLayer { pointer-events: none; }
+.pdf-text-box-mode .pdf-text-box { pointer-events: auto; cursor: pointer; }
+.pdf-text-box-mode .pdf-text-box:hover, .pdf-text-box-mode .pdf-text-box:focus-visible { outline: 2px solid #315c86; outline-offset: -2px; }
+.pdf-text-box-edit { z-index: 7; outline: 2px solid #315c86; }
+.pdf-text-box-edit textarea { display: block; width: 100%; height: 100%; box-sizing: border-box; margin: 0; border: 0; border-radius: 0; resize: none; outline: none; }
+.pdf-text-box-edit button { position: absolute; touch-action: none; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; color: #234461; background: #fff; border: 1px solid #315c86; border-radius: 4px; }
+.pdf-text-box-edit .pdf-text-box-move { top: -14px; left: 50%; transform: translateX(-50%); cursor: move; }
+.pdf-text-box-edit .pdf-text-box-resize { bottom: -10px; right: -10px; cursor: nwse-resize; }
+.reader-shell.pdf-text-box-active { --text-box-toolbar-height: 53px; }
+.reader-shell.pdf-text-box-active .reader-host {
+  border-top: calc(var(--reader-header-height, 66px) + var(--text-box-toolbar-height)) solid transparent;
+}
+.reader-shell > .pdf-text-box-tools {
+  top: var(--reader-header-height, 66px); height: var(--text-box-toolbar-height);
+  flex-wrap: nowrap; max-width: 100%; box-sizing: border-box;
+}
+.pdf-text-box-tools > * { flex-shrink: 0; }
+.pdf-text-box-tools label { display: inline-flex; align-items: center; gap: 5px; }
+.reader-header .reader-text-box-overflow { display: none; }
+@media (max-width: 759px) {
+  .reader-header .reader-text-box-direct { display: none; }
+  .reader-shell.controls-menu-open .reader-tools .reader-text-box-overflow { display: inline-flex; }
+  .pdf-text-box-tools > span { display: none; }
+}

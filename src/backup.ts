@@ -5,6 +5,7 @@ import { pageNoteId } from "./pageNotes";
 import { remapSourceBooks, remapDocumentBooks } from "./sourceReferences";
 import { validInkStroke, type InkStroke } from "./inkTypes";
 import { validHighlightFollowup, validHighlightStudy } from "./highlightStudy";
+import { validPdfTextBox, type PdfTextBox } from "./pdfTextBoxes";
 
 export async function restoreAnnotationBackup(data: unknown, books: Book[]) {
   if (
@@ -23,6 +24,8 @@ export async function restoreAnnotationBackup(data: unknown, books: Book[]) {
   if ((data.version === 4 || data.version === 5) && (!("ink" in data) || !Array.isArray(data.ink) || !ink.every(s => validInkStroke(s) && s.target.type === "pdf"))) throw new Error("The backup contains an invalid drawing.");
   if (!annotations.every(validAnnotation))
     throw new Error("The backup contains an invalid annotation.");
+  const boxes: unknown = "pdfTextBoxes" in data ? data.pdfTextBoxes : [];
+  if (!Array.isArray(boxes) || !boxes.every(validPdfTextBox)) throw new Error("The backup contains an invalid PDF text box.");
   const study = data.version === 5 && "study" in data ? data.study : [];
   const followups = data.version === 5 && "followups" in data ? data.followups : [];
   if (!Array.isArray(study) || !study.every(validHighlightStudy) || !Array.isArray(followups) || !followups.every(validHighlightFollowup))
@@ -59,6 +62,11 @@ export async function restoreAnnotationBackup(data: unknown, books: Book[]) {
         const target = stroke.target, book = books.find(b => b.hash === target.hash);
         if (!book || await db.rows.get(`ink-stroke:${stroke.id}`)) { skipped++; continue; }
         await save("ink-stroke", { ...stroke, target: { ...target, bookId: book.id } }); restored++;
+      }
+      for (const box of boxes as PdfTextBox[]) {
+        const book = books.find(candidate => candidate.format === "pdf" && candidate.hash === box.hash);
+        if (!book || await db.rows.get("pdf-text-box:" + box.id)) { skipped++; continue; }
+        await save("pdf-text-box", { ...box, bookId: book.id }); restored++;
       }
       const backedUp = new Map(annotations.filter(a => a.type !== "page-note").map(a => [a.id, a]));
       const matches = async (id: string) => {

@@ -1,9 +1,10 @@
-import { PDFDocument, rgb } from "pdf-lib";
+import { degrees, PDFDocument, rgb } from "pdf-lib";
 import { inkPath } from "./ink";
 import type { InkStroke } from "./inkTypes";
 import type { Book } from "./model";
 import { downloadBook } from "./sync";
-export async function exportMarkedPdf(book: Book, strokes: InkStroke[]) {
+import { belongsToPdf, boxAppearance, boxPoint, validPdfTextBox, type PdfTextBox } from "./pdfTextBoxes";
+export async function exportMarkedPdf(book: Book, strokes: InkStroke[], boxes: PdfTextBox[] = []) {
   try {
     const file = await downloadBook(book);
     const pdf = await PDFDocument.load(await file.source.arrayBuffer());
@@ -13,7 +14,16 @@ export async function exportMarkedPdf(book: Book, strokes: InkStroke[]) {
       const channels = [1, 3, 5].map(i => parseInt(stroke.color.slice(i, i + 2), 16) / 255);
       page.drawSvgPath(inkPath(stroke, (x, y) => [x, height - y]), { x: 0, y: height, color: rgb(channels[0], channels[1], channels[2]), opacity: stroke.tool === "highlighter" ? .3 : 1 });
     }
+    for (const box of boxes) {
+      if (!validPdfTextBox(box) || !belongsToPdf(box, book) || box.page > pdf.getPageCount()) continue;
+      const appearance = await boxAppearance(box);
+      const image = await pdf.embedPng(await appearance.arrayBuffer());
+      const [x, y] = boxPoint(box, 0, box.height);
+      pdf.getPage(box.page - 1).drawImage(image, {
+        x, y, width: box.width, height: box.height, rotate: degrees(box.rotation),
+      });
+    }
     const bytes = await pdf.save(), url = URL.createObjectURL(new Blob([bytes.slice().buffer], { type: "application/pdf" }));
     const link = document.createElement("a"); link.href = url; link.download = `${book.title.replace(/[<>:"/\\|?*]/g, "-")}-marked.pdf`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 60000);
-  } catch (cause) { throw new Error("This PDF could not be exported with drawings. Your original book and saved drawings are safe. Try an unlocked PDF copy.", { cause }); }
+  } catch (cause) { throw new Error("This PDF could not be exported with its markings. Try an unlocked PDF copy.", { cause }); }
 }

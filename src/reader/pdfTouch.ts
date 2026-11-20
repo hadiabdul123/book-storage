@@ -6,7 +6,7 @@ export function bindPdfTouch(host: HTMLElement, prepare: (page: HTMLElement) => 
   return bindTouchSelection(host, {
     selected, cleared, adjusting,
     textPoint: (x, y) => pdfTextPoint(host, x, y),
-    allowed: () => !host.classList.contains("drawing-mode") && !host.classList.contains("region-mode") && !host.classList.contains("pdf-zooming") && !host.dataset.pageTurning,
+    allowed: () => !host.classList.contains("drawing-mode") && !host.classList.contains("pdf-text-box-mode") && !host.classList.contains("region-mode") && !host.classList.contains("pdf-zooming") && !host.dataset.pageTurning,
     prepare: async element => { const page = element.closest<HTMLElement>(".pdf-page"); if (page) await prepare(page); },
   });
 }

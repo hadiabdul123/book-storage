@@ -20,7 +20,7 @@ export function bindReadingTaps(
       !e.isPrimary ||
       selected() ||
       target.closest?.(
-        "button,a,input,textarea,select,[contenteditable],.region-mode",
+        "button,a,input,textarea,select,[contenteditable],.region-mode,.pdf-text-box-mode",
       )
     ) {
       start = undefined;

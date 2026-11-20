@@ -1,5 +1,6 @@
 type Point = { x: number; y: number };
 type ZoomActions = {
+  enabled?: () => boolean;
   interaction?: (active: boolean) => void;
   target?: (zoom: number) => void;
   settled?: (zoom: number) => void;
@@ -50,17 +51,19 @@ export function bindPdfZoom(host: HTMLElement, actions: ZoomActions) {
     active = false; actions.interaction?.(false); actions.settled?.(Math.round(target * 100) / 100); distance = 0; cancelAnimationFrame(frame); paint(); void drain();
   };
   const request = (value: number) => {
+    if (actions.enabled?.() === false) return;
     const box = host.getBoundingClientRect(); begin({ x: box.left + box.width / 2, y: box.top + 28 });
     show(value); finish();
   };
   const wheel = (event: WheelEvent) => {
     if (!(event.ctrlKey || event.metaKey)) return;
+    if (actions.enabled?.() === false) return;
     event.preventDefault(); begin({ x: event.clientX, y: event.clientY });
     const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? host.clientHeight : 1);
     show(target * Math.exp(-Math.max(-500, Math.min(500, delta)) * .002)); timer = setTimeout(finish, 140);
   };
   const key = (event: KeyboardEvent) => {
-    if (!(event.ctrlKey || event.metaKey) || event.altKey || event.defaultPrevented ||
+    if (actions.enabled?.() === false || !(event.ctrlKey || event.metaKey) || event.altKey || event.defaultPrevented ||
       (event.target as Element)?.closest?.('input,textarea,select,[contenteditable="true"],[role="textbox"]') ||
       !["+", "=", "-", "0"].includes(event.key)) return;
     event.preventDefault(); const box = host.getBoundingClientRect();
@@ -70,7 +73,7 @@ export function bindPdfZoom(host: HTMLElement, actions: ZoomActions) {
   const span = (touches: TouchList) => Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY);
   const midpoint = (touches: TouchList) => ({ x: (touches[0].clientX + touches[1].clientX) / 2, y: (touches[0].clientY + touches[1].clientY) / 2 });
   const start = (event: TouchEvent) => {
-    if (host.querySelector('[data-ink-pen-active="true"]')) return;
+    if (actions.enabled?.() === false || host.querySelector('[data-ink-pen-active="true"]')) return;
     if (event.touches.length !== 2 || (event.target as Element).closest("button,a,input,textarea,[contenteditable],.region-mode")) return;
     if (event.cancelable) event.preventDefault(); begin(midpoint(event.touches));
     distance = Math.max(1, span(event.touches)); pinchBase = target; pinchOrigin = midpoint(event.touches); pinchPoint = point;

@@ -162,15 +162,20 @@ export function Notes() {
           <select
             aria-label="Export notes"
             value=""
-            onChange={(e) => {
+            onChange={async (e) => {
               if (e.target.value && (type === "drawing" || !!notebookSource)) { void import("./researchBackup").then(m => m.exportInkBackup(drawings.flatMap(([, d]) => d.strokes))); return; }
-              if (e.target.value)
+              const format = e.target.value as "" | "md" | "csv" | "json";
+              if (format)
                 exportAnnotations(
                   filtered,
                   books,
-                  e.target.value as "md" | "csv" | "json",
+                  format,
                   type === "all" ? drawings.flatMap(([, d]) => d.strokes).filter(s => s.target.type === "pdf") : [],
                   study,
+                  format === "json" && type === "all" && !color && !tag && !priority
+                    ? (await list("pdf-text-box")).filter(box =>
+                      (!bookId || box.bookId === bookId) && box.text.toLowerCase().includes(query.trim().toLowerCase()))
+                    : [],
                 );
             }}
           >

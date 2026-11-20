@@ -27,7 +27,11 @@ import {
   Sparkles,
   BookOpen,
   Headphones,
+  Type,
 } from "lucide-react";
+import { PdfTextBoxTool } from "./PdfTextBoxTool";
+import { belongsToPdf, fitPdfTextBox, layoutBoxText, validPdfTextBox, type BoxRotation, type PdfTextBox } from "./pdfTextBoxes";
+import type { PdfReader } from "./reader/pdf";
 import { comfortablePreferences } from "./readingAppearance";
 import { useReaderViewport } from "./useReaderViewport";
 import { useReaderFullscreen } from "./useReaderFullscreen";
@@ -77,6 +81,7 @@ import {
   type InteractionHandle,
 } from "./ReaderInteractions";
 const ReadAlong = lazy(() => import("./ReadAlong").then(module => ({ default: module.ReadAlong })));
+const noTextBoxes: PdfTextBox[] = [];
 
 export function Reader({ notify }: { notify: (message: string) => void }) {
   const { id = "" } = useParams(),
@@ -84,6 +89,12 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   const book = useLiveQuery(() => get("book", id), [id]);
   const ink = useLiveQuery(async () => (await list("ink-stroke")).filter(s => s.target.type === "pdf" && s.target.bookId === id), [id]) || [];
   const [drawing, setDrawing] = useState(false);
+  const textBoxes = useLiveQuery(async () => (await list("pdf-text-box")).filter(box => box.bookId === id), [id]) || noTextBoxes;
+  const [textBoxMode, setTextBoxMode] = useState(false);
+  const [textBoxDraft, setTextBoxDraft] = useState<PdfTextBox>();
+  const [editingSavedBox, setEditingSavedBox] = useState(false);
+  const [savingBox, setSavingBox] = useState(false);
+  const [, setTextBoxLayout] = useState(0);
   const [inkStyle, setInkStyle] = useState(defaultInkStyle);
   const annotations =
     useLiveQuery(
@@ -189,17 +200,91 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   const [secondaryActionsHost, setSecondaryActionsHost] = useState<HTMLElement | null>(null);
   const openNotebookRef = useRef<(page: number) => void>(() => {});
   async function flushNotebook() {
+    if (textBoxDraft) { notify("Save or cancel the text box first."); return false; }
     return (await notebook.current?.flush()) ?? true;
+  }
+  function closeTextBoxes() {
+    setTextBoxDraft(undefined);
+    setEditingSavedBox(false);
+    setTextBoxMode(false);
+  }
+  function placeTextBox(page?: number, point?: { x: number; y: number }, existingId?: string) {
+    if (!book || book.format !== "pdf" || textBoxDraft) return;
+    const surface = (adapter.current as PdfReader | null)?.textBoxSurface(page);
+    if (!surface?.ready) { notify("Wait for the PDF page to finish loading."); return; }
+    const existing = existingId && textBoxes.find(box => box.id === existingId && belongsToPdf(box, book));
+    if (existing) { setEditingSavedBox(true); setTextBoxDraft(existing); return; }
+    if (existingId) { notify("This text box is no longer available."); return; }
+    const { element, viewport } = surface;
+    const rect = element.getBoundingClientRect(), readerRect = host.current!.getBoundingClientRect();
+    const x = point?.x ?? (Math.max(rect.left, readerRect.left) + Math.min(rect.right, readerRect.right)) / 2;
+    const y = point?.y ?? (Math.max(rect.top, readerRect.top) + Math.min(rect.bottom, readerRect.bottom)) / 2;
+    const [pdfX, pdfY] = viewport.convertToPdfPoint(
+      (x - rect.left) * viewport.width / rect.width, (y - rect.top) * viewport.height / rect.height,
+    );
+    const stamp = now();
+    setEditingSavedBox(false);
+    setTextBoxDraft(fitPdfTextBox({
+      id: uid(), bookId: book.id, hash: book.hash, page: Number(element.dataset.page),
+      x: pdfX, y: pdfY, width: 214, height: 82, rotation: viewport.rotation as BoxRotation,
+      text: "", fontSize: 16, tint: false, createdAt: stamp, updatedAt: stamp,
+    }, viewport.viewBox as import("./model").Rect));
+  }
+  async function storeTextBox(remove = false) {
+    if (!textBoxDraft || savingBox) return;
+    const box = { ...textBoxDraft, text: textBoxDraft.text.trimEnd(), updatedAt: now() };
+    if (!remove) {
+      if (!validPdfTextBox(box)) { notify("Enter some text to save this box."); return; }
+      const layout = layoutBoxText(box);
+      if (!layout.widthFits || layout.height > box.height) {
+        notify("Resize the box or reduce the text size so all the text fits.");
+        return;
+      }
+    }
+    setSavingBox(true);
+    try {
+      await db.transaction("rw", db.rows, db.outbox, db.conflicts, db.meta, async () => {
+        if (editingSavedBox && !(await get("pdf-text-box", box.id))) throw new Error("This text box was removed on another device.");
+        await save("pdf-text-box", box, remove);
+      });
+      closeTextBoxes();
+    } catch (cause) { notify(messageOf(cause)); }
+    finally { setSavingBox(false); }
+  }
+  async function downloadMarkedPdf() {
+    if (!book || book.format !== "pdf") return;
+    try {
+      const strokes = (adapter.current as PdfReader | null)?.allInk() || ink;
+      notify("Preparing marked PDF…");
+      const { exportMarkedPdf } = await import("./inkExport");
+      await exportMarkedPdf(book, strokes, await list("pdf-text-box"));
+      notify("Marked PDF downloaded.");
+    } catch (cause) { notify(messageOf(cause)); }
+  }
+  async function toggleTextBoxes() {
+    if (textBoxMode) {
+      if (!textBoxDraft) closeTextBoxes();
+      else notify("Save or cancel the text box first.");
+      return;
+    }
+    if (!(await flushNotebook())) return;
+    interactions.current?.dismiss();
+    const pdf = adapter.current as PdfReader | null;
+    pdf?.setRegionMode(false);
+    pdf?.clearSelection();
+    setPanel(""); setDrawing(false); setRegion(false);
+    chrome.setMenu(false); setTextBoxMode(true);
   }
   async function openListen(selection?: ReaderSelection) {
     if (!adapter.current || loading || !(await flushNotebook())) return;
     setListenStart({ locator: selection?.locator ?? current ?? remotePosition?.locator, selected: !!selection });
     interactions.current?.dismiss();
     adapter.current.clearSelection();
-    setDrawing(false); setRegion(false); setPanel("listen"); chrome.setMenu(false);
+    closeTextBoxes(); setDrawing(false); setRegion(false); setPanel("listen"); chrome.setMenu(false);
   }
   async function changePanel(name: string) {
     if (await flushNotebook()) {
+      closeTextBoxes();
       setDrawing(false);
       setPanel(name);
       chrome.setMenu(false);
@@ -216,6 +301,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   }
   async function openNotebook(page: number, hold = false) {
     if (!(await flushNotebook())) return;
+    closeTextBoxes();
     setNotebookPage(page);
     setPinned(hold);
     setPanel("page-notes");
@@ -248,13 +334,13 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
     [jumped, setJumped] = useState(false);
   const backgroundAllowed = useRef(false);
   const backgroundBlocked = useRef(true);
-  backgroundBlocked.current = loading || !!panel || !!editing || region || drawing;
-  backgroundAllowed.current = !loading && !panel && !editing && !region && !drawing;
+  backgroundBlocked.current = loading || !!panel || !!editing || region || drawing || textBoxMode;
+  backgroundAllowed.current = !backgroundBlocked.current;
   const chrome = useReaderChrome(
     shell,
     host,
     ready,
-    !!panel || !!editing || region || drawing,
+    !!panel || !!editing || region || drawing || textBoxMode,
     fullscreen.active || quietFullscreen,
   );
   const wasFullscreen = useRef(false);
@@ -270,6 +356,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
     !editing &&
     !region &&
     !drawing &&
+    !textBoxMode &&
     (book?.format === "pdf"
       ? pdfLayout.navigation === "paginated" && zoom <= 1
       : book?.format === "epub" && prefs.flow === "paginated");
@@ -393,6 +480,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
         onPageNote: (page) => openNotebookRef.current(page),
         onRegionMode: setRegion,
         onLayoutFallback: setLayoutFallback,
+        onTextBoxLayout: () => setTextBoxLayout(version => version + 1),
         onPageCount: (count) => {
           if (cancelled) return;
           setPdfPageCount(count);
@@ -495,7 +583,11 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   useEffect(() => {
     if (book?.format === "pdf" && opened) (adapter.current as import("./reader/pdf").PdfReader)?.configureInk(ink, drawing, inkStyle);
   }, [ink, drawing, inkStyle, ready, opened]);
-  useEffect(() => { setDrawing(false); }, [id]);
+  useEffect(() => {
+    if (book?.format === "pdf" && opened)
+      (adapter.current as PdfReader | null)?.configureTextBoxes(textBoxes, textBoxMode, textBoxDraft?.id);
+  }, [textBoxes, textBoxMode, textBoxDraft?.id, ready, opened]);
+  useEffect(() => { setDrawing(false); closeTextBoxes(); }, [id]);
   useEffect(() => {
     if (opened && book?.preparedTextPath) void downloadBook(book).catch(() => {});
   }, [opened, book?.preparedTextPath]);
@@ -602,7 +694,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   return (
     <main
       ref={shell}
-      className={`reader-shell theme-${prefs.theme}${drawing ? " drawing-active" : ""}${chrome.visible ? " controls-visible" : " reading-mode"}${chrome.menu ? " controls-menu-open" : ""}${swipeEnabled ? " swipe-pages" : ""}${hidePageControls ? " hide-page-controls" : ""}${panel ? " panel-open" : ""}`}
+      className={`reader-shell theme-${prefs.theme}${drawing ? " drawing-active" : ""}${textBoxMode ? " pdf-text-box-active" : ""}${chrome.visible ? " controls-visible" : " reading-mode"}${chrome.menu ? " controls-menu-open" : ""}${swipeEnabled ? " swipe-pages" : ""}${hidePageControls ? " hide-page-controls" : ""}${panel ? " panel-open" : ""}`}
       data-original-pdf-colors={pdfOriginalColors}
       data-loading={loading || savedPrefs === null || localView === undefined}
       onPointerMoveCapture={(event) => {
@@ -614,16 +706,31 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
           chrome.reveal();
       }}
       onClickCapture={(event) => {
+        const target = event.target as HTMLElement;
+        const page = textBoxMode && target.closest<HTMLElement>(".reader-host .pdf-page");
+        if (page && !target.closest(".pdf-text-box-edit,button,a,input,textarea,select")) {
+          event.preventDefault();
+          placeTextBox(Number(page.dataset.page), { x: event.clientX, y: event.clientY },
+            target.closest<HTMLElement>("[data-text-box-id]")?.dataset.textBoxId);
+          return;
+        }
         const anchor = (event.target as HTMLElement).closest<HTMLAnchorElement>(
           'a[href^="#/"]',
         );
-        if (anchor && notebook.current) {
+        if (anchor && (notebook.current || textBoxDraft)) {
           event.preventDefault();
           const href = anchor.getAttribute("href")!;
           void flushNotebook().then((ok) => {
             if (ok) location.hash = href;
           });
         }
+      }}
+      onKeyDownCapture={event => {
+        if (!textBoxMode || (event.key !== "Enter" && event.key !== " ")) return;
+        const target = (event.target as HTMLElement).closest<HTMLElement>("[data-text-box-id]");
+        if (!target) return;
+        event.preventDefault();
+        placeTextBox(Number(target.closest<HTMLElement>(".pdf-page")?.dataset.page), undefined, target.dataset.textBoxId);
       }}
     >
       <button
@@ -682,7 +789,10 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
         <button className="icon-button" aria-label="Contents" aria-pressed={panel === "contents"}
           onClick={() => void changePanel(panel === "contents" ? "" : "contents")}><List size={20} /></button>
         <div className="reader-action-buttons" ref={setActionsHost} />
-        {book.format === "pdf" && <button className="icon-button" aria-label="Draw on PDF" aria-pressed={drawing} disabled={loading} onClick={async () => { if (!(await flushNotebook())) return; interactions.current?.dismiss(); adapter.current?.clearSelection(); (adapter.current as import("./reader/pdf").PdfReader)?.setRegionMode(false); setPanel(""); setRegion(false); setDrawing(!drawing); chrome.reveal(); }}><PenLine size={20} /></button>}
+        {book.format === "pdf" && <>
+          <button className="icon-button" aria-label="Draw on PDF" aria-pressed={drawing} disabled={loading} onClick={async () => { if (!(await flushNotebook())) return; closeTextBoxes(); interactions.current?.dismiss(); adapter.current?.clearSelection(); (adapter.current as PdfReader)?.setRegionMode(false); setPanel(""); setRegion(false); setDrawing(!drawing); chrome.reveal(); }}><PenLine size={20} /></button>
+          <button className="icon-button reader-text-box-direct" aria-label="Text box" title="Text box" aria-pressed={textBoxMode} disabled={loading} onClick={() => void toggleTextBoxes()}><Type size={20} /></button>
+        </>}
         <button className="icon-button" aria-label="Reading settings" aria-pressed={panel === "settings"}
           onClick={() => void changePanel(panel === "settings" ? "" : "settings")}><Settings2 size={20} /></button>
         <button
@@ -694,6 +804,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
           <MoreHorizontal size={22} />
         </button>
         <div className="reader-tools">
+          {book.format === "pdf" && <button className="icon-button reader-text-box-overflow" aria-label="Text box" title="Text box" aria-pressed={textBoxMode} disabled={loading} onClick={() => void toggleTextBoxes()}><Type size={20} /></button>}
           {tools.filter(([name]) => name !== "contents" && name !== "settings").map(([name, Icon, label]) => (
             <button
               className={`icon-button ${panel === name ? "active" : ""}`}
@@ -717,6 +828,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
                 (adapter.current as import("./reader/pdf").PdfReader)?.setRegionMode(false);
               setRegion(false);
               setPanel("");
+              closeTextBoxes();
               chrome.setPinned(false);
               if (shell.current?.contains(document.activeElement)) (document.activeElement as HTMLElement)?.blur();
               chrome.conceal();
@@ -750,6 +862,8 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
             aria-label={fullscreen.active || quietFullscreen ? "Exit fullscreen reading" : "Enter fullscreen reading"}
             aria-pressed={fullscreen.active}
             onClick={() => {
+              if (textBoxDraft) { notify("Save or cancel the text box first."); return; }
+              closeTextBoxes();
               if (fullscreen.active) { void fullscreen.exit(); return; }
               if (quietFullscreen) { setQuietFullscreen(false); chrome.reveal(); return; }
               const request = fullscreen.enter();
@@ -770,7 +884,12 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
       {drawing && <Suspense fallback={<div className="ink-toolbar" role="status">Opening drawing tools…</div>}><InkToolbar style={inkStyle} change={setInkStyle}
         undo={() => void (adapter.current as import("./reader/pdf").PdfReader)?.undoInk().catch(e => notify(messageOf(e)))}
         redo={() => void (adapter.current as import("./reader/pdf").PdfReader)?.undoInk(true).catch(e => notify(messageOf(e)))}
-        close={() => setDrawing(false)} exportPdf={() => { const strokes = (adapter.current as import("./reader/pdf").PdfReader)?.allInk() || ink; notify("Preparing marked PDF…"); void import("./inkExport").then(m => m.exportMarkedPdf(book, strokes)).then(() => notify("Marked PDF downloaded."), e => notify(messageOf(e))); }} /></Suspense>}
+        close={() => setDrawing(false)} exportPdf={() => void downloadMarkedPdf()} /></Suspense>}
+      {textBoxMode && <PdfTextBoxTool draft={textBoxDraft}
+        surface={textBoxDraft ? (adapter.current as PdfReader | null)?.textBoxSurface(textBoxDraft.page) : undefined}
+        saved={editingSavedBox} saving={savingBox} update={setTextBoxDraft}
+        place={() => placeTextBox()} save={() => void storeTextBox()} remove={() => void storeTextBox(true)}
+        exportPdf={() => void downloadMarkedPdf()} cancel={closeTextBoxes} />}
       <div className="reader-workspace">
         {panel && <button className="reader-panel-backdrop" aria-label="Close reading panel"
           onClick={() => void changePanel("")} />}
@@ -1377,7 +1496,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
             <button
               className="icon-button"
               aria-label="Zoom out"
-              disabled={loading || zoom <= 1}
+              disabled={loading || !!textBoxDraft || zoom <= 1}
               onClick={() =>
                 void setPdfView(Math.max(1, zoom - 0.25), rotation)
               }
@@ -1387,7 +1506,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
             <button
               className="text-button"
               aria-label="Reset page zoom"
-              disabled={loading}
+              disabled={loading || !!textBoxDraft}
               onClick={() => void setPdfView(1, rotation)}
             >
               {Math.round(zoom * 100)}%
@@ -1395,7 +1514,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
             <button
               className="icon-button"
               aria-label="Zoom in"
-              disabled={loading || zoom >= 3}
+              disabled={loading || !!textBoxDraft || zoom >= 3}
               onClick={() =>
                 void setPdfView(Math.min(3, zoom + 0.25), rotation)
               }
@@ -1407,7 +1526,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
         <button
           className="icon-button"
           aria-label="Previous page"
-          disabled={loading}
+          disabled={loading || !!textBoxDraft}
           onClick={() =>
             void adapter.current?.previous().catch((e) => notify(messageOf(e)))
           }
@@ -1436,7 +1555,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
         <button
           className="icon-button"
           aria-label="Next page"
-          disabled={loading}
+          disabled={loading || !!textBoxDraft}
           onClick={() =>
             void adapter.current?.next().catch((e) => notify(messageOf(e)))
           }

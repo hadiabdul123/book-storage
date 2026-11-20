@@ -140,6 +140,7 @@ export const defaults: Preferences = {
   spread: false,
 };
 export interface EntityMap {
+  "pdf-text-box": import("./pdfTextBoxes").PdfTextBox;
   "notebook-media": NotebookMedia;
   "notebook-image": NotebookMedia;
   "notebook-overlay": NotebookOverlay;

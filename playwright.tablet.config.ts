@@ -7,7 +7,7 @@ export default defineConfig({
   // Real PDF fits, decoded previews and a curl can queue on WebKit in CI.
   // Share the existing PDF-render budget; timing-specific checks stay explicit.
   expect: { ...base.expect, timeout: 15_000 },
-  testMatch: ["tablet-reading.spec.ts", "book-turns.spec.ts", "reading-smoothness.spec.ts", "reading-upgrade.spec.ts", "organization.spec.ts", "gesture-safety.spec.ts", "notebook-workspace.spec.ts", "highlight-study.spec.ts"],
+  testMatch: ["tablet-reading.spec.ts", "book-turns.spec.ts", "reading-smoothness.spec.ts", "reading-upgrade.spec.ts", "organization.spec.ts", "gesture-safety.spec.ts", "notebook-workspace.spec.ts", "highlight-study.spec.ts", "pdf-text-boxes.spec.ts"],
   testIgnore: [],
   outputDir: "test-results/tablet",
   projects: [

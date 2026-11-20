@@ -3,6 +3,7 @@ import type { Annotation, Book } from "./model";
 import { markdown } from "./richText";
 import { sourceMarkdown } from "./sourceReferences";
 import type { InkStroke } from "./inkTypes";
+import { belongsToPdf, type PdfTextBox } from "./pdfTextBoxes";
 import { priorities, type HighlightFollowup, type HighlightStudy } from "./highlightStudy";
 export function downloadText(name: string, text: string, type = "text/plain") {
   const url = URL.createObjectURL(new Blob([text], { type }));
@@ -18,6 +19,7 @@ export function exportAnnotations(
   format: "md" | "csv" | "json",
   ink: InkStroke[] = [],
   studyData?: { study: HighlightStudy[]; followups: HighlightFollowup[] },
+  textBoxes: PdfTextBox[] = [],
 ) {
   const ids = new Set(items.filter(item => item.type !== "page-note").map(item => item.id));
   const study = studyData?.study.filter(item => ids.has(item.id)) || [];
@@ -49,6 +51,7 @@ export function exportAnnotations(
         })),
         annotations: items,
         ink: ink.filter(s => s.target.type === "pdf"),
+        ...(textBoxes.length ? { pdfTextBoxes: textBoxes.filter(box => books.some(book => belongsToPdf(box, book))) } : {}),
         ...(hasStudy ? { study, followups } : {}),
       },
       null,

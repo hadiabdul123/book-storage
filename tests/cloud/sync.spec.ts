@@ -212,6 +212,11 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
       .fill("A note shared between devices");
     await first.getByRole("button", { name: "Save now" }).click();
     await first.getByRole("button", { name: "Close panel" }).click();
+    await clickTool(first, "Text box");
+    await first.getByRole("button", { name: "Place on current page", exact: true }).click();
+    await first.getByRole("textbox", { name: "Text box on page 1" }).fill("A text box shared between devices.");
+    await first.getByRole("button", { name: "Save text box", exact: true }).click();
+    await expect(first.locator(".pdf-text-box")).toHaveText("A text box shared between devices.");
     await clickTool(first, "Add bookmark");
     await first.getByRole("button", { name: "Next page", exact: true }).click();
     await expect(first.locator(".reader-progress")).toContainText("Page 2");
@@ -254,6 +259,14 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
     await expect(
       second.getByRole("button", { name: "Remove bookmark", exact: true }),
     ).toHaveAttribute("aria-pressed", "true");
+    const secondBox = second.locator('.pdf-page[data-page="1"] .pdf-text-box');
+    await expect(secondBox).toHaveText("A text box shared between devices.");
+    await clickTool(second, "Text box");
+    await secondBox.press("Enter");
+    await second.getByRole("textbox", { name: "Text box on page 1" }).fill("Edited from the second device.");
+    await second.getByRole("button", { name: "Save text box", exact: true }).click();
+    await expect.poll(() => [...rows.values()].some(row =>
+      row.kind === "pdf-text-box" && row.value.text === "Edited from the second device.")).toBe(true);
     await clickTool(second, "Page notes");
     await expect(
       second.getByRole("textbox", { name: "Notebook for page 1", exact: true }),
@@ -268,6 +281,7 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
       await first
         .getByRole("button", { name: "Previous page", exact: true })
         .click();
+    await expect(first.locator('.pdf-page[data-page="1"] .pdf-text-box')).toHaveText("Edited from the second device.");
     await clickTool(first, "Page notes");
     await first
       .getByRole("textbox", { name: "Notebook for page 1", exact: true })

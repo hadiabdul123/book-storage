@@ -4,6 +4,7 @@ import { PageTurn } from "./pageTurn";
 import { pageViewport, blankMargins } from "./pdfGeometry";
 import { bindInkSurface, InkHistory, recoverInkDrafts } from "../ink";
 import { defaultInkStyle, type InkStroke, type InkStyle } from "../inkTypes";
+import { belongsToPdf, boxFont, boxInk, boxPadding, boxPaper, boxTransform, layoutBoxText, validPdfTextBox, type PdfTextBox } from "../pdfTextBoxes";
 import { blankLeaf, canvasImage, disposeSurfaces, surfaceCache, type TurnDirection, type TurnPreview, type TurnSpread } from "./turnSurfaces";
 import { db } from "../db";
 import { pageText, savedOcr, preparePageText, hasPageText, type OcrWord } from "../pdfText";
@@ -86,6 +87,10 @@ export class PdfReader implements ReaderAdapter {
   private cropPending = false;
   private ink: InkStroke[] = [];
   private drawing = false;
+  private textBoxMode = false;
+  private textBoxes: PdfTextBox[] = [];
+  private textBoxesByPage = new Map<number, PdfTextBox[]>();
+  private editingBox?: string;
   private inkStyle = defaultInkStyle;
   private inkHistory = new InkHistory();
   private inkLayers = new Map<number, { svg: SVGSVGElement; binding: ReturnType<typeof bindInkSurface> }>();
@@ -93,6 +98,15 @@ export class PdfReader implements ReaderAdapter {
   private resizeObserver?: ResizeObserver;
   private hostWidth = 0;
   private hostHeight = 0;
+  private resizeToHost = () => {
+    if (this.editingBox) return;
+    if (Math.abs(this.host.clientWidth - this.hostWidth) <= 5 &&
+        (this.layout.fit !== "page" || Math.abs(this.host.clientHeight - this.hostHeight) <= 5)) return;
+    this.hostWidth = this.host.clientWidth;
+    this.hostHeight = this.host.clientHeight;
+    void this.setView(this.zoomController?.target() ?? this.zoom, this.view?.target.rotation ?? this.rotation, true)
+      .catch(error => this.events.onError(error.message));
+  };
   private autoOcrTimer?: ReturnType<typeof setTimeout>;
   private autoOcrBusy = false;
   private autoOcrBlocked = false;
@@ -144,10 +158,10 @@ export class PdfReader implements ReaderAdapter {
       for (const page of this.pages) { page.generation++; page.task?.cancel(); page.textTask?.cancel(); page.renderAbort?.abort(); }
     });
     this.turn = new PageTurn(host, {
-      enabled: () => this.layout.navigation === "paginated" && this.effect !== "none" && this.zoom <= 1 && !this.drawing && !this.region && !this.layingOut && !this.host.classList.contains("pdf-zooming"),
+      enabled: () => this.layout.navigation === "paginated" && this.effect !== "none" && this.zoom <= 1 && !this.drawing && !this.textBoxMode && !this.region && !this.layingOut && !this.host.classList.contains("pdf-zooming"),
       canDrag: () => !!this.events.canDragTurn?.() && !host.classList.contains("pdf-zooming"),
       canWarm: () => this.events.canPrepare?.() !== false,
-      canTap: () => this.layout.navigation === "paginated" && !this.drawing && !this.region && !this.layingOut && !host.classList.contains("pdf-zooming") && !!this.events.canEdgeTurn?.(),
+      canTap: () => this.layout.navigation === "paginated" && !this.drawing && !this.textBoxMode && !this.region && !this.layingOut && !host.classList.contains("pdf-zooming") && !!this.events.canEdgeTurn?.(),
       tapBounds: () => { const paper = this.paperBounds(), visible = host.getBoundingClientRect(); const left = Math.max(paper.left, visible.left), top = Math.max(paper.top, visible.top); return new DOMRect(left, top, Math.max(0, Math.min(paper.right, visible.right) - left), Math.max(0, Math.min(paper.bottom, visible.bottom) - top)); },
       navigate: direction => this[direction](),
       bounds: () => this.paperBounds(),
@@ -262,7 +276,7 @@ export class PdfReader implements ReaderAdapter {
         this.pauseView();
         this.events.onMouseSelection?.(active);
       },
-      allowed: element => !this.drawing && !this.region && !!element.closest(".textLayer"),
+      allowed: element => !this.drawing && !this.textBoxMode && !this.region && !!element.closest(".textLayer"),
       textPoint: (x, y) => pdfTextPoint(this.host, x, y),
     });
     // Retain the gesture's original text/canvas nodes until touch release.
@@ -281,21 +295,10 @@ export class PdfReader implements ReaderAdapter {
     this.onScroll();
     this.hostWidth = this.host.clientWidth;
     this.hostHeight = this.host.clientHeight;
-    this.resizeObserver = new ResizeObserver(() => {
-      if (
-        Math.abs(this.host.clientWidth - this.hostWidth) > 5 ||
-        (this.layout.fit === "page" &&
-          Math.abs(this.host.clientHeight - this.hostHeight) > 5)
-      ) {
-        this.hostWidth = this.host.clientWidth;
-        this.hostHeight = this.host.clientHeight;
-        void this.setView(this.zoomController?.target() ?? this.zoom, this.view?.target.rotation ?? this.rotation, true).catch((e) =>
-          this.events.onError(e.message),
-        );
-      }
-    });
+    this.resizeObserver = new ResizeObserver(this.resizeToHost);
     this.resizeObserver.observe(this.host);
     this.zoomController = bindPdfZoom(this.host, {
+      enabled: () => !this.editingBox,
       interaction: active => { this.zoomInteracting = active; this.pauseView(); },
       target: zoom => { void this.setView(zoom, this.view?.target.rotation ?? this.rotation).catch(e => this.events.onError(e.message)); },
       value: () => this.zoom,
@@ -316,7 +319,7 @@ export class PdfReader implements ReaderAdapter {
             clone.className = "pdf-zoom-page"; clone.removeAttribute("data-page"); clone.removeAttribute("aria-label");
             clone.style.background = getComputedStyle(state.element).background;
             clone.style.boxShadow = getComputedStyle(state.element).boxShadow;
-            clone.querySelectorAll(".textLayer,button").forEach(el => el.remove());
+            clone.querySelectorAll(".textLayer,.pdf-text-box-edit,button").forEach(el => el.remove());
             const original = state.element.querySelector("canvas"), copy = clone.querySelector("canvas");
             if (original && copy) {
               const scale = Math.min(1, Math.sqrt(1_500_000 / Math.max(1, visible.length) / (original.width * original.height)));
@@ -467,6 +470,7 @@ export class PdfReader implements ReaderAdapter {
       state.loaded = true;
       this.drawPage(state);
       this.drawInk(state);
+      this.drawTextBoxes(state);
       this.scheduleRecognition();
     } catch (error: any) {
       if (error?.name !== "RenderingCancelledException" && error?.name !== "AbortException" && error?.name !== "AbortError") throw error;
@@ -779,6 +783,7 @@ export class PdfReader implements ReaderAdapter {
     state.element.append(layer);
   }
   private click = (event: MouseEvent) => {
+    if (this.textBoxMode) return;
     const page = (event.target as HTMLElement).closest<HTMLElement>(
       ".pdf-page",
     );
@@ -812,6 +817,7 @@ export class PdfReader implements ReaderAdapter {
   };
   private keyDown = (event: KeyboardEvent) => {
     if (
+      this.textBoxMode ||
       (event.target as HTMLElement).closest(
         "input, textarea, [contenteditable=true], button",
       )
@@ -860,6 +866,7 @@ export class PdfReader implements ReaderAdapter {
     this.host.replaceChildren(paper);
     this.host.dataset.columns = String(this.columns);
     this.host.dataset.navigation = this.layout.navigation;
+    if (this.textBoxMode) this.events.onTextBoxLayout?.();
   }
   private location(): Locator {
     const top = this.host.getBoundingClientRect().top;
@@ -993,7 +1000,11 @@ export class PdfReader implements ReaderAdapter {
           await new Promise((r) => setTimeout(r, 5));
         p.loaded = false;
         // Only visible old bitmaps are needed during the handoff.
-        if (!visible.has(p)) { this.inkLayers.get(p.n)?.binding.destroy(); this.inkLayers.delete(p.n); p.element.replaceChildren(); }
+        if (!visible.has(p)) {
+          this.inkLayers.get(p.n)?.binding.destroy();
+          this.inkLayers.delete(p.n);
+          for (const child of Array.from(p.element.children)) if (!child.classList.contains("pdf-text-box-edit")) child.remove();
+        }
       }
       if (this.disposed || signal?.aborted) return;
       this.arrange();
@@ -1139,7 +1150,7 @@ export class PdfReader implements ReaderAdapter {
             const content = document.createElement("div");
             Object.assign(content.style, { position: "absolute", width: `${w}px`, height: `${h}px`, left: `${(width - w * scale) / 2}px`, top: "0", transform: `scale(${scale})`, transformOrigin: "0 0" });
             content.append(image);
-            for (const highlight of page.element.querySelectorAll<HTMLElement>(".pdf-highlight,.pdf-ink-layer")) {
+            for (const highlight of page.element.querySelectorAll<HTMLElement>(".pdf-highlight,.pdf-ink-layer,.pdf-text-box-layer")) {
               const clone = highlight.cloneNode(true) as HTMLElement, css = getComputedStyle(highlight);
               Object.assign(clone.style, { position: "absolute", backgroundColor: css.backgroundColor, opacity: css.opacity, mixBlendMode: css.mixBlendMode });
               content.append(clone);
@@ -1310,6 +1321,67 @@ export class PdfReader implements ReaderAdapter {
     this.host.classList.toggle("drawing-mode", drawing);
     if (changed) { this.clearSurfaces(); this.turn.invalidate(); }
     this.pages.filter(p => p.loaded).forEach(p => this.drawInk(p));
+  }
+  configureTextBoxes(boxes: PdfTextBox[], active: boolean, editing?: string) {
+    const changed = boxes !== this.textBoxes;
+    if (!changed && active === this.textBoxMode && editing === this.editingBox) return;
+    this.textBoxMode = active;
+    this.host.classList.toggle("pdf-text-box-mode", active);
+    const stoppedEditing = this.editingBox && !editing;
+    this.editingBox = editing;
+    if (changed) {
+      this.textBoxes = boxes;
+      this.textBoxesByPage.clear();
+      for (const box of boxes) {
+        if (!validPdfTextBox(box) || !belongsToPdf(box, this.book)) continue;
+        const group = this.textBoxesByPage.get(box.page) || [];
+        group.push(box);
+        this.textBoxesByPage.set(box.page, group);
+      }
+    }
+    this.clearSurfaces();
+    this.turn.invalidate();
+    for (const state of this.pages) if (state.loaded) this.drawTextBoxes(state);
+    if (stoppedEditing) this.resizeToHost();
+  }
+  textBoxSurface(page = this.current) {
+    const state = this.pages[page - 1];
+    if (!state || state.element.hidden) return;
+    const { element, viewport } = state;
+    if (state.page.view.length !== 4) return;
+    return { element, viewport, bounds: state.page.view as Rect,
+      ready: state.loaded && !this.layingOut && this.host.getAttribute("aria-busy") !== "true" && !this.host.classList.contains("pdf-zooming") };
+  }
+  private drawTextBoxes(state: PageState) {
+    const boxes = this.textBoxesByPage.get(state.n);
+    let layer = state.element.querySelector<HTMLElement>(".pdf-text-box-layer");
+    if (!boxes?.length) { layer?.remove(); return; }
+    if (!layer) {
+      layer = document.createElement("div");
+      layer.className = "pdf-text-box-layer";
+      state.element.append(layer);
+    }
+    const surface = document.createDocumentFragment();
+    for (const box of boxes) {
+      if (box.id === this.editingBox) continue;
+      const element = document.createElement("div");
+      element.className = "pdf-text-box";
+      element.dataset.textBoxId = box.id;
+      if (this.textBoxMode) {
+        element.tabIndex = 0;
+        element.role = "button";
+        element.setAttribute("aria-label", `Edit text box: ${box.text.slice(0, 80)}`);
+      }
+      const { lines, lineHeight } = layoutBoxText(box);
+      Object.assign(element.style, {
+        width: box.width + "px", height: box.height + "px", transform: boxTransform(box, state.viewport),
+        background: boxPaper(box.tint), color: boxInk, padding: boxPadding + "px",
+        font: box.fontSize + "px/" + lineHeight + "px " + boxFont,
+      });
+      element.textContent = lines.join("\n");
+      surface.append(element);
+    }
+    layer.replaceChildren(surface);
   }
   async undoInk(redo = false) { await this.inkHistory.move(redo); }
   async retryInk() { await this.inkHistory.retry(); this.pages.filter(p => p.loaded).forEach(p => this.drawInk(p)); }

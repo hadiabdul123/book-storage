@@ -4,6 +4,7 @@ import { db, list, save } from "../src/db";
 import { restoreAnnotationBackup } from "../src/backup";
 import type { Annotation, Book, Row } from "../src/model";
 import type { InkStroke } from "../src/inkTypes";
+import { boxPoint, fitPdfTextBox, type PdfTextBox } from "../src/pdfTextBoxes";
 
 vi.stubGlobal("window", new EventTarget());
 const book = { id: "local-book", hash: "a".repeat(64) } as Book;
@@ -21,6 +22,24 @@ it("restores drawing-aware annotation backups by edition hash and validates ink 
   await expect(restoreAnnotationBackup({ ...data, ink: [{ ...stroke, points: [[10, 20, Infinity]] }] }, [book])).rejects.toThrow("invalid drawing");
 });
 beforeEach(async () => { for (const table of db.tables) await table.clear(); });
+
+it("restores PDF text boxes onto the matching edition and rejects invalid placement", async () => {
+  const box: PdfTextBox = {
+    id: "typed-note", bookId: annotation.bookId, hash: book.hash, page: 1, x: 50, y: 80, width: 214, height: 82,
+    rotation: 90, text: "Typed note", fontSize: 16, tint: true, createdAt: annotation.createdAt, updatedAt: annotation.createdAt,
+  };
+  const localPdf = { ...book, format: "pdf" } as Book;
+  const data = { ...backup([]), version: 4, ink: [], pdfTextBoxes: [box] };
+  await expect(restoreAnnotationBackup({ ...data, pdfTextBoxes: [{ ...box, width: -1 }] }, [localPdf])).rejects.toThrow("invalid PDF text box");
+  expect(await list("pdf-text-box")).toHaveLength(0);
+  expect(await restoreAnnotationBackup(data, [localPdf])).toEqual({ restored: 1, skipped: 0 });
+  expect(await list("pdf-text-box")).toEqual([{ ...box, bookId: localPdf.id }]);
+  expect(await restoreAnnotationBackup(data, [localPdf])).toEqual({ restored: 0, skipped: 1 });
+
+  const resized = fitPdfTextBox({ ...box, width: 1200, height: 1200 }, [10, 20, 410, 620], true);
+  expect([resized.x, resized.y]).toEqual([50, 80]);
+  expect(boxPoint(resized, resized.width, resized.height)).toEqual([410, 620]);
+});
 
 it("restores highlight follow-ups without overwriting the existing quote, note, or priority", async () => {
   await save("annotation", { ...annotation, bookId: book.id, note: "My latest note" });
