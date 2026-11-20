@@ -6,7 +6,12 @@ export type BookComparison = {
   synthesis: ComparisonFinding;
 };
 
-type Evidence = { id: string; bookId?: string; kind?: string };
+type Evidence = { id: string; bookId?: string; kind?: string; noteId?: string; annotationId?: string };
+export function comparisonSourceId(source: Evidence) {
+  if (source.kind === "note") return "note:" + source.noteId;
+  if (source.annotationId) return "highlight:" + source.annotationId;
+  return source.bookId;
+}
 
 export function validComparisonRequest(value: unknown): value is ComparisonRequest {
   const request = value as ComparisonRequest;
@@ -26,8 +31,8 @@ export function validBookComparison(value: unknown, evidence: Evidence[], reques
   if (!validComparisonRequest({ books }) || (request && JSON.stringify(request.books) !== JSON.stringify(books))) return false;
   const refs = (ids: unknown, bookId?: string): ids is string[] =>
     Array.isArray(ids) && ids.length <= 7 && new Set(ids).size === ids.length && ids.every(id =>
-      typeof id === "string" && evidence.some(source => source.id === id && source.kind === "book" &&
-        (bookId ? source.bookId === bookId : books.some(book => book.bookId === source.bookId))));
+      typeof id === "string" && evidence.some(source => source.id === id && (source.kind === "book" || source.kind === "note") &&
+        (bookId ? comparisonSourceId(source) === bookId : books.some(book => book.bookId === comparisonSourceId(source)))));
   return result.columns.every(column => validText(column.answer, 1200) && validText(column.gap, 400) &&
     refs(column.sourceIds, column.bookId) && (column.answer.trim() ? column.sourceIds.length > 0 : !!column.gap.trim())) &&
     validText(result.synthesis.text, 1800) && !!result.synthesis.text.trim() && refs(result.synthesis.sourceIds) &&

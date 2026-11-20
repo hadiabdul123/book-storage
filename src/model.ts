@@ -139,7 +139,13 @@ export const defaults: Preferences = {
   flow: "scrolled",
   spread: false,
 };
+export type QuoteCategory = { id: string; name: string };
+export type CardFiling = { id: string; categoryId: string; cardId: string };
+export type ResearchCard = { id: string; text: string; kind: "quote" | "finding"; sources: SourceRef[]; studyId?: string; createdAt: string };
 export interface EntityMap {
+  "quote-category": QuoteCategory;
+  "card-filing": CardFiling;
+  "research-card": ResearchCard;
   "pdf-text-box": import("./pdfTextBoxes").PdfTextBox;
   "notebook-media": NotebookMedia;
   "notebook-image": NotebookMedia;

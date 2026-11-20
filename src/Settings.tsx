@@ -1,3 +1,4 @@
+import { cardLibrary } from "./cardStore";
 import { useEffect, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
@@ -110,7 +111,6 @@ export function Settings({ notify }: { notify: (m: string) => void }) {
     <div className="settings-page">
       <header className="page-header">
         <div>
-          <p className="page-kicker">Make room for reading</p>
           <h1>Reading & settings</h1>
         </div>
       </header>
@@ -138,7 +138,7 @@ export function Settings({ notify }: { notify: (m: string) => void }) {
         </div>
       </section>
       <section className="settings-section">
-        <h2>A little reading, every day</h2>
+        <h2>Reading activity</h2>
         <div className="activity-chart">
           {days.map((d) => (
             <div key={d.date.toISOString()}>
@@ -249,7 +249,7 @@ export function Settings({ notify }: { notify: (m: string) => void }) {
         </button>
       </section>
       <section className="settings-section">
-        <h2>Take your notes with you</h2>
+        <h2>Export and restore notes</h2>
         <p className="muted">
           Exports include original passages, your notes, and links back to the
           book. JSON also preserves exact location anchors.
@@ -260,8 +260,8 @@ export function Settings({ notify }: { notify: (m: string) => void }) {
               key={format}
               className="secondary"
               onClick={async () =>
-                exportAnnotations(await list("annotation"), books, format, [], await highlightStudyData(),
-                  format === "json" ? await list("pdf-text-box") : [])
+                exportAnnotations(await list("annotation"), books, format, format === "json" ? await list("ink-stroke") : [], await highlightStudyData(),
+                  format === "json" ? await list("pdf-text-box") : [], format === "json" ? await cardLibrary() : undefined)
               }
             >
               <Download size={16} />

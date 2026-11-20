@@ -38,6 +38,8 @@ export type InteractionHandle = {
   removeBookmark: (value: Bookmark) => Promise<void>;
   changeAnnotation: (value: Annotation, deleted?: boolean) => Promise<void>;
 };
+import { CardCategories } from "./CardCategories";
+
 type Draft = { selection: Selection; text: string; annotationId?: string };
 const selectionKey = (selection: Selection) =>
   JSON.stringify(selection.locator);
@@ -699,8 +701,10 @@ export const ReaderInteractions = forwardRef<
       adapter.current?.clearSelection();
     }
   }
+  const [filing, setFiling] = useState<string>();
   return (
     <>
+      {filing && <CardCategories ids={[filing]} close={() => setFiling(undefined)} />}
       {controls &&
         createPortal(
           <>
@@ -918,6 +922,7 @@ export const ReaderInteractions = forwardRef<
               />
               <span className="passage-bookmark-label">{selectedBookmark ? "Unbookmark" : "Bookmark"}</span>
             </button>
+            {mode === "more" && target && <button onClick={() => { setFiling(target.id); closeSelection(); }}>Categories</button>}
             {target && (
               <button
                 className="remove-highlight"

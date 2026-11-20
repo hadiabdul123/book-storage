@@ -81,7 +81,7 @@ export function ItemMenu({ title, children, actions, className, touch = false, r
       buttons[next]?.focus();
     }}>
       {actions.map(action => <button key={action.label} type="button" role="menuitem" disabled={action.disabled} className={action.danger ? "danger" : undefined} onClick={() => { suppressClick.current = false; close(true); action.run(); }}>{action.label}</button>)}
-    </div>, document.body)}
+    </div>, trigger.current?.closest("dialog") || document.body)}
   </div>;
 }
 

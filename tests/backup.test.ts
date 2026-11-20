@@ -93,3 +93,21 @@ it("restores deleted annotations and rejects malformed backup envelopes", async 
   for (const invalid of [null, [], { schema: "leafmark.annotations", version: 0, annotations: [] }])
     await expect(restoreAnnotationBackup(invalid, [book])).rejects.toThrow("not a Leafmark");
 });
+
+it("keeps category memberships independent and restores a research card with its original citations", async () => {
+  const { fileCards, editCategory } = await import("../src/cardStore");
+  await editCategory("Discipline","discipline");
+  await editCategory("Leadership","leadership");
+  await fileCards(["note","finding"],{ discipline:true, leadership:true });
+  await fileCards(["note"],{ leadership:false });
+  await fileCards(["finding"],{ discipline:true });
+  const filings = await list("card-filing");
+  expect(filings).toHaveLength(3);
+  const cards = [{ id:"finding", kind:"finding", text:"Observation", createdAt:annotation.createdAt,
+    sources:[{ id:"S1",kind:"book",bookId:annotation.bookId,title:"Book",excerpt:"Passage",locator:annotation.locator }] }];
+  const data = { ...backup([annotation]), version:6, ink:[], cardLibrary:{ categories:await list("quote-category"), cards, filings } };
+  await db.rows.clear();
+  expect((await restoreAnnotationBackup(data,[book])).restored).toBe(7);
+  expect((await list("research-card"))[0].sources[0].bookId).toBe(book.id);
+  expect((await restoreAnnotationBackup(data,[book])).restored).toBe(0);
+});

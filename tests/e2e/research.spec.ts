@@ -132,14 +132,10 @@ test("book study queues separate cited reviews and compares evidence from every 
   await expect(page.getByRole("heading", { name: "Study Alpha", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Study Beta", exact: true })).toBeVisible();
   await page.goto("/#/notebooks?view=research");
-  await page.getByRole("button", { name: "New study", exact: true }).click();
-  await page.getByLabel("Study name").fill("River restoration");
-  await page.getByRole("button", { name: "Create study", exact: true }).click();
-  await page.getByRole("button", { name: "Choose sources", exact: true }).click();
+  await page.getByRole("button", { name: "Start a study", exact: true }).click();
   await page.getByRole("checkbox", { name: "Study Alpha", exact: true }).check();
   await page.getByRole("checkbox", { name: "Study Beta", exact: true }).check();
-  await page.getByRole("button", { name: "Save sources", exact: true }).click();
-  await page.getByText("More actions", { exact: true }).click();
+  await page.getByRole("button", { name: "Start study", exact: true }).click();
   await page.getByRole("button", { name: "Review chapters" }).click();
   await expect(page.getByRole("dialog")).toContainText("Pages 1–2");
   await page.getByRole("button", { name: "Review 2 sections" }).click();
@@ -149,7 +145,7 @@ test("book study queues separate cited reviews and compares evidence from every 
   await page.getByLabel("Research question").fill("restoration");
   await page.getByRole("button", { name: "Find passages", exact: true }).click();
   await expect(page.locator(".study-passages")).toContainText("community support");
-  await page.getByRole("button", { name: "Compare books", exact: true }).click();
+  await page.getByRole("button", { name: "Compare sources", exact: true }).click();
   await page.getByLabel("Comparison question").fill("How do these books compare river restoration?");
   await page.getByRole("button", { name: "Start comparison", exact: true }).click();
   await expect.poll(async () => page.evaluate(async () => {

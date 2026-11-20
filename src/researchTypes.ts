@@ -21,7 +21,8 @@ export type NotebookNote = {
   tags: string[]; createdAt: string; updatedAt: string;
 };
 export type ResearchMode = "explain" | "sources" | "web";
-export type ResearchScope = { bookIds: string[]; noteIds: string[]; highlightIds: string[] };
+export type BookRange = { bookId: string; start: number; end: number; label: string };
+export type ResearchScope = { ranges?: BookRange[]; bookIds: string[]; noteIds: string[]; highlightIds: string[] };
 export type ResearchThread = {
   id: string; title: string; bookId?: string; notebookId?: string;
   scope?: ResearchScope;

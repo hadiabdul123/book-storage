@@ -1,8 +1,10 @@
 import { useState } from "react";
+import { StudyBookRange } from "./StudyBookRange";
+import type { Book } from "./model";
 import { Dialog } from "./components";
 import type { ResearchScope } from "./researchTypes";
 
-export type StudySourceOption = { kind: keyof ResearchScope; id: string; title: string; detail?: string };
+export type StudySourceOption = { kind: "bookIds" | "noteIds" | "highlightIds"; id: string; title: string; detail?: string };
 export const studySourceCount = (scope: ResearchScope) => scope.bookIds.length + scope.highlightIds.length + scope.noteIds.length;
 const kinds = [
   { id: "bookIds", label: "Books" },
@@ -10,12 +12,12 @@ const kinds = [
   { id: "noteIds", label: "Notebook pages" },
 ] as const;
 
-export function StudySources({ scope, options, onClose, onSave }: {
-  scope: ResearchScope; options: StudySourceOption[]; onClose: () => void; onSave: (scope: ResearchScope) => Promise<void>;
+export function StudySources({ scope, options, books = [], creating = false, onClose, onSave }: {
+  creating?: boolean; books?: Book[]; scope: ResearchScope; options: StudySourceOption[]; onClose: () => void; onSave: (scope: ResearchScope) => Promise<void>;
 }) {
   const [draft, setDraft] = useState(scope);
   const [query, setQuery] = useState("");
-  const [kind, setKind] = useState<keyof ResearchScope>(scope.bookIds.length || !studySourceCount(scope) ? "bookIds" : scope.highlightIds.length ? "highlightIds" : "noteIds");
+  const [kind, setKind] = useState<StudySourceOption["kind"]>(scope.bookIds.length || !studySourceCount(scope) ? "bookIds" : scope.highlightIds.length ? "highlightIds" : "noteIds");
   const [limit, setLimit] = useState(50);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -34,7 +36,7 @@ export function StudySources({ scope, options, onClose, onSave }: {
     <form className="study-source-picker" onSubmit={async event => {
       event.preventDefault();
       setError(""); setBusy(true);
-      try { await onSave(draft); onClose(); }
+      try { await onSave({ ...draft, ranges: (draft.ranges || []).filter(r => draft.bookIds.includes(r.bookId)) }); onClose(); }
       catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
       finally { setBusy(false); }
     }}>
@@ -52,8 +54,10 @@ export function StudySources({ scope, options, onClose, onSave }: {
       </label>)}
         {visible.length > limit && <button type="button" className="text-button" onClick={() => setLimit(value => value + 50)}>Show more sources</button>}
       </div>
+      {books.filter(b => draft.bookIds.includes(b.id)).map(b => <StudyBookRange key={b.id} book={b} ranges={(draft.ranges || []).filter(r => r.bookId === b.id)}
+        onChange={ranges => setDraft(d => ({ ...d,ranges:[...(d.ranges || []).filter(r => r.bookId !== b.id),...ranges] }))} />)}
       {error && <p role="alert">{error}</p>}
-      <div className="study-source-footer"><span role="status">{count} of 7 sources selected</span><button className="primary" disabled={busy}>Save sources</button></div>
+      <div className="study-source-footer"><span role="status">{count} of 7 sources selected</span><button className="primary" disabled={busy || (creating && !count)}>{creating ? "Start study" : "Save sources"}</button></div>
     </form>
   </Dialog>;
 }

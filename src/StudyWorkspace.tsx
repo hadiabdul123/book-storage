@@ -11,12 +11,22 @@ import { cancelResearch, enqueueResearch, retryResearch } from "./research";
 import type { ResearchJob, ResearchMessage, ResearchScope, ResearchThread, SourceRef } from "./researchTypes";
 import { SaveResearch } from "./SaveResearch";
 import { indexBook, retrieveSources, searchPreparedPassages } from "./sourceIndex";
-import { citedSources, originalSource } from "./sourceReferences";
+import { citedSources } from "./sourceReferences";
 import { PassageResults, StudyEvidence } from "./StudyEvidence";
 import { StudySources, studySourceCount, type StudySourceOption } from "./StudySources";
 
 type StudyResult = { id: string; question: string; createdAt: string; kind: string; job?: ResearchJob; message?: ResearchMessage };
 type PassageSearch = { query: string; hits: SourceRef[]; notice?: string };
+
+function pageNumbers(pages: Set<number>) {
+  const spans: { from: number; to: number }[] = [];
+  for (const page of [...pages].sort((a,b) => a-b)) {
+    const last = spans.at(-1);
+    if (last && last.to + 1 === page) last.to = page;
+    else spans.push({ from:page,to:page });
+  }
+  return spans.map(s => s.from === s.to ? String(s.from) : s.from + "–" + s.to).join(", ");
+}
 
 function resultKind(question: string, mode: string, comparison: unknown) {
   if (comparison) return "Comparison";
@@ -92,7 +102,13 @@ export function StudyWorkspace({ study, books, options, messages, resultId, onSe
     setStatus("");
   }
 
-  function saveFinding(text: string, sources: SourceRef[]) { setClip({ text, sources: sources.map(originalSource) }); }
+  function saveFinding(text: string, sources: SourceRef[]) {
+    const selection = window.getSelection();
+    const answer = selection?.anchorNode?.parentElement?.closest(".study-answer");
+    const excerpt = answer && selection?.focusNode && answer.contains(selection.focusNode) ? selection.toString().trim() : "";
+    const citations = excerpt ? citedSources(excerpt,sources) : [];
+    setClip({ text:excerpt || text, sources:citations.length ? citations : sources });
+  }
   function inspect(source: SourceRef) {
     if (!message) return;
     setEvidence({ resultId: message.id, sourceId: source.id });
@@ -111,6 +127,8 @@ export function StudyWorkspace({ study, books, options, messages, resultId, onSe
 
   function openAction(action: "review" | "compare") {
     if (action === "compare") {
+      if (count > 4 && (scope.ranges?.length || scope.noteIds.length || scope.highlightIds.length)) { setStatus("Choose up to four sources for a side-by-side comparison."); setPanel("sources"); return; }
+      if (count >= 2 && (scope.ranges?.length || scope.noteIds.length || scope.highlightIds.length)) { void run("compare"); return; }
       if (studyBooks.length < 2) {
         setStatus("Add at least two books to compare them.");
         setPanel("sources");
@@ -121,11 +139,11 @@ export function StudyWorkspace({ study, books, options, messages, resultId, onSe
     } else setPanel("review");
   }
 
-  async function run(action: "find" | "sources" | "web" | "explain") {
-    const query = question.trim();
+  async function run(action: "find" | "sources" | "web" | "explain" | "compare") {
+    const query = question.trim() || (action === "compare" ? "Where do these sources agree and differ?" : "");
     if (prepare.current) return;
     if (!query) { setStatus("Enter a question or search phrase."); questionInput.current?.focus(); return; }
-    if ((action === "find" || action === "sources") && !selected.length && !(action === "sources" && study.selection)) {
+    if ((action === "find" || action === "sources" || action === "compare") && !selected.length && !(action === "sources" && study.selection)) {
       setStatus("Choose sources for this study first.");
       setPanel("sources"); return;
     }
@@ -135,11 +153,19 @@ export function StudyWorkspace({ study, books, options, messages, resultId, onSe
     try {
       const problems: string[] = [];
       const partial: string[] = [];
-      if (action === "find" || action === "sources") {
+      if (action === "find" || action === "sources" || action === "compare") {
         for (const book of studyBooks) {
           try {
             const missing = await indexBook(book, abort.signal, setStatus);
-            if (missing) partial.push(`${book.title} (${missing} ${book.format === "pdf" ? "pages" : "sections"})`);
+            const limits = scope.ranges?.filter(r => r.bookId === book.id);
+            if ((missing || limits?.length) && book.format === "pdf") {
+              const lastPage = Number((await db.meta.get("pdf-page-count:" + book.hash))?.value);
+              const bounds = limits?.length ? limits : [{ start:1, end:lastPage }];
+              const readable = new Set((await db.chunks.where("bookId").equals(book.id).toArray()).filter(c => c.hash === book.hash).map(c => c.unit));
+              const gaps = new Set<number>();
+              for (const r of bounds) for (let page = r.start; page <= r.end && page <= 100000; page++) if (!readable.has(page)) gaps.add(page);
+              if (gaps.size) partial.push(book.title + " · pages " + pageNumbers(gaps));
+            } else if (missing) partial.push(`${book.title} (${missing} ${book.format === "pdf" ? "pages" : "sections"})`);
           }
           catch (error) { problems.push(error instanceof Error ? error.message : String(error)); }
           abort.signal.throwIfAborted();
@@ -158,22 +184,27 @@ export function StudyWorkspace({ study, books, options, messages, resultId, onSe
         return;
       }
       const contextual = action === "explain" || (action === "sources" && !selected.length && !!study.selection);
-      const mode = contextual ? "explain" : action;
+      const mode = contextual ? "explain" : action === "compare" ? "sources" : action;
       let sources: SourceRef[] = [];
       if (contextual && study.selection) sources = [{ ...study.selection, excerpt: study.selection.excerpt.slice(0, 2400) }];
       if (mode === "sources") {
         if (problems.length) throw new Error(problems.join(" "));
-        sources = await retrieveSources(query, scope.bookIds, noteIds, highlightIds, studyBooks);
+        sources = await retrieveSources(query, scope.bookIds, noteIds, highlightIds, studyBooks, scope.ranges);
         const missing = studyBooks.filter(book => !sources.some(source => source.bookId === book.id && !source.annotationId));
+        if (missing.length && partial.length) throw new Error("No readable text in the selection. Skipped " + partial.join(", "));
         if (missing.length) throw new Error(`Prepare readable text for ${missing.map(book => book.title).join(", ")} or remove it from the study sources. Scanned pages need text recognition.`);
         if (!sources.length) throw new Error("The selected sources have no readable text.");
       }
       abort.signal.throwIfAborted();
       const id = await enqueueResearch(study.id, {
-        mode, question: query, sources, ...(mode === "web" ? { searchQuery: query.slice(0, 500) } : {}),
-        history: followUp ? [{ question: followUp.question.slice(0, 1500), answer: followUp.answer.slice(0, 1800) }] : [],
+        mode, question: query, sources,
+        ...(action === "compare" ? { comparison: { books:selected.map(item => ({
+          bookId: item.kind === "noteIds" ? "note:" + item.id : item.kind === "highlightIds" ? "highlight:" + item.id : item.id,
+          title:(item.title + (scope.ranges?.filter(r => r.bookId === item.id).map(r => " · " + r.label).join("") || "")).slice(0,300)
+        })) } } : {}), ...(mode === "web" ? { searchQuery: query.slice(0, 500) } : {}),
+        history: followUp && !scope.ranges?.length ? [{ question: followUp.question.slice(0, 1500), answer: followUp.answer.slice(0, 1800) }] : [],
       });
-      if (!abort.signal.aborted) { afterQueue(id); setStatus(""); }
+      if (!abort.signal.aborted) { afterQueue(id); setStatus(partial.length ? "Skipped unreadable text: " + partial.join(", ") : ""); }
     } catch (error) {
       if (!abort.signal.aborted) setStatus(error instanceof Error ? error.message : String(error));
     } finally {
@@ -191,7 +222,7 @@ export function StudyWorkspace({ study, books, options, messages, resultId, onSe
       <h2>{study.title}</h2>
       <div className="study-source-strip">
         <button className="secondary" onClick={() => setPanel("sources")} disabled={preparing}><Library size={17} />{count ? `Sources (${count})` : "Choose sources"}</button>
-        {!!selected.length && <ul aria-label="Selected sources">{selected.map(item => <li key={`${item.kind}-${item.id}`} title={item.title}>{item.title}</li>)}</ul>}
+        {!!selected.length && <ul aria-label="Selected sources">{selected.map(item => <li key={`${item.kind}-${item.id}`} title={item.title}>{item.title}{item.kind === "bookIds" && scope.ranges?.filter(r => r.bookId === item.id).map(r => " · " + r.label).join("")}</li>)}</ul>}
         {count > selected.length && <small>{count - selected.length} missing {count - selected.length === 1 ? "source" : "sources"}</small>}
       </div>
       {study.selection && <details className="study-selected-passage"><summary>Original passage</summary><blockquote>{study.selection.excerpt}</blockquote></details>}
@@ -203,10 +234,10 @@ export function StudyWorkspace({ study, books, options, messages, resultId, onSe
         placeholder="Enter a question or search for a passage" value={question} onChange={event => changeQuestion(event.target.value)} />
       <div className="study-question-actions">
         <button type="button" className="secondary" disabled={preparing} onClick={() => void run("find")}><FileSearch size={17} />Find passages</button>
-        <button type="submit" className="primary" disabled={preparing}><MessageSquare size={16} />{online ? "Ask sources" : "Queue question"}</button>
-        <button type="button" className="secondary" disabled={preparing} onClick={() => openAction("compare")}><Columns2 size={17} />Compare books</button>
+        <button type="submit" className="primary" disabled={preparing}><MessageSquare size={16} />{online ? "Investigate" : "Queue question"}</button>
+        <button type="button" className="secondary" disabled={preparing} onClick={() => openAction("compare")}><Columns2 size={17} />Compare sources</button>
+        <button type="button" className="secondary" disabled={preparing} onClick={() => openAction("review")}><BookOpen size={16} />Review chapters</button>
         <details className="study-more"><summary><MoreHorizontal size={18} />More actions</summary><div>
-          <button type="button" disabled={preparing} onClick={event => { event.currentTarget.closest("details")!.open = false; openAction("review"); }}><BookOpen size={16} />Review chapters</button>
           <button type="button" disabled={preparing} onClick={event => { event.currentTarget.closest("details")!.open = false; void run("web"); }}><Globe size={16} />Search the web</button>
           {study.selection && <button type="button" disabled={preparing} onClick={event => { event.currentTarget.closest("details")!.open = false; void run("explain"); }}>Explain passage</button>}
         </div></details>
@@ -238,10 +269,10 @@ export function StudyWorkspace({ study, books, options, messages, resultId, onSe
               : <article className="study-answer research-answer">
                 <h3>{message.question}</h3>
                 <div className="research-answer-text"><ResearchAnswer text={message.answer} sources={message.sources} prefix={message.id} onInspect={inspect} /></div>
-                <button className="text-button" onClick={() => {
+                <button className="text-button" onPointerDown={e => e.preventDefault()} onClick={() => {
                   const cited = citedSources(message.answer, message.sources);
                   saveFinding(message.answer, cited.length ? cited : message.sources);
-                }}><NotebookPen size={16} />Save answer</button>
+                }}><NotebookPen size={16} />Save finding or selection</button>
               </article>}
             <button className="text-button study-follow-button" onClick={() => { setFollowUp(message); questionInput.current?.focus(); }}>Ask a follow-up</button>
           </div>
@@ -252,13 +283,13 @@ export function StudyWorkspace({ study, books, options, messages, resultId, onSe
         </div>
       </div> : null}
     </section>
-    {panel === "sources" && <StudySources scope={scope} options={options} onClose={() => setPanel(undefined)} onSave={saveScope} />}
+    {panel === "sources" && <StudySources books={books} scope={scope} options={options} onClose={() => setPanel(undefined)} onSave={saveScope} />}
     {panel === "compare" && <BookComparisonPicker books={studyBooks} selected={studyBooks.length <= 4 ? studyBooks.map(book => book.id) : []}
       question={question} onClose={() => setPanel(undefined)} onCompare={async (text, chosen) => {
         const id = await queueBookComparison(study.id, text, chosen);
         setPanel(undefined); afterQueue(id);
       }} />}
-    {panel === "review" && <BookReviewPicker books={studyBooks} focus={question} previous={new Set(results.map(item => item.question))}
+    {panel === "review" && <BookReviewPicker ranges={scope.ranges} books={studyBooks} focus={question} previous={new Set(results.map(item => item.question))}
       onClose={() => setPanel(undefined)} returnLabel="Back to study" onReview={async sections => {
         let first: string | undefined;
         for (const section of sections) {
@@ -267,6 +298,6 @@ export function StudyWorkspace({ study, books, options, messages, resultId, onSe
         }
         if (first) showResult(first);
       }} />}
-    {clip && <SaveResearch text={clip.text} sources={clip.sources} passage={study.selection} onClose={() => setClip(undefined)} />}
+    {clip && <SaveResearch studyId={study.id} text={clip.text} sources={clip.sources} passage={study.selection} onClose={() => setClip(undefined)} />}
   </section>;
 }

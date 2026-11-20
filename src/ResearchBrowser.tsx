@@ -12,7 +12,7 @@ import type { ResearchMessage, ResearchScope, ResearchThread, SourceRef } from "
 import { SaveResearch } from "./SaveResearch";
 import { searchPreparedPassages } from "./sourceIndex";
 import { PassageResults } from "./StudyEvidence";
-import type { StudySourceOption } from "./StudySources";
+import { StudySources, type StudySourceOption } from "./StudySources";
 import { StudyWorkspace } from "./StudyWorkspace";
 import "./researchBrowser.css";
 
@@ -59,7 +59,7 @@ export function ResearchBrowser() {
   const [error, setError] = useState("");
   const [rename, setRename] = useState<ResearchThread>();
   const [action, setAction] = useState<"new" | "compare" | "search">();
-  const [title, setTitle] = useState("");
+
   const [busy, setBusy] = useState(false);
   const books = useLiveQuery(() => list("book"), []) || [];
   const notebooks = useLiveQuery(() => list("notebook"), []) || [];
@@ -117,29 +117,31 @@ export function ResearchBrowser() {
     } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
   }
   function open(id: string, result = "", clearFilters = false) {
-    browse.update({ thread: id, result, ...(clearFilters ? { rq: "", rpage: "1", book: "", researchNotebook: "" } : {}) }, false);
+    if (id && result) localStorage.setItem("last-study-result:" + id,result);
+    browse.update({ thread: id, result: result, ...(clearFilters ? { rq: "", rpage: "1", book: "", researchNotebook: "" } : {}) }, false);
   }
-  async function create() {
-    if (!title.trim() || busy) return;
+  async function create(scope: ResearchScope) {
+    if (!scope.bookIds.length && !scope.noteIds.length && !scope.highlightIds.length) throw new Error("Select at least one source.");
+    if (busy) return;
     setBusy(true); setError("");
     try {
-      const study: ResearchThread = { id: uid(), title: title.trim(), createdAt: now(),
-        notebookId: filterNotebook?.id, scope: { ...emptyScope, bookIds: filterBook ? [filterBook.id] : [] } };
+      const study: ResearchThread = { id: uid(), title: (options.filter(o => scope[o.kind].includes(o.id)).map(o => o.title).join(" & ") || "New study").slice(0,150), createdAt: now(),
+        notebookId: filterNotebook?.id, scope };
       await save("research-thread", study);
       setAction(undefined); open(study.id, "", true);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); throw cause; }
     finally { setBusy(false); }
   }
 
   return <div className={`research-browser ${active ? "research-detail-open" : ""}`}>
     {error && action !== "new" && <p className="notice" role="status">{error}</p>}
     <div className="research-browser-tools">
-      <button className="primary" onClick={() => { setTitle(""); setError(""); setAction("new"); }}><Plus size={17} />New study</button>
+      <button className="primary" onClick={() => { setError(""); setAction("new"); }}><Plus size={17} />Start a study</button>
       <button className="secondary" onClick={() => setAction("search")}><FileSearch size={17} />Search library</button>
     </div>
     <div className="research-history-layout">
       <aside className="research-conversation-list">
-        <h2>Studies</h2>
+        <h2>Recent studies</h2>
         <label className="search-field"><Search size={16} /><input type="search" aria-label="Search studies" placeholder="Find a study" value={query}
           onChange={event => browse.update({ rq: event.target.value, rpage: "1" })} /></label>
         {(book || notebook) && <button className="text-button study-clear-filter" onClick={() => browse.update({ book: "", researchNotebook: "", rpage: "1" })}>
@@ -147,12 +149,14 @@ export function ResearchBrowser() {
         </button>}
         {!filtered.length && <p>{threads.length ? "No matching studies." : "Your studies will appear here."}</p>}
         <nav aria-label="Saved studies">{paged.items.map(study => {
-          const count = byStudy.get(study.id)?.messages.length || 0;
+          const history = byStudy.get(study.id)?.messages || [];
+          const last = history.find(m => m.id === localStorage.getItem("last-study-result:" + study.id)) || [...history].sort((a,b) => b.createdAt.localeCompare(a.createdAt))[0];
+          const count = history.length;
           return <ItemMenu title={study.title} key={study.id} touch actions={[
             { label: "Rename", run: () => setRename(study) },
             { label: "Move to Trash", danger: true, run: () => void trash(study) },
           ]}><button aria-current={selected === study.id ? "page" : undefined} onClick={() => open(study.id)}>
-            <strong>{study.title}</strong><small>{count} {count === 1 ? "result" : "results"}</small>
+            <strong>{study.title}</strong>{last && <span className="last-question">{last.question}</span>}<small>{options.filter(o => study.scope?.[o.kind].includes(o.id)).map(o => o.title).join(" · ").slice(0,110)}</small><small>{count} {count === 1 ? "result" : "results"}</small>
           </button></ItemMenu>;
         })}</nav>
         {paged.pages > 1 && <BrowsePages {...paged} label="Studies" onChange={page => browse.update({ rpage: String(page) })} />}
@@ -164,23 +168,17 @@ export function ResearchBrowser() {
             <button className="text-button" onClick={() => setRename(active)}><Pencil size={15} />Rename study</button>
           </div>
           <StudyWorkspace key={active.id} study={active} books={books} options={options} messages={byStudy.get(active.id)?.messages || []}
-            resultId={browse.value("result")} onSelectResult={id => browse.update({ result: id })} />
+            resultId={browse.value("result") || localStorage.getItem("last-study-result:" + active.id) || ""} onSelectResult={id => { localStorage.setItem("last-study-result:" + active.id,id); browse.update({ result:id }); }} />
         </> : <section className="research-browser-welcome">
           <Library size={28} aria-hidden="true" />
-          <h2>Study across your books</h2>
-          <p>Gather books, highlights, and notes around a topic, then keep your questions and evidence together.</p>
+          <h2>Compare books</h2>
+          <p>See where authors agree or differ, with a passage for each finding.</p>
           <button className="secondary" onClick={() => setAction("compare")}><Columns2 size={17} />Compare books</button>
         </section>}
       </main>
     </div>
-    {action === "new" && <Dialog title="New study" onClose={busy ? () => {} : () => setAction(undefined)}>
-      <form className="clip-form" onSubmit={event => { event.preventDefault(); void create(); }}>
-        <label>Study name<input required autoFocus maxLength={150} value={title} onChange={event => setTitle(event.target.value)} /></label>
-        {error && <p role="alert">{error}</p>}
-        <button className="primary" disabled={busy || !title.trim()}>Create study</button>
-      </form>
-    </Dialog>}
     {action === "search" && <SearchLibrary books={books} onClose={() => setAction(undefined)} />}
+    {action === "new" && <StudySources creating scope={{ ...emptyScope, bookIds: filterBook ? [filterBook.id] : [] }} options={options} books={books} onSave={create} onClose={() => setAction(undefined)} />}
     {action === "compare" && <BookComparisonPicker books={books} selected={filterBook ? [filterBook.id] : []} onClose={() => setAction(undefined)}
       onCompare={async (question, chosen) => {
         const study: ResearchThread = { id: uid(), title: question.slice(0, 150), createdAt: now(), notebookId: filterNotebook?.id,

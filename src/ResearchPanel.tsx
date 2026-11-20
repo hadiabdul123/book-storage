@@ -5,7 +5,7 @@ import { db, get, list, save } from "./db";
 import { now, uid, type Book } from "./model";
 import type { ResearchMode, ResearchScope, ResearchThread, SourceRef } from "./researchTypes";
 import { enqueueResearch, cancelResearch, retryResearch } from "./research";
-import { indexBook, rankChunks, retrieveSources } from "./sourceIndex";
+import { indexBook, scopedChunks, rankChunks, retrieveSources } from "./sourceIndex";
 import { citedSources } from "./sourceReferences";
 import { SourceLink } from "./Citation";
 import { SaveResearch } from "./SaveResearch";
@@ -100,12 +100,12 @@ export function ResearchPanel({ book, selection, notebookId, defaultNoteId, init
     };
     document.addEventListener("selectionchange", selected); return () => document.removeEventListener("selectionchange", selected);
   }, [messages]);
-  const scope: ResearchScope = { bookIds, noteIds, highlightIds };
+  const scope: ResearchScope = { bookIds, noteIds, highlightIds, ranges: thread?.scope?.ranges?.filter(r => bookIds.includes(r.bookId)) };
   const count = bookIds.length + noteIds.length + highlightIds.length;
   const chosenBooks = books.filter(b => bookIds.includes(b.id));
   const visibleHighlights = annotations.filter(a => a.type !== "page-note" && books.some(book => book.id === a.bookId));
   const draft = (q: string, search: string, next = scope, nextMode = mode) => { if (thread) void db.meta.put({ key: `research-draft:${thread.id}`, value: JSON.stringify({ question: q, searchQuery: search, mode: nextMode, ...next }) }).catch(() => setStatus("Could not store the question draft. Keep this panel open.")); };
-  function choose(key: keyof ResearchScope, id: string, checked: boolean) {
+  function choose(key: "bookIds" | "noteIds" | "highlightIds", id: string, checked: boolean) {
     if (checked && count >= 7) return;
     const ids = checked ? [...scope[key], id] : scope[key].filter(value => value !== id);
     ({ bookIds: setBookIds, noteIds: setNoteIds, highlightIds: setHighlightIds })[key](ids);
@@ -133,7 +133,7 @@ export function ResearchPanel({ book, selection, notebookId, defaultNoteId, init
       for (const book of chosenBooks) await indexBook(book, c.signal, setStatus);
       c.signal.throwIfAborted();
       const chunks = await db.chunks.where("bookId").anyOf(bookIds).toArray();
-      setMatches(rankChunks(question, chunks, 12)); setStatus("");
+      setMatches(rankChunks(question, scopedChunks(chunks,scope.ranges), 12)); setStatus("");
     } catch (e) { if (!c.signal.aborted) setStatus(e instanceof Error ? e.message : String(e)); }
     finally { setBusy(false); }
   }
@@ -147,7 +147,7 @@ export function ResearchPanel({ book, selection, notebookId, defaultNoteId, init
           const chosen = books.find(b => b.id === id);
           if (chosen) await indexBook(chosen, c.signal, setStatus);
         }
-        sources = await retrieveSources(`${question} ${term.slice(0, 200)}`, bookIds, noteIds, highlightIds);
+        sources = await retrieveSources(`${question} ${term.slice(0, 200)}`, bookIds, noteIds, highlightIds, scope.ranges?.length ? chosenBooks : undefined, scope.ranges);
         if (!sources.length) throw new Error("No matching text found. Choose downloaded sources, use more specific terms, or try Web. Scanned pages need cached text recognition.");
         const missing = chosenBooks.filter(book => !sources.some(source => source.bookId === book.id));
         if (missing.length) throw new Error(`No readable text was found for ${missing.map(book => book.title).join(", ")}. Prepare its text or remove it from this question.`);
@@ -251,10 +251,16 @@ export function ResearchPanel({ book, selection, notebookId, defaultNoteId, init
       </div>
       <p className="research-footnote">Check the sources. AI can make mistakes.</p>
     </form>}
-    {clip && <SaveResearch text={clip.text} sources={clip.sources} passage={currentSelection} onClose={() => { setClip(undefined); setSelectedClip(undefined); }} />}
-    {review && <BookReviewPicker books={chosenBooks} focus={question} previous={new Set([...messages.map(message => message.question), ...jobs.map(job => job.request.question)])} onClose={() => setReview(false)} onReview={queueReview} />}
+    {clip && <SaveResearch studyId={thread?.id} text={clip.text} sources={clip.sources} passage={currentSelection} onClose={() => { setClip(undefined); setSelectedClip(undefined); }} />}
+    {review && <BookReviewPicker ranges={scope.ranges} books={chosenBooks} focus={question} previous={new Set([...messages.map(message => message.question), ...jobs.map(job => job.request.question)])} onClose={() => setReview(false)} onReview={queueReview} />}
     {compare && thread && <BookComparisonPicker books={books} selected={bookIds} question={question} onClose={() => setCompare(false)} onCompare={async (text, chosen) => {
-      await queueBookComparison(thread.id, text, chosen);
+      if (scope.ranges?.length) {
+        for (const b of books.filter(b => chosen.some(c => c.bookId === b.id))) await indexBook(b,new AbortController().signal,setStatus);
+        const ids = chosen.map(c => c.bookId);
+        const sources = await retrieveSources(text,ids,[],[],books.filter(b => ids.includes(b.id)),scope.ranges);
+        if (!sources.length) throw new Error("The selected pages have no readable text.");
+        await enqueueResearch(thread.id,{ mode:"sources",question:text,comparison:{ books:chosen },sources,history:[] });
+      } else await queueBookComparison(thread.id, text, chosen);
       nearEnd.current = true; setCompare(false);
     }} />}
   </section>;

@@ -80,7 +80,7 @@ export function runResearchQueue(transport: Transport = callResearch): Promise<v
       await db.researchJobs.update(job.id, { state: "running", message: "Researching your question…" });
       try {
         let request = job.request;
-        if (request.comparison) {
+        if (request.comparison && !request.sources.length) {
           const { comparisonSources } = await import("./sourceIndex");
           const sources = await comparisonSources(request.question, request.comparison.books.map(book => book.bookId), controller.signal,
             message => { void db.researchJobs.update(job.id, { message }).catch(() => {}); });

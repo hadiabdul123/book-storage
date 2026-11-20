@@ -122,10 +122,14 @@ export async function* extractBookText(book: Book, signal: AbortSignal, startUni
   }
 }
 
-const activeIndexes = new Map<string, Promise<number>>();
+const activeIndexes = new Map<string, { signal: AbortSignal; task: Promise<number> }>();
 export function indexBook(book: Book, signal: AbortSignal, progress?: (message: string) => void): Promise<number> {
   const existing = activeIndexes.get(book.id);
-  if (existing) return existing;
+  if (existing) return existing.task.catch(error => {
+    signal.throwIfAborted();
+    if (!existing.signal.aborted) throw error;
+    return indexBook(book,signal,progress);
+  });
   const task = (async () => {
     const key = `text-index:${book.id}`;
     let state = { hash: book.hash, version: extractionVersion, next: 0, missing: 0, complete: false };
@@ -152,7 +156,7 @@ export function indexBook(book: Book, signal: AbortSignal, progress?: (message: 
     progress?.(state.missing ? `Text ready; ${state.missing} blank or scanned pages/sections have no cached text` : "Text ready on this device");
     return state.missing;
   })().finally(() => activeIndexes.delete(book.id));
-  activeIndexes.set(book.id, task);
+  activeIndexes.set(book.id, { signal,task });
   return task;
 }
 const ignored = new Set("the a an and or to of in is it this that what how why are does do from with about explain me my".split(" "));
@@ -204,6 +208,26 @@ async function personalSources(noteIds: string[], highlightIds: string[], full =
   return [...highlights, ...refs].filter(ref => ref.excerpt.trim());
 }
 
+export function scopedChunks(chunks: IndexedChunk[], ranges: ResearchScope["ranges"]): IndexedChunk[] {
+  if (!ranges?.length) return chunks;
+  return chunks.flatMap(chunk => {
+    const loc = chunk.locator;
+    if (loc.type !== "docx") return inBookRange(chunk,ranges) ? [chunk] : [];
+    const limits = ranges.filter(r => r.bookId === chunk.bookId);
+    if (!limits.length) return [chunk];
+    return limits.flatMap(r => {
+      const start = Math.max(loc.start,r.start), end = Math.min(loc.start + chunk.text.length,r.end + 1);
+      if (start >= end) return [];
+      const text = chunk.text.slice(start - loc.start,end - loc.start);
+      return [{ ...chunk,text,locator:{ ...loc,start,end,quote:quoteAt(text,0,Math.min(100,text.length)) } }];
+    });
+  });
+}
+export function inBookRange(chunk: IndexedChunk, ranges: ResearchScope["ranges"]) {
+  const limits = ranges?.filter(range => range.bookId === chunk.bookId);
+  const unit = chunk.locator.type === "docx" ? chunk.locator.start : chunk.unit;
+  return !limits?.length || limits.some(r => unit >= r.start && unit <= r.end);
+}
 async function currentBookChunks(books: Book[]) {
   if (!books.length) return [];
   const editions = new Map(books.map(book => [book.id, book.hash]));
@@ -250,7 +274,7 @@ export async function searchPreparedPassages(query: string, books: Book[], scope
     }
     return excerpts;
   });
-  const ranked = rankText(query, [...chunks.map(chunkSource), ...passages], source => source.excerpt, 12 + passages.length - personal.length);
+  const ranked = rankText(query, [...scopedChunks(chunks,scope.ranges).map(chunkSource), ...passages], source => source.excerpt, 12 + passages.length - personal.length);
   const seenNotes = new Set<string>();
   const hits = ranked.filter(source => {
     if (!source.noteId) return true;
@@ -261,7 +285,7 @@ export async function searchPreparedPassages(query: string, books: Book[], scope
   return { hits, indexedBooks: new Set(chunks.map(chunk => chunk.bookId)) };
 }
 
-export async function retrieveSources(query: string, bookIds: string[], noteIds: string[] = [], highlightIds: string[] = [], studyBooks?: Book[]) {
+export async function retrieveSources(query: string, bookIds: string[], noteIds: string[] = [], highlightIds: string[] = [], studyBooks?: Book[], ranges?: ResearchScope["ranges"]) {
   const [chunks, personal, annotated] = await Promise.all([
     studyBooks ? currentBookChunks(studyBooks) : db.chunks.where("bookId").anyOf(bookIds).toArray(),
     personalSources(noteIds, highlightIds),
@@ -271,7 +295,7 @@ export async function retrieveSources(query: string, bookIds: string[], noteIds:
   const annotations: SourceRef[] = annotated.filter(a => !highlightIds.includes(a.id) && bookIds.includes(a.bookId) && a.note && terms.some(t => `${a.text} ${a.note}`.toLowerCase().includes(t))).slice(0, 2)
     .map(a => ({ id: `A${a.id}`, kind: "book", bookId: a.bookId, title: `Reader note: ${a.text.slice(0, 80)}`, excerpt: `${a.text}\n${a.note}`.slice(0, 1500), locator: a.locator }));
   const books = bookIds.map(bookId => {
-    const local = chunks.filter(chunk => chunk.bookId === bookId);
+    const local = scopedChunks(chunks.filter(chunk => chunk.bookId === bookId), ranges);
     const ranked = rankChunks(query, local, 7);
     if (ranked.length || !local.length) return ranked;
     const middle = Math.floor(local.length / 2);

@@ -11,7 +11,7 @@ function Passage({ source, onSave }: { source: SourceRef; onSave: SaveFinding })
     <blockquote>{source.excerpt}</blockquote>
     <div className="study-passage-actions">
       <SourceLink source={link} />
-      <button className="text-button" onClick={() => onSave(source.excerpt, [link])}><NotebookPen size={16} />Save excerpt</button>
+      <button className="text-button" onClick={() => onSave(source.excerpt, [source])}><NotebookPen size={16} />Save excerpt</button>
     </div>
   </>;
 }

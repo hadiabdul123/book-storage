@@ -144,7 +144,6 @@ export function Library({ notify }: { notify: (message: string) => void }) {
     >
       <header className="page-header">
         <div>
-          <p className="page-kicker">Your reading space</p>
           <h1>
             Library<span className="count">{books.length}</span>
           </h1>

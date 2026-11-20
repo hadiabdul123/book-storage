@@ -5,6 +5,7 @@ import { sourceMarkdown } from "./sourceReferences";
 import type { InkStroke } from "./inkTypes";
 import { belongsToPdf, type PdfTextBox } from "./pdfTextBoxes";
 import { priorities, type HighlightFollowup, type HighlightStudy } from "./highlightStudy";
+import type { CardLibrary } from "./cardStore";
 export function downloadText(name: string, text: string, type = "text/plain") {
   const url = URL.createObjectURL(new Blob([text], { type }));
   const a = document.createElement("a");
@@ -20,6 +21,7 @@ export function exportAnnotations(
   ink: InkStroke[] = [],
   studyData?: { study: HighlightStudy[]; followups: HighlightFollowup[] },
   textBoxes: PdfTextBox[] = [],
+  library?: CardLibrary,
 ) {
   const ids = new Set(items.filter(item => item.type !== "page-note").map(item => item.id));
   const study = studyData?.study.filter(item => ids.has(item.id)) || [];
@@ -30,6 +32,7 @@ export function exportAnnotations(
     if (!notes.has(item.annotationId)) notes.set(item.annotationId, []);
     notes.get(item.annotationId)!.push(item.text);
   }
+  const hasCards = library && (library.cards.length || library.categories.length || library.filings.length);
   const hasStudy = !!(study.length || followups.length);
   const title = (a: Annotation) =>
     books.find((b) => b.id === a.bookId)?.title || "Unknown book";
@@ -40,7 +43,8 @@ export function exportAnnotations(
     text = JSON.stringify(
       {
         schema: "leafmark.annotations",
-        version: hasStudy ? 5 : 4,
+        version: hasCards ? 6 : hasStudy ? 5 : 4,
+        ...(hasCards ? { cardLibrary: { ...library, filings: library.filings.filter(f => ids.has(f.cardId) || library.cards.some(c => c.id === f.cardId)) } } : {}),
         exportedAt: new Date().toISOString(),
         books: books.map(({ id, title, author, hash, format }) => ({
           id,

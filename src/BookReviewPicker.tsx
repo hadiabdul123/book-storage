@@ -3,8 +3,8 @@ import { Dialog } from "./components";
 import { reviewBatchSize, planBookReview, reviewQuestion, type ReviewSection } from "./bookReview";
 import type { Book } from "./model";
 
-export function BookReviewPicker({ books, focus, previous, onClose, onReview, returnLabel = "Back to conversation" }: {
-  books: Book[]; focus: string; previous: Set<string>; onClose: () => void; onReview: (sections: ReviewSection[]) => Promise<void>;
+export function BookReviewPicker({ books, ranges, focus, previous, onClose, onReview, returnLabel = "Back to conversation" }: {
+  ranges?: import("./researchTypes").BookRange[]; books: Book[]; focus: string; previous: Set<string>; onClose: () => void; onReview: (sections: ReviewSection[]) => Promise<void>;
   returnLabel?: string;
 }) {
   const [sections, setSections] = useState<ReviewSection[]>([]);
@@ -15,7 +15,7 @@ export function BookReviewPicker({ books, focus, previous, onClose, onReview, re
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     const abort = new AbortController();
-    void planBookReview(books, abort.signal, setStatus).then(plan => {
+    void planBookReview(books, abort.signal, setStatus, ranges).then(plan => {
       if (abort.signal.aborted) return;
       const done = new Set(plan.filter(section => previous.has(reviewQuestion(section, focus))).map(section => section.id));
       setSections(plan); setStatus(""); setReviewed(done);

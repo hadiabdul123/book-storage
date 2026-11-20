@@ -437,6 +437,21 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
       return id;
     });
     await expect.poll(() => rows.has(`annotation:${highlightId}`)).toBe(true);
+    await pc.setOffline(true);
+    const categoryId = await first.evaluate(async id => {
+      const { editCategory, fileCards } = await import("/src/cardStore.ts");
+      const categoryId = await editCategory("Reading practice");
+      await fileCards([id],{ [categoryId]:true });
+      return categoryId;
+    },highlightId);
+    await pc.setOffline(false);
+    await expect.poll(() => rows.has("card-filing:" + categoryId + ":" + highlightId)).toBe(true);
+    await second.reload();
+    await expect.poll(() => second.evaluate(async ({ categoryId, highlightId }) => {
+      const { cardLibrary } = await import("/src/cardStore.ts");
+      const data = await cardLibrary();
+      return data.categories.some(c => c.id === categoryId) && data.filings.some(f => f.categoryId === categoryId && f.cardId === highlightId);
+    },{ categoryId,highlightId })).toBe(true);
     const addFollowup = async (device: typeof first, text: string) => {
       await device.goto(new URL(`/#/notes?item=${highlightId}`, baseURL!).href);
       await device.getByRole("button", { name: "Add follow-up note" }).click();

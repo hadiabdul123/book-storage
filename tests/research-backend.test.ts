@@ -133,3 +133,16 @@ it("rejects comparison citations that point to another book", async () => {
   expect(response.status).toBe(502);
   expect((await response.json()).code).toBe("citations");
 });
+
+it("compares a page and notebook entry and rejects citations assigned to the wrong source", async () => {
+  const note = { id:"note1",kind:"note",noteId:"monday",title:"Monday",excerpt:"This idea appeared in my notes." };
+  const books = [{ bookId:"book",title:"Cosmology" },{ bookId:"note:monday",title:"Monday" }];
+  const payload = { ...input(),mode:"sources",comparison:{ books },sources:[source,note] };
+  for (const misattributed of [false,true]) {
+    const columns = books.map((b,i) => ({ ...b,answer:"An observation.",gap:"",sourceIds:[i === 1 && misattributed ? "S1" : "S" + (i+1)] }));
+    const content = JSON.stringify({ columns,synthesis:{text:"Their observations differ.",sourceIds:["S1","S2"]} });
+    d.fetcher.mockResolvedValueOnce(Response.json({choices:[{message:{content}}]}));
+    const response = await createResearchHandler(d)(request(payload));
+    expect(response.status).toBe(misattributed ? 502 : 200);
+  }
+});

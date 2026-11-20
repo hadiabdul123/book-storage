@@ -19,7 +19,7 @@ export function validResearchEntity(kind: string, v: any): boolean {
   if (isMediaKind(kind)) return !v.purgedAt && validMedia(v) && mediaKind(v) === kind;
   if (kind === "notebook-note") return typeof v.notebookId === "string" && (v.sectionId === undefined || typeof v.sectionId === "string") && (v.order === undefined || Number.isFinite(v.order)) && typeof v.title === "string" && !!v.title.trim() && v.title.length <= 200 && validRichDocument(v.document) && Array.isArray(v.tags) && v.tags.every((t: unknown) => typeof t === "string") && typeof v.updatedAt === "string" && Number.isFinite(Date.parse(v.updatedAt));
   if (kind === "research-thread") return typeof v.title === "string" && v.title.length <= 200 && (v.bookId === undefined || typeof v.bookId === "string") && (v.notebookId === undefined || typeof v.notebookId === "string") && (v.selection === undefined || validSourceRef(v.selection)) &&
-    (v.scope === undefined || (v.scope && [v.scope.bookIds, v.scope.noteIds, v.scope.highlightIds].every(ids => Array.isArray(ids) && ids.length <= 7 && ids.every(id => typeof id === "string" && id.length <= 100))));
+    (v.scope === undefined || (v.scope && (v.scope.ranges === undefined || (Array.isArray(v.scope.ranges) && v.scope.ranges.every((r: import("./researchTypes").BookRange) => r && typeof r.bookId === "string" && typeof r.label === "string" && Number.isSafeInteger(r.start) && Number.isSafeInteger(r.end) && r.start >= 0 && r.end >= r.start))) && [v.scope.bookIds, v.scope.noteIds, v.scope.highlightIds].every(ids => Array.isArray(ids) && ids.length <= 7 && ids.every(id => typeof id === "string" && id.length <= 100))));
   if (kind === "research-message") return typeof v.threadId === "string" && typeof v.question === "string" && v.question.length <= 1500 && ["explain", "sources", "web"].includes(v.mode) && typeof v.answer === "string" && v.answer.length <= 12000 && typeof v.model === "string" && Array.isArray(v.sources) && v.sources.length <= 20 && v.sources.every(validSourceRef) &&
     (v.comparison === undefined || validBookComparison(v.comparison, v.sources));
   return false;
@@ -60,7 +60,7 @@ export async function restoreResearchBackup(value: unknown) {
       }
       if ((isMediaKind(kind) || kind === "notebook-overlay") && !(await get("notebook-note", v.noteId))) throw new Error("An attachment’s notebook page is missing.");
       if (kind === "research-thread") {
-        if (v.scope) v.scope.bookIds = v.scope.bookIds.map((id: string) => map.get(id)).filter(Boolean);
+        if (v.scope?.ranges) v.scope.ranges = v.scope.ranges.flatMap((r: import("./researchTypes").BookRange) => map.has(r.bookId) ? [{ ...r, bookId:map.get(r.bookId) }] : []);
         if (v.notebookId && !(await get("notebook", v.notebookId))) throw new Error("A conversation’s parent notebook is missing.");
         if (v.bookId) v.bookId = map.get(v.bookId) || undefined;
         if (v.selection) v.selection = source(v.selection);
