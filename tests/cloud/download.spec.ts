@@ -53,9 +53,14 @@ async function setup(page: Page, replies: Array<"abort" | "valid" | "corrupt" | 
   return nonces;
 }
 
+async function expectRestoredPage(page: Page) {
+  await expect(page.locator(".reader-shell")).toHaveAttribute("data-loading", "false");
+  await expect(page.locator(".reader-progress")).toContainText("Page 2");
+}
+
 test("an interrupted download retries with fresh cache keys, restores position and stays offline", async ({ page }) => {
   const nonces = await setup(page, ["abort", "valid"]);
-  await expect(page.locator(".reader-progress")).toContainText("Page 2");
+  await expectRestoredPage(page);
   expect(nonces).toHaveLength(2);
   expect(new Set(nonces).size).toBe(2);
   expect(nonces.every(Boolean)).toBe(true);
@@ -83,7 +88,7 @@ for (const width of [1280, 390]) test(`failed transfer offers accessible retry a
   expect(nonces).toHaveLength(2);
   expect(await page.evaluate(async () => (await import("/src/db.ts")).db.files.count())).toBe(0);
   await page.getByRole("button", { name: "Retry opening book" }).click();
-  await expect(page.locator(".reader-progress")).toContainText("Page 2");
+  await expectRestoredPage(page);
   await expect(page.getByRole("alert")).toHaveCount(0);
   expect(nonces).toHaveLength(3);
   expect(await page.evaluate(async () => (await (await import("/src/db.ts")).db.rows.get("annotation:retained-note"))!.value.note)).toBe("Keep this cloud note");
@@ -107,13 +112,13 @@ test("book opens and persists when Chrome's network blob reader fails", async ({
     };
   });
   const nonces = await setup(page, ["valid"]);
-  await expect(page.locator(".reader-progress")).toContainText("Page 2");
+  await expectRestoredPage(page);
   expect(nonces).toHaveLength(1);
   expect(await page.evaluate(async () => {
     const file = await (await import("/src/db.ts")).db.files.get("download-book");
     return { size: file!.source.size, type: file!.source.type };
   })).toEqual({ size: bytes.length, type: "application/pdf" });
   await page.reload();
-  await expect(page.locator(".reader-progress")).toContainText("Page 2");
+  await expectRestoredPage(page);
   expect(nonces).toHaveLength(1);
 });
