@@ -1,7 +1,8 @@
 /* Research stays close to the book; source links are the visual accent. */
 @layer components {
-  .local-access-banner { position: fixed; bottom: 72px; left: 50%; transform: translateX(-50%); z-index: 65; width: min(640px, calc(100% - 24px)); background: #edf4fa; color: #234461; border: 1px solid #bad0e1; border-radius: 10px; padding: 10px 14px; display: flex; gap: 12px; align-items: center; box-shadow: 0 4px 18px #20304012; font-size: 14px; }
-  .local-access-banner button { text-decoration: underline; flex-shrink: 0; }
+  .local-access-banner { margin: 8px auto; width: min(640px, calc(100% - 24px)); background: #edf4fa; color: #234461; border: 1px solid #bad0e1; border-radius: 10px; padding: 10px 14px; display: flex; gap: 12px; align-items: center; box-shadow: 0 4px 18px #20304012; font-size: 14px; }
+  .reading .local-access-banner { position: fixed; bottom: 72px; left: 50%; transform: translateX(-50%); z-index: 65; pointer-events: none; }
+  .local-access-banner button { pointer-events: auto; text-decoration: underline; flex-shrink: 0; }
   .source-citation { display: inline; color: var(--accent, #315c86); text-decoration: underline; text-underline-offset: 3px; overflow-wrap: anywhere; font-size: .9em; }
   .source-citation > span { font-size: .8em; text-decoration: none; color: var(--muted, #77838e); margin-right: 5px; }
   .source-citation small { display: block; font-size: .8em; }
@@ -118,7 +119,7 @@
     .research-workspace textarea, .research-workspace input, .topic-editor input { font-size: 16px; }
     .research-tabs button { min-height: 44px; }
     .topic-title-label > input { font-size: 23px; }
-    .local-access-banner { bottom: 72px; font-size: 12px; }
+    .local-access-banner { font-size: 12px; }
   }
   @media (prefers-reduced-motion: reduce) { .research-workspace *, .notebook-layout * { scroll-behavior: auto !important; transition: none !important; } }
 }

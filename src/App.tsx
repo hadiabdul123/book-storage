@@ -1,7 +1,7 @@
 import type { Session } from "@supabase/supabase-js";
 import { repairSignIn, withDeadline } from "./authRecovery";
 import { UpdateNotice } from "./UpdateNotice";
-import { lazy, Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { type ReactNode, lazy, Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   HashRouter,
   NavLink,
@@ -152,9 +152,9 @@ function AccessGate() {
   useEffect(() => { if (authenticated) { const stopSync = startSync(); const stopResearch = startResearchQueue(); return () => { stopSync(); stopResearch(); }; } }, [authenticated]);
   if (checking) return <div className="boot"><BookOpen size={32} /><p>Opening your reading space…</p></div>;
   if (!authenticated) return <SignIn error={authError} setError={setAuthError} onSignIn={verify} />;
-  return <><Shell />{localAccess && <div className="local-access-banner" role="status"><span>{localAccess}</span>{navigator.onLine && <button onClick={() => { setAuthenticated(false); setLocalAccess(""); }}>Sign in to sync</button>}</div>}</>;
+  return <Shell accessNotice={localAccess && <div className="local-access-banner" role="status"><span>{localAccess}</span>{navigator.onLine && <button onClick={() => { setAuthenticated(false); setLocalAccess(""); }}>Sign in to sync</button>}</div>} />;
 }
-function Shell() {
+function Shell({ accessNotice }: { accessNotice: ReactNode }) {
   const location = useLocation(),
     reading = location.pathname.startsWith("/read/");
   const sync = useSyncExternalStore(subscribeSync, syncSnapshot);
@@ -225,6 +225,7 @@ function Shell() {
         </aside>
       )}
       <div className="app-content">
+        {accessNotice}
         <Routes>
           <Route path="/" element={<Library notify={notify} />} />
           <Route path="/notes" element={<Notes />} />
