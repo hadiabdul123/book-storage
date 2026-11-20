@@ -24,6 +24,7 @@
   flex-wrap: nowrap; max-width: 100%; box-sizing: border-box;
 }
 .pdf-text-box-tools > * { flex-shrink: 0; }
+.pdf-text-box-tools label select { width: auto; min-height: 40px; }
 .pdf-text-box-tools label { display: inline-flex; align-items: center; gap: 5px; }
 .reader-header .reader-text-box-overflow { display: none; }
 @media (max-width: 759px) {

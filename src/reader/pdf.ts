@@ -1385,11 +1385,11 @@ export class PdfReader implements ReaderAdapter {
         element.role = "button";
         element.setAttribute("aria-label", `Edit text box: ${box.text.slice(0, 80)}`);
       }
-      const { lines, lineHeight } = layoutBoxText(box);
+      const { lines } = layoutBoxText(box);
       Object.assign(element.style, {
         width: box.width + "px", height: box.height + "px", transform: boxTransform(box, state.viewport),
-        background: boxPaper(box.tint), color: boxInk, padding: boxPadding + "px",
-        font: box.fontSize + "px/" + lineHeight + "px " + boxFont,
+        background: boxPaper(box), color: boxInk(box), padding: boxPadding + "px",
+        font: boxFont(box, true), textDecoration: box.underline ? "underline" : "none",
       });
       element.textContent = lines.join("\n");
       surface.append(element);

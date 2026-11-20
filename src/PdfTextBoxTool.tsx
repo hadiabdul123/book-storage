@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, type KeyboardEvent, type PointerEvent } from "react";
 import { createPortal } from "react-dom";
-import { GripHorizontal, MoveDiagonal2, Trash2 } from "lucide-react";
+import { GripHorizontal, MoveDiagonal2, Trash2, Underline } from "lucide-react";
 import { boxDelta, boxFont, boxFontSizes, boxInk, boxPadding, boxPaper, boxPoint, boxTextLimit,
   boxTransform, fitPdfTextBox, type PdfTextBox } from "./pdfTextBoxes";
 import type { PdfReader } from "./reader/pdf";
@@ -77,10 +77,19 @@ export function PdfTextBoxTool({ draft, surface, saved, saving, placing, update,
       {draft ? <>
         <label>Text size <select value={draft.fontSize} disabled={saving}
           onChange={event => update({ ...draft, fontSize: Number(event.target.value) })}>
+          {(!boxFontSizes.some(size => size === draft.fontSize)) && <option>{draft.fontSize}</option>}
           {boxFontSizes.map(size => <option key={size}>{size}</option>)}
         </select></label>
-        <button type="button" aria-pressed={draft.tint} disabled={saving}
-          onClick={() => update({ ...draft, tint: !draft.tint })}>Tint</button>
+        <label>Weight <select value={draft.weight || "regular"} disabled={saving}
+          onChange={event => update({ ...draft, weight: event.target.value as PdfTextBox["weight"] })}>
+          <option value="light">Light</option><option value="regular">Regular</option><option value="bold">Bold</option>
+        </select></label>
+        <button type="button" title="Underline" aria-label="Underline" aria-pressed={!!draft.underline}
+          disabled={saving} onClick={() => update({ ...draft, underline: !draft.underline })}><Underline size={17} /></button>
+        <label>Background <select value={draft.transparent ? "transparent" : draft.tint ? "tint" : "paper"} disabled={saving}
+          onChange={event => update({ ...draft, transparent: event.target.value === "transparent", tint: event.target.value === "tint" })}>
+          <option value="transparent">Transparent</option><option value="paper">Paper</option><option value="tint">Tint</option>
+        </select></label>
         <button className="primary" type="button" disabled={saving || !draft.text.trim()} onClick={save}>Save text box</button>
         {saved && <button type="button" aria-label="Delete text box" disabled={saving} onClick={remove}><Trash2 size={17} /></button>}
         <button type="button" disabled={saving} onClick={cancel}>Cancel</button>
@@ -95,7 +104,7 @@ export function PdfTextBoxTool({ draft, surface, saved, saving, placing, update,
       style={{ width: draft.width, height: draft.height, transform: boxTransform(draft, surface.viewport) }}>
       <textarea ref={input} aria-label={  `Text box on page ${draft.page}` } maxLength={boxTextLimit}
         value={draft.text} readOnly={saving} placeholder="Type here"
-        style={{ background: boxPaper(draft.tint), color: boxInk, padding: boxPadding, font: `${draft.fontSize}px/1.3 ${boxFont}` }}
+        style={{ background: boxPaper(draft), color: boxInk(draft), padding: boxPadding, font: boxFont(draft, true), textDecoration: draft.underline ? "underline" : "none" }}
         onChange={event => update({ ...draft, text: event.target.value })}
         onKeyDown={event => {
           if (event.key === "Escape" && !saving) { event.preventDefault(); event.stopPropagation(); cancel(); }

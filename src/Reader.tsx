@@ -256,7 +256,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
     setTextBoxDraft(fitPdfTextBox({
       id: uid(), bookId: book.id, hash: book.hash, page: pageNumber,
       x: pdfX, y: pdfY, width: 214, height: 82, rotation: viewport.rotation as BoxRotation,
-      text: "", fontSize: 16, tint: false, createdAt: stamp, updatedAt: stamp,
+      text: "", fontSize: 16, tint: false, transparent: true, createdAt: stamp, updatedAt: stamp,
     }, viewport.viewBox as import("./model").Rect));
   }
   async function storeTextBox(remove = false) {

@@ -44,13 +44,22 @@ test("PDF text box stays on its page through editing, zoom, rotation and a sprea
     await page.mouse.up();
     await expect.poll(() => draft.evaluate(el => Number.parseFloat(el.style.width))).toBeGreaterThan(width);
   }
-  await page.getByRole("button", { name: "Tint", exact: true }).click();
+  await expect(page.getByRole("combobox", { name: "Background", exact: true })).toHaveValue("transparent");
+  await page.getByRole("combobox", { name: "Text size", exact: true }).selectOption("14");
+  await page.getByRole("combobox", { name: "Weight", exact: true }).selectOption("light");
+  await expect(editor).toHaveCSS("font-weight", "300");
+  await page.getByRole("combobox", { name: "Weight", exact: true }).selectOption("bold");
+  await page.getByRole("button", { name: "Underline", exact: true }).click();
   await page.getByRole("button", { name: "Save text box", exact: true }).click();
   await expect(box).toContainText("Second line α.");
   await context.setOffline(false);
   await page.reload();
   await expect(box).toContainText("Margin note.");
 
+  await expect(box).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(box).toHaveCSS("font-weight", "700");
+  await expect(box).toHaveCSS("font-size", "14px");
+  await expect(box).toHaveCSS("text-decoration-line", "underline");
   const before = await box.evaluate(el => el.style.transform);
   const zoom = page.getByRole("button", { name: "Zoom in", exact: true });
   await zoom.click();
@@ -92,7 +101,7 @@ test("marked PDF includes the text box and ink on their original page", async ({
   await clickTool(page, "Text box");
   await page.getByRole("button", { name: "Place on current page", exact: true }).click();
   await page.getByRole("textbox", { name: "Text box on page 1" }).fill(note);
-  await page.getByRole("button", { name: "Tint", exact: true }).click();
+  await page.getByRole("combobox", { name: "Background", exact: true }).selectOption("tint");
   await page.getByRole("button", { name: "Save text box", exact: true }).click();
   await expect(page.locator(".pdf-text-box")).toContainText("Second line α.");
   const geometry = await page.evaluate(async () => {

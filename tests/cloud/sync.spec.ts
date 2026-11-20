@@ -214,6 +214,8 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
     await first.getByRole("button", { name: "Close panel" }).click();
     await clickTool(first, "Text box");
     await first.getByRole("button", { name: "Place on current page", exact: true }).click();
+    await first.getByRole("combobox", { name: "Weight", exact: true }).selectOption("bold");
+    await first.getByRole("button", { name: "Underline", exact: true }).click();
     await first.getByRole("textbox", { name: "Text box on page 1" }).fill("A text box shared between devices.");
     await first.getByRole("button", { name: "Save text box", exact: true }).click();
     await expect(first.locator(".pdf-text-box")).toHaveText("A text box shared between devices.");
@@ -263,6 +265,9 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
     await expect(secondBox).toHaveText("A text box shared between devices.");
     await clickTool(second, "Text box");
     await secondBox.press("Enter");
+    await expect(second.getByRole("combobox", { name: "Weight", exact: true })).toHaveValue("bold");
+    await expect(second.getByRole("combobox", { name: "Background", exact: true })).toHaveValue("transparent");
+    await expect(second.getByRole("button", { name: "Underline", exact: true })).toHaveAttribute("aria-pressed", "true");
     await second.getByRole("textbox", { name: "Text box on page 1" }).fill("Edited from the second device.");
     await second.getByRole("button", { name: "Save text box", exact: true }).click();
     await expect.poll(() => [...rows.values()].some(row =>
