@@ -55,3 +55,9 @@ export async function observePaperTurns(page: Page) {
   });
   return () => page.evaluate(() => (window as any).__paperTurns.seen as number);
 }
+
+export async function showHighlightFilters(page: Page) {
+  await expect(page.locator(".notes-page")).toBeVisible();
+  const toggle = page.getByRole("button", { name: "Filters & collections", expanded: false });
+  if (await toggle.isVisible()) await toggle.click();
+}

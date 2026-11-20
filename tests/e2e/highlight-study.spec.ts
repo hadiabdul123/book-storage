@@ -1,3 +1,4 @@
+import { showHighlightFilters } from "./controls";
 import { readFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
 import { degrees, PDFDocument } from "pdf-lib";
@@ -76,7 +77,7 @@ test("a highlight keeps follow-ups, study labels and an on-demand full PDF previ
 
   await page.reload();
   await expect(notes).toContainText("Check the updated equation");
-  if (await page.getByRole("button", {name:"Filters & collections", expanded:false}).isVisible()) await page.getByRole("button", {name:"Filters & collections"}).click();
+  await showHighlightFilters(page);
   await page.getByText("More filters", { exact:true }).click();
   await page.getByLabel("Filter by priority").selectOption("lower");
   await expect(page.locator(".notes-passage-open")).toHaveCount(0);
@@ -137,7 +138,7 @@ test("a scoped page and notebook comparison becomes a reusable filed card", asyn
   await expect(card.locator(".card-chips")).toContainText("Practice");
   await page.screenshot({path:test.info().outputPath("filed-card.png")});
   await card.getByRole("button",{name:"Close",exact:true}).click();
-  if (await page.getByRole("button", {name:"Filters & collections", expanded:false}).isVisible()) await page.getByRole("button", {name:"Filters & collections"}).click();
+  await showHighlightFilters(page);
   await page.getByRole("navigation",{name:"Categories",exact:true}).getByRole("button",{name:"Practice",exact:true}).click();
   await page.reload();
   await expect(page.locator(".notes-passage-open")).toHaveCount(1);
@@ -150,7 +151,7 @@ test("a scoped page and notebook comparison becomes a reusable filed card", asyn
   const moved=await tile.getAttribute("style");
   await page.reload();await expect(tile).toHaveAttribute("style",moved!);
   await page.getByRole("button",{name:"Gallery",exact:true}).click();
-  if (await page.getByRole("button", {name:"Filters & collections", expanded:false}).isVisible()) await page.getByRole("button", {name:"Filters & collections"}).click();
+  await showHighlightFilters(page);
   await page.getByText("More filters",{exact:true}).click();
   await page.getByLabel("View name",{exact:true}).fill("Practice cards");
   await page.getByRole("button",{name:"Save view",exact:true}).click();
@@ -158,7 +159,7 @@ test("a scoped page and notebook comparison becomes a reusable filed card", asyn
   await page.getByRole("button",{name:"Clear filters",exact:true}).click();
   await page.getByLabel("Saved views").selectOption({label:"Practice cards"});
   await expect(page.getByRole("navigation",{name:"Categories",exact:true}).getByRole("button",{name:"Practice",exact:true})).toHaveAttribute("aria-pressed","true");
-  if (await page.getByRole("button", {name:"Filters & collections", expanded:false}).isVisible()) await page.getByRole("button", {name:"Filters & collections"}).click();
+  await showHighlightFilters(page);
   await page.getByText("More filters",{exact:true}).click();
   await page.locator(".notes-passage-open").click();
   await card.getByRole("link",{name:"Open study"}).click();

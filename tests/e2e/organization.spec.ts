@@ -1,3 +1,4 @@
+import { showHighlightFilters } from "./controls";
 import { test, expect } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { textPdf } from "../helpers/text-pdf";
@@ -66,7 +67,7 @@ test("large libraries use source IDs, bounded lists, complete exports and resear
   await expect(page.locator(".annotation-card")).toHaveCount(1);
   const download = page.waitForEvent("download"); await page.getByLabel("Export notes", { exact: true }).selectOption("json");
   const backup = JSON.parse(await readFile((await (await download).path())!, "utf8")); expect(backup.annotations).toHaveLength(5000);
-  if (await page.getByRole("button", {name:"Filters & collections", expanded:false}).isVisible()) await page.getByRole("button", {name:"Filters & collections"}).click();
+  await showHighlightFilters(page);
   await page.getByRole("navigation", { name: "Books & notebooks", exact: true }).getByRole("button").filter({ has: page.getByText("Author 0", { exact: true }) }).click();
   await expect(page).toHaveURL(/book=book0/); await page.locator(".notes-passage-open").first().click();
   await expect(page.getByRole("dialog", { name: "Quote card" })).toContainText("in book 0");

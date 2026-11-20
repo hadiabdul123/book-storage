@@ -1,3 +1,4 @@
+import { showHighlightFilters } from "./controls";
 import { test, expect, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { PDFDocument, PDFName, PDFString } from "pdf-lib";
@@ -239,7 +240,8 @@ test("PDF ink survives reopening, supports undo and exports a separate marked PD
   const download = page.waitForEvent("download"); await page.getByRole("button", { name: "Export marked PDF", exact: true }).click();
   const file = await download; expect(file.suggestedFilename()).toMatch(/-marked\.pdf$/);
   expect((await PDFDocument.load(await readFile((await file.path())!))).getPageCount()).toBe(4);
-  await page.goto("/#/notes"); await page.getByLabel("Note type").selectOption("drawing");
+  await page.goto("/#/notes"); await showHighlightFilters(page);
+  await page.getByLabel("Note type").selectOption("drawing");
   await page.locator(".notes-passage-list section button").first().click(); await expect(page.locator(".ink-preview path")).toHaveCount(2);
 });
 test("notebook sections, text highlighting and inline drawings persist", async ({ page }) => {

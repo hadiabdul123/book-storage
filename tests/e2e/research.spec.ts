@@ -265,6 +265,7 @@ for (const format of ["epub", "docx"] as const) test(`${format} contextual resea
     return { noteId: note.id, sourceTitle: source.title };
   });
   await page.goto(`/#/notebooks?note=${saved.noteId}`);
+  await page.getByRole("button", {name:"Tools",exact:true}).click();
   await page.getByRole("button", { name: "Insert quote", exact: true }).click();
   await page.getByRole("dialog", { name: "Insert quote" }).locator(".quote-picker-list button").click();
   const citations = page.getByRole("textbox", { name: "Topic note content" }).getByRole("link", { name: saved.sourceTitle, exact: true });

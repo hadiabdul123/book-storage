@@ -1,3 +1,4 @@
+import { showHighlightFilters } from "./controls";
 import { showPassageAction } from "./controls";
 import { openTools, clickTool, showSavedItem } from "./controls";
 import { test, expect, type Page } from "@playwright/test";
@@ -52,6 +53,7 @@ test("formatted page notebooks persist, search, export and restore", async ({
   await page.getByRole("button", { name: "Close panel" }).click();
   await page.getByRole("link", { name: "Back to library" }).click();
   await page.goto("/#/notes");
+  await showHighlightFilters(page);
   await page.getByLabel("Note type").selectOption("page-note");
   await expect(page.locator(".annotation-card")).toHaveCount(1);
   await expect(page.locator(".annotation-card li")).toHaveCount(2);
