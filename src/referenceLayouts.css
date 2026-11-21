@@ -123,18 +123,40 @@
 .reader-shell[data-study-open] .study-notebook { position:relative; }
 .reader-shell[data-study-open] .study-notebook:has(.study-path) .study-writing-tools > summary { position:absolute; right:0; top:0; color:#434538; font-size:14px; }
 .reader-shell[data-study-open] .study-writing-tools:not([open]) { margin:0; }
-@media (min-width:761px) {
-  .reader-shell.reader-side-tools[data-study-open] > .reader-workspace .reader-panel {
-    top:calc((100% - var(--reader-footer-height,56px)) * var(--study-top));
-    height:calc((100% - var(--reader-footer-height,56px)) * var(--study-height));
-  }
-  .reader-panel .study-resize { position:absolute; z-index:4; border:0; background:transparent; padding:0; min-height:0; touch-action:none; }
-  .study-resize-left,.study-resize-right { width:9px; top:10px; bottom:14px; cursor:ew-resize; }
-  .study-resize-left { left:0; } .study-resize-right { right:0; }
-  .study-resize-bottom { left:8px; right:22px; bottom:0; height:9px; cursor:ns-resize; }
-  .reader-panel .study-resize-corner { right:0; bottom:0; width:22px; height:22px; cursor:nwse-resize; background:repeating-linear-gradient(135deg,transparent 0 3px,#979387 3px 4px); clip-path:polygon(100% 20%,100% 100%,20% 100%); }
+/* Keep the drag surface and the displayed pane in the same coordinate space. */
+.reader-shell.reader-side-tools[data-study-open] .reader-reveal:not(:focus-visible) {
+  top:45%; width:20px; height:52px; pointer-events:auto; z-index:37; opacity:1;
+  padding:0; font-size:0; background:transparent;
 }
-@media(max-width:760px) {
+.reader-shell[data-study-open] .reader-reveal::after {
+  content:""; position:absolute; left:2px; top:15px; height:22px; width:3px; border-radius:2px; background:#79838a;
+}
+.reader-shell[data-study-open][data-clipping-region] .reader-reveal { visibility:hidden; }
+.reader-panel .study-resize { position:absolute; z-index:4; border:0; background:transparent; padding:0; min-height:0; touch-action:none; }
+@media (min-width:600px) {
+  .reader-shell.reader-side-tools[data-study-open] .reader-workspace { padding:0; }
+  .reader-shell.reader-side-tools[data-study-open] .reading-column { height:100%; }
+  .reader-shell.reader-side-tools[data-study-open] > .reader-workspace .reader-panel {
+    --pane-width:clamp(min(280px,100%),var(--study-desktop-size),100%);
+    scroll-padding-bottom:var(--reader-footer-height,56px);
+    --available:calc(100% - var(--reader-footer-height,56px));
+    --pane-height:clamp(min(190px,var(--available)),calc(var(--available) * var(--study-pane-height)),var(--available));
+    position:absolute; width:var(--pane-width); max-width:100%; height:var(--pane-height); max-height:var(--available);
+    left:calc((100% - var(--pane-width)) * var(--study-pos-x));
+    top:calc((var(--available) - var(--pane-height)) * var(--study-pos-y));
+    right:auto; bottom:auto; border:1px solid #aaa99d; border-radius:0; box-shadow:0 6px 18px #26251b24;
+  }
+  .reader-shell[data-study-open] .reader-panel > header { cursor:grab; touch-action:none; user-select:none; }
+  .reader-shell[data-study-open] .reader-panel > header:active { cursor:grabbing; }
+  .reader-shell[data-study-open] .study-move { display:inline-grid; place-items:center; }
+  .study-resize-left,.study-resize-right { width:14px; top:12px; bottom:16px; cursor:ew-resize; }
+  .study-resize-left { left:0; } .study-resize-right { right:0; }
+  .study-resize-bottom { left:12px; right:26px; bottom:0; height:12px; cursor:ns-resize; }
+  .reader-panel .study-resize-corner { right:0; bottom:0; width:26px; height:26px; cursor:nwse-resize; }
+  .study-resize-corner::after { content:""; position:absolute; right:3px; bottom:3px; width:10px; height:10px; border-right:2px solid #979387; border-bottom:2px solid #979387; }
+}
+@media (max-width:599px) {
   .reader-shell.reader-side-tools[data-study-open] { --study-size:var(--study-mobile-size,38%); }
-  .study-resize { display:none; }
+  .reader-panel .study-resize-top { display:block; top:0; height:14px; width:42%; left:29%; cursor:ns-resize; }
+  .study-resize-top::after { content:""; position:absolute; top:3px; left:calc(50% - 16px); width:32px; height:3px; border-radius:2px; background:#888b82; }
 }

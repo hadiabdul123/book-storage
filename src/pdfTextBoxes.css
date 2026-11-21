@@ -7,11 +7,19 @@
 .pdf-text-box-mode .textLayer { pointer-events: none; }
 .pdf-text-box-mode .pdf-text-box { pointer-events: auto; cursor: pointer; }
 .pdf-text-box-mode .pdf-text-box:hover, .pdf-text-box-mode .pdf-text-box:focus-visible { outline: 2px solid #315c86; outline-offset: -2px; }
-.pdf-text-box-edit { z-index: 7; outline: 2px solid #315c86; }
-.pdf-text-box-edit textarea { display: block; width: 100%; height: 100%; box-sizing: border-box; margin: 0; border: 0; border-radius: 0; resize: none; outline: none; }
-.pdf-text-box-edit button { position: absolute; touch-action: none; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; color: #234461; background: #fff; border: 1px solid #315c86; border-radius: 4px; }
-.pdf-text-box-edit .pdf-text-box-move { top: -14px; left: 50%; transform: translateX(-50%); cursor: move; }
-.pdf-text-box-edit .pdf-text-box-resize { bottom: -10px; right: -10px; cursor: nwse-resize; }
+.pdf-text-box-edit { z-index:7; outline:var(--handle-unit) solid #315c86; }
+.pdf-text-box-edit textarea { display:block; width:100%; height:100%; box-sizing:border-box; margin:0; border:0; border-radius:0; resize:none; outline:none; }
+.pdf-text-box-edit button {
+  --grip:calc(14 * var(--handle-unit)); position:absolute; touch-action:none; display:grid; place-items:center;
+  width:var(--grip); height:var(--grip); min-height:0; min-width:0; padding:0; box-sizing:border-box;
+  color:#234461; background:#fff; border:var(--handle-unit) solid #315c86; border-radius:calc(3 * var(--handle-unit));
+  font-size:calc(11 * var(--handle-unit)); line-height:1;
+}
+.pdf-text-box-edit button svg { width:80%; height:80%; }
+.pdf-text-box-edit button::before { content:""; position:absolute; inset:calc(-5 * var(--handle-unit)); }
+@media(pointer:coarse) { .pdf-text-box-edit button::before { inset:calc(-14 * var(--handle-unit)); } }
+.pdf-text-box-edit .pdf-text-box-move { top:0; left:50%; transform:translate(-50%,-55%); cursor:grab; }
+.pdf-text-box-edit .pdf-text-box-resize { bottom:0; right:0; transform:translate(35%,35%); cursor:nwse-resize; }
 .reader-shell.pdf-text-box-active { --text-box-toolbar-height: 53px; }
 .reader-shell.pdf-text-box-active .reader-host {
   border-top: calc(var(--reader-header-height, 66px) + var(--text-box-toolbar-height)) solid transparent;
@@ -33,5 +41,17 @@
   .pdf-text-box-tools > span { display: none; }
 }
 
-.pdf-text-box-edit .pdf-text-box-width { right:-10px; top:50%; transform:translateY(-50%); cursor:ew-resize; }
-.pdf-text-box-edit .pdf-text-box-height { bottom:-10px; left:50%; transform:translateX(-50%); cursor:ns-resize; }
+.pdf-text-box-edit .pdf-text-box-width { right:0; top:50%; transform:translate(45%,-50%); cursor:ew-resize; }
+.pdf-text-box-edit .pdf-text-box-height { bottom:0; left:50%; transform:translate(-50%,45%); cursor:ns-resize; }
+.pdf-text-box-tools .pdf-format-more { display:none; }
+.pdf-box-format { display:flex; align-items:center; gap:6px; }
+@media(max-width:900px) {
+  .reader-shell > .pdf-text-box-tools:has(.pdf-format-more) { overflow:visible; flex-wrap:wrap; height:auto; }
+  .pdf-text-box-tools .pdf-format-more { display:inline-flex; }
+  .pdf-box-format { display:none; }
+  .pdf-box-format[data-open=true] {
+    position:absolute; top:100%; left:0; z-index:1; display:flex; flex-wrap:wrap; gap:8px; align-items:center;
+    width:min(290px,100%); padding:8px; border:1px solid var(--line); background:var(--page-bg,#fff);
+    box-shadow:0 3px 10px #1627351a;
+  }
+}

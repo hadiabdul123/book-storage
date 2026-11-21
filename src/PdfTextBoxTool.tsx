@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, type KeyboardEvent, type PointerEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { createPortal } from "react-dom";
 import { GripHorizontal, MoveDiagonal2, Trash2, Underline } from "lucide-react";
 import { boxDelta, boxFont, boxFontSizes, boxInk, boxPadding, boxPaper, boxPoint, boxTextLimit,
@@ -22,6 +22,25 @@ type Props = {
 };
 
 export function PdfTextBoxTool({ draft, surface, saved, saving, placing, update, place, save, remove, exportPdf, cancel }: Props) {
+  const [more, setMore] = useState(false);
+  const tools = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    setMore(false);
+  }, [draft?.id]);
+  useEffect(() => {
+    if (!more) return;
+    const outside = (event: globalThis.PointerEvent) => {
+      if (!tools.current?.contains(event.target as Node)) setMore(false);
+    };
+    const escape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape" && tools.current?.contains(event.target as Node)) {
+        event.preventDefault(); setMore(false); tools.current.querySelector<HTMLButtonElement>(".pdf-format-more")?.focus();
+      }
+    };
+    document.addEventListener("pointerdown", outside);
+    document.addEventListener("keydown", escape);
+    return () => { document.removeEventListener("pointerdown", outside); document.removeEventListener("keydown", escape); };
+  }, [more]);
   const input = useRef<HTMLTextAreaElement>(null);
   const drag = useRef<{ pointer: number; start: [number, number]; box: PdfTextBox; viewport: NonNullable<Props["surface"]>["viewport"] }>(undefined);
   useLayoutEffect(() => {
@@ -82,8 +101,10 @@ export function PdfTextBoxTool({ draft, surface, saved, saving, placing, update,
   }
 
   return <>
-    <div className="ink-toolbar pdf-text-box-tools" role="group" aria-label="PDF text box tools">
+    <div ref={tools} className="ink-toolbar pdf-text-box-tools" role="group" aria-label="PDF text box tools">
       {draft ? <>
+        <button type="button" className="pdf-format-more" aria-expanded={more} aria-controls="pdf-box-format" onClick={() => setMore(!more)}>More</button>
+        <div id="pdf-box-format" className="pdf-box-format" data-open={more}>
         <label>Text size <select value={draft.fontSize} disabled={saving}
           onChange={event => update({ ...draft, fontSize: Number(event.target.value) })}>
           {(!boxFontSizes.some(size => size === draft.fontSize)) && <option>{draft.fontSize}</option>}
@@ -99,6 +120,7 @@ export function PdfTextBoxTool({ draft, surface, saved, saving, placing, update,
           onChange={event => update({ ...draft, transparent: event.target.value === "transparent", tint: event.target.value === "tint" })}>
           <option value="transparent">Transparent</option><option value="paper">Paper</option><option value="tint">Tint</option>
         </select></label>
+        </div>
         <button className="primary" type="button" disabled={saving || !draft.text.trim()} onClick={save}>Save text box</button>
         {saved && <button type="button" aria-label="Delete text box" disabled={saving} onClick={remove}><Trash2 size={17} /></button>}
         <button type="button" disabled={saving} onClick={cancel}>Cancel</button>
@@ -110,7 +132,8 @@ export function PdfTextBoxTool({ draft, surface, saved, saving, placing, update,
       </>}
     </div>
     {draft && surface && createPortal(<div className="pdf-text-box-edit"
-      style={{ width: draft.width, height: draft.height, transform: boxTransform(draft, surface.viewport) }}>
+      style={{ width: draft.width, height: draft.height, transform: boxTransform(draft, surface.viewport),
+        "--handle-unit": (1 / Math.hypot(surface.viewport.transform[0],surface.viewport.transform[1])) + "px" } as React.CSSProperties}>
       <textarea ref={input} aria-label={  `Text box on page ${draft.page}` } maxLength={boxTextLimit}
         value={draft.text} readOnly={saving} placeholder="Type here"
         style={{ background: boxPaper(draft), color: boxInk(draft), padding: boxPadding, font: boxFont(draft, true), textDecoration: draft.underline ? "underline" : "none" }}

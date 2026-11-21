@@ -54,7 +54,8 @@
   .reader-shell[data-study-open] .reader-panel { z-index:36; }
 }
 
-.study-drag-label { position:fixed; z-index:75; pointer-events:none; border-radius:6px; background:#263e43; color:white; padding:6px 9px; font-size:13px; box-shadow:0 3px 12px #172a3022; }
+.study-drag-dot { position:fixed; top:0; left:0; z-index:75; width:9px; height:9px; border-radius:50%; background:#315c86; border:1.5px solid white; pointer-events:none; }
+@media(prefers-reduced-motion:no-preference) { .study-drag-dot { transition:transform 65ms linear; } }
 
 .reader-shell .study-size { margin:0; font-size:13px; }
 .reader-shell .study-destinations label { margin:0; flex:1; min-width:90px; }

@@ -112,9 +112,7 @@ export const ReaderInteractions = forwardRef<
   const draftsRef = useRef(drafts);
   const popup = useRef<HTMLDivElement>(null);
   const clipDrag = useRef<{ x: number; y: number; moved: boolean } | undefined>(undefined);
-  const dragLabel = useRef<HTMLDivElement | null>(null);
-  const clearDragLabel = () => { dragLabel.current?.remove(); dragLabel.current = null; };
-  useEffect(() => clearDragLabel, [selected, open]);
+  useEffect(() => () => markStudyDrop(), [selected, open]);
   const popupTouch = useRef<{ button: HTMLButtonElement; x: number; y: number; at: number } | undefined>(undefined);
   const [layout, setLayout] = useState<{
     left: number;
@@ -742,19 +740,12 @@ export const ReaderInteractions = forwardRef<
     onPointerMove={event => {
       const start=clipDrag.current;
       if (!start || !event.buttons || Math.hypot(event.clientX-start.x,event.clientY-start.y)<8) return;
-      if (!dragLabel.current) {
-        const label=document.createElement("div"); label.className="study-drag-label";label.setAttribute("aria-hidden","true");
-        (host.current?.closest(".reader-shell") || document.body).append(label); dragLabel.current=label;
-      }
-      const overNote=document.elementFromPoint(event.clientX,event.clientY)?.closest(".study-notebook");
-      markStudyDrop(overNote ? {x:event.clientX,y:event.clientY} : undefined);
-      dragLabel.current.textContent=overNote ? "Drop into note" : "Drag to your note";
-      dragLabel.current.style.left=Math.min(innerWidth-122,Math.max(6,event.clientX-45))+"px";
-      dragLabel.current.style.top=Math.max(3,event.clientY-46)+"px";
+      const overNote = !!document.elementFromPoint(event.clientX,event.clientY)?.closest(".study-notebook");
+      markStudyDrop({x:event.clientX,y:event.clientY}, overNote);
     }}
-    onPointerCancel={() => { clipDrag.current = undefined; markStudyDrop(); clearDragLabel(); }}
+    onPointerCancel={() => { clipDrag.current = undefined; markStudyDrop(); }}
     onPointerUp={event => {
-      markStudyDrop(); clearDragLabel();
+      markStudyDrop();
       const start = clipDrag.current;
       if (!start || !selected) return;
       start.moved = Math.hypot(event.clientX - start.x, event.clientY - start.y) > 8;

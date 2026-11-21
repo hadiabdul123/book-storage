@@ -71,15 +71,18 @@ for (const empty of [true, false]) test(empty ? "drag selected PDF words into an
     const client = await page.context().newCDPSession(page);
     await client.send("Input.dispatchTouchEvent",{type:"touchStart",touchPoints:[{x:origin.x,y:origin.y}]});
     await client.send("Input.dispatchTouchEvent",{type:"touchMove",touchPoints:[{x,y}]});
+    await expect(page.locator(".study-drag-dot")).toBeVisible();
     await expect(page.locator(".notebook-drop-line")).toBeVisible();
     await client.send("Input.dispatchTouchEvent",{type:"touchEnd",touchPoints:[]});
     await client.detach();
   } else {
     await page.mouse.move(origin.x,origin.y); await page.mouse.down();
     await page.mouse.move(x,y,{steps:15});
+    await expect(page.locator(".study-drag-dot")).toBeVisible();
     await expect(page.locator(".notebook-drop-line")).toBeVisible(); await page.mouse.up();
   }
   await expect(editor.locator(".source-citation a")).toHaveCount(1);
+  await expect(page.locator(".study-drag-dot")).toBeHidden();
   if (!empty) {
     await expect(editor.locator("p").first()).toHaveText("Before");
     await expect(editor.locator("p").last()).toHaveText("After");
@@ -226,9 +229,14 @@ test("native PDF text drops use notebook ink and both editors keep heading and e
 });
 
 test("drag the study pane larger and close immediately after writing an untitled note",async ({page,isMobile}) => {
+  await page.addInitScript(() => localStorage.setItem("leafmark-controls-pinned","true"));
   await page.goto("/");
   await page.locator("input[type=file]").setInputFiles({name:"Pane test.pdf",mimeType:"application/pdf",buffer:numberedPdf(1)});
   await page.locator(".book-cover-link").click(); await clickTool(page,"Study notebook");
+  const rail = page.locator(".reader-header");
+  await expect(rail).toBeHidden();
+  await page.getByRole("button",{name:"Show reading controls"}).click();
+  await expect(rail).toBeVisible();
   await page.getByText("Create a page",{exact:true}).click();
   await page.getByRole("button",{name:"Create note",exact:true}).click();
   const editor=page.getByRole("textbox",{name:"Topic note content"});
@@ -241,6 +249,8 @@ test("drag the study pane larger and close immediately after writing an untitled
   await page.keyboard.insertText("Typing from the opening caret.");
   await expect(editor).toHaveText("Typing from the opening caret.");
 
+  await expect(rail).toBeHidden();
+  let finalBounds;
   if (!isMobile) {
     const pane = page.locator(".reader-panel"), before = (await pane.boundingBox())!;
     const x=before.x+before.width-3,y=before.y+before.height-4;
@@ -249,12 +259,29 @@ test("drag the study pane larger and close immediately after writing an untitled
     expect(after.width-before.width).toBeGreaterThan(50);
     expect(after.height-before.height).toBeGreaterThan(25);
     expect(Math.abs(after.x-before.x)).toBeLessThan(3);
+    const title = (await pane.getByRole("heading",{name:"Study notebook"}).boundingBox())!;
+    const center = title.x + title.width/2;
+    await page.mouse.move(center,title.y+9); await page.mouse.down();
+    await page.mouse.move(center+65,title.y+39,{steps:6}); await page.mouse.up();
+    finalBounds = (await pane.boundingBox())!;
+    expect(finalBounds.x-after.x).toBeCloseTo(65,0);
+    await expect(editor).toBeFocused();
+  } else {
+    const pane = page.locator(".reader-panel"), before=(await pane.boundingBox())!;
+    const grip=(await page.getByLabel("Resize study notebook top").boundingBox())!;
+    await page.mouse.move(grip.x+20,grip.y+4);await page.mouse.down();
+    await page.mouse.move(grip.x+20,grip.y-45,{steps:5});await page.mouse.up();
+    finalBounds=(await pane.boundingBox())!;
+    expect(finalBounds.height-before.height).toBeGreaterThan(35);
   }
   await page.getByLabel("Topic note title").fill("");
   await editor.fill("Keep the last line.");
   await page.getByRole("button",{name:"Close panel",exact:true}).click();
   await expect(page.locator(".reader-panel")).toHaveCount(0);
   await page.reload(); await clickTool(page,"Study notebook");
+  const reopened = (await page.locator(".reader-panel").boundingBox())!;
+  expect(Math.abs(reopened.height-finalBounds.height)).toBeLessThan(2);
+  expect(Math.abs(reopened.x-finalBounds.x)).toBeLessThan(2);
   await expect(editor).toHaveText("Keep the last line.");
   await expect(page.getByLabel("Topic note title")).toHaveValue("Untitled note");
   await page.evaluate(async () => {

@@ -1,4 +1,4 @@
-import { StudyPaneResize } from "./StudyPaneResize";
+import { useStudyPane } from "./StudyPaneResize";
 import { ReadingPointerControls, useReadingPointer } from "./ReadingPointer";
 import { bindPageSwipes } from "./reader/swipes";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
@@ -203,12 +203,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
     return () => viewport?.removeEventListener("resize", resize);
   }, [book?.id]);
   const [clips, setClips] = useState<StudyClip[]>([]);
-  const [paneSize, setPaneSize] = useState(38);
-  const [paneHeight,setPaneHeight] = useState(68);
-  const [mobilePaneSize,setMobilePaneSize] = useState(38);
-  const [notebookPlace, setNotebookPlace] = useState({ x: 0.18, y: 0.38 });
-  const dragPane = useRef<{ id: number; dx: number; dy: number } | undefined>(undefined);
-
+  const studyPane = useStudyPane();
   const sideNote = useRef("");
   const notebook = useRef<NotebookHandle | null>(null);
   const [notebookPage, setNotebookPage] = useState(1),
@@ -343,6 +338,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
         if (book?.format === "pdf") (adapter.current as PdfReader)?.setRegionMode(false);
         setRegion(false);
       }
+      if (name === "study-notebook") chrome.conceal();
       setPanel(name);
       chrome.setMenu(false);
     }
@@ -397,8 +393,9 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
     shell,
     host,
     ready,
-    !!panel || !!editing || region || drawing || textBoxMode,
-    fullscreen.active || quietFullscreen,
+    (!!panel && panel !== "study-notebook") || !!editing || region || drawing || textBoxMode,
+    fullscreen.active || quietFullscreen || panel === "study-notebook",
+    panel === "study-notebook",
   );
   const wasFullscreen = useRef(false);
   useEffect(() => {
@@ -762,13 +759,13 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
     <main
       ref={shell}
       data-study-open={panel === "study-notebook" || undefined} data-clipping-region={region || undefined}
-      style={panel === "study-notebook" ? { "--study-desktop-size": paneSize + "%", "--study-mobile-size": mobilePaneSize + "%", "--study-x": (100 - paneSize) * notebookPlace.x + "%", "--study-top": (1 - paneHeight/100) * notebookPlace.y, "--study-height":paneHeight/100 } as React.CSSProperties : undefined}
+      style={panel === "study-notebook" ? studyPane.style : undefined}
       className={`reader-shell reader-side-tools theme-${prefs.theme}${drawing ? " drawing-active" : ""}${textBoxMode ? " pdf-text-box-active" : ""}${chrome.visible ? " controls-visible" : " reading-mode"}${chrome.menu ? " controls-menu-open" : ""}${swipeEnabled ? " swipe-pages" : ""}${hidePageControls ? " hide-page-controls" : ""}${panel ? " panel-open" : ""}`}
       data-original-pdf-colors={pdfOriginalColors}
       data-loading={loading || savedPrefs === null || localView === undefined}
       onPointerMoveCapture={(event) => {
         if (
-          event.pointerType === "mouse" &&
+          event.pointerType === "mouse" && panel !== "study-notebook" &&
           event.clientX <=
             (shell.current?.getBoundingClientRect().left || 0) + 12 && !event.buttons
         )
@@ -1012,32 +1009,10 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
           {book.format === "pdf" && <ComfortLayer {...comfort} host={host} enabled={opened && !drawing && !region && !textBoxMode && !panel} />}
         </div>
         {panel && (
-          <aside className={`reader-panel ${panel === "research" ? "research-reader-panel" : ""}`}>
-            {panel === "study-notebook" && <StudyPaneResize height={paneHeight} resize={(w,h,x,y) => {
-              setPaneSize(w); setPaneHeight(h); setNotebookPlace({x,y});
-            }} />}
-            <header>
-              {panel === "study-notebook" && <button className="study-move" aria-label="Move study notebook" title="Drag to move, or use the arrow keys"
-                onPointerDown={e => {
-                  if (e.button !== 0 || !e.isPrimary) return;
-                  const box = e.currentTarget.closest("aside")!.getBoundingClientRect();
-                  dragPane.current = { id:e.pointerId, dx:e.clientX-box.left, dy:e.clientY-box.top };
-                  e.currentTarget.setPointerCapture(e.pointerId);
-                }}
-                onPointerMove={e => {
-                  const drag=dragPane.current, area=e.currentTarget.closest(".reader-workspace")?.getBoundingClientRect();
-                  const pane=e.currentTarget.closest("aside")!.getBoundingClientRect();
-                  if (!area || !drag || drag.id !== e.pointerId) return;
-                  const unit=(n:number)=>Math.min(1,Math.max(0,n));
-                  setNotebookPlace({x:unit((e.clientX-area.left-drag.dx)/Math.max(1,area.width-pane.width)),y:unit((e.clientY-area.top-drag.dy)/Math.max(1,pane.height*(100/paneHeight-1)))});
-                }}
-                onLostPointerCapture={() => {dragPane.current=undefined;}}
-                onKeyDown={e => {
-                  if (!["ArrowLeft","ArrowRight","ArrowUp","ArrowDown"].includes(e.key)) return;
-                  e.preventDefault();
-                  const step=(value:number,negative:string,positive:string)=>Math.max(0,Math.min(1,value+(e.key===negative?-.1:e.key===positive?.1:0)));
-                  setNotebookPlace(p=>({x:step(p.x,"ArrowLeft","ArrowRight"),y:step(p.y,"ArrowUp","ArrowDown")}));
-                }}>⠿</button>}
+          <aside onPointerDownCapture={panel === "study-notebook" ? chrome.conceal : undefined} className={`reader-panel ${panel === "research" ? "research-reader-panel" : ""}`}>
+            {panel === "study-notebook" && studyPane.handles}
+            <header {...(panel === "study-notebook" ? studyPane.header : {})}>
+              {panel === "study-notebook" && studyPane.moveButton}
               <h2>
                 {
                   {
@@ -1063,7 +1038,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
             </header>
             <div className="panel-body">
               {panel === "study-notebook" && <Suspense fallback={<p>Opening notebook...</p>}>
-                <StudyNotebook key={book.id} bookId={book.id} sizeControl={<label className="study-size">Pane size<input type="range" aria-label="Notebook pane size" min={24} max={100} value={matchMedia("(max-width:760px)").matches ? mobilePaneSize : paneSize} onChange={e=>{ if (matchMedia("(max-width:760px)").matches) setMobilePaneSize(Math.min(85,+e.target.value)); else setPaneSize(+e.target.value); }} /></label>} clip={clips[0]} selectedNote={sideNote} finishClip={(id, saved) => {
+                <StudyNotebook key={book.id} bookId={book.id} sizeControl={<label className="study-size">Pane size<input type="range" aria-label="Notebook pane size" min={24} max={studyPane.max} value={studyPane.size} onChange={e=>studyPane.setSize(+e.target.value)} /></label>} clip={clips[0]} selectedNote={sideNote} finishClip={(id, saved) => {
                     setClips(current => current.filter(item => item.source.id !== id));
                     if (saved) notify("Inserted with a link to the book.");
                   }}
@@ -1696,7 +1671,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
           setClips(current => [...current, clip]);
           interactions.current?.dismiss(); adapter.current?.clearSelection();
           if (region) { if (book.format === "pdf") (adapter.current as PdfReader)?.setRegionMode(false); setRegion(false); }
-          setPanel("study-notebook"); chrome.setMenu(false);
+          setPanel("study-notebook"); chrome.conceal();
         }}
         notify={notify}
         onResearch={openResearch}

@@ -16,6 +16,41 @@ export function StudyNotebook({ bookId, sizeControl, clip, finishClip, selectedN
   crop: () => void;
   region: boolean;
 }) {
+  const dot = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    const node = dot.current;
+    if (!node) return;
+    let frame = 0;
+    let latest: {x:number;y:number} | null = null;
+    const move = (point: typeof latest) => {
+      latest = point;
+      if (!point) { cancelAnimationFrame(frame); frame = 0; node.hidden = true; return; }
+      if (!frame) frame = requestAnimationFrame(() => {
+        frame = 0;
+        if (!latest) return;
+        node.style.transform = "translate3d(" + (latest.x+11) + "px," + (latest.y-17) + "px,0)";
+        node.hidden = false;
+      });
+    };
+    const clear = () => move(null);
+    const pointer = (event: Event) => move((event as CustomEvent).detail);
+    const native = (event: DragEvent) => {
+      const target = event.target as Element;
+      const paper = target.closest(".panel-body")?.querySelector(".notebook-paper");
+      if (paper && !target.closest("button,input,select,summary,.note-tool-rail") && event.dataTransfer?.types.some(
+        type => ["Files","text/plain","text/html","text/uri-list","application/x-leafmark-attachment","application/x-leafmark-pdf-passage"].includes(type)))
+        move({x:event.clientX,y:event.clientY});
+      else clear();
+    };
+    const leave = (e: DragEvent) => { if (!e.relatedTarget) clear(); };
+    const abort = new AbortController(), options = {capture:true,signal:abort.signal};
+    document.addEventListener("leafmark-study-drag-point",pointer,options);
+    document.addEventListener("dragover",native,options);
+    document.addEventListener("dragleave",leave,options);
+    for (const type of ["drop","dragend","pointercancel"]) document.addEventListener(type,clear,options);
+    window.addEventListener("blur",clear,options);
+    return () => { abort.abort(); clear(); };
+  }, []);
   const notebooks = useLiveQuery(() => list("notebook"), []);
   const notes = useLiveQuery(() => list("notebook-note"), []);
   const sections = useLiveQuery(() => list("notebook-section"), []);
@@ -66,6 +101,7 @@ export function StudyNotebook({ bookId, sizeControl, clip, finishClip, selectedN
     }
   }, [clip, note?.id, editorReady, busy]);
   return <section className="study-notebook">
+    <span ref={dot} className="study-drag-dot" hidden aria-hidden="true" />
     {note && <button className="study-path" aria-expanded={switching} aria-label="Switch notebook page" onClick={() => setSwitching(!switching)}>{notebooks?.find(n => n.id === note.notebookId)?.title} / {sections?.find(s => s.id === note.sectionId)?.title || "Notes"} ▾</button>}
     {(!note || switching) && <div className="study-destinations"><label>Write in<select value={note?.id || ""} disabled={busy} onChange={e => void change(e.target.value)}>
       <option value="">Choose a page</option>{notebooks?.map(book => <optgroup key={book.id} label={book.title}>

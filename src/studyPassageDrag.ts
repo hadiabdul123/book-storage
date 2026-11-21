@@ -2,8 +2,9 @@ import type { Selection } from "./reader/types";
 
 export type DropPoint = { x: number; y: number };
 
-export function markStudyDrop(point?: DropPoint) {
-  document.dispatchEvent(new CustomEvent("leafmark-study-drop-preview", { detail: point ?? null }));
+export function markStudyDrop(point?: DropPoint, overNotebook = true) {
+  document.dispatchEvent(new CustomEvent("leafmark-study-drag-point", { detail: point ?? null }));
+  document.dispatchEvent(new CustomEvent("leafmark-study-drop-preview", { detail: overNotebook ? point ?? null : null }));
 }
 
 export function bindStudyPassageDrag(host: HTMLElement, passageAt: (point: DropPoint) => Selection | undefined,
@@ -67,7 +68,7 @@ export function bindStudyPassageDrag(host: HTMLElement, passageAt: (point: DropP
     if (!drag || drag.id !== event.pointerId) return;
     event.stopImmediatePropagation();
     drag.moved ||= Math.hypot(event.clientX - drag.start.x, event.clientY - drag.start.y) >= 6;
-    if (drag.moved) markStudyDrop(onPaper(event.clientX, event.clientY) ? { x: event.clientX, y: event.clientY } : undefined);
+    if (drag.moved) markStudyDrop({ x: event.clientX, y: event.clientY }, onPaper(event.clientX, event.clientY));
   }, options);
   host.addEventListener("pointerup", event => {
     if (!drag || drag.id !== event.pointerId) return;

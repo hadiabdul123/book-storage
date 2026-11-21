@@ -24,6 +24,38 @@ async function noOverflow(page: Page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 }
 
+test("study notebook title bar moves the pane and keeps it reachable after rotation", async ({page,browserName}) => {
+  await openPdf(page);
+  await clickTool(page,"Study notebook");
+  const pane = page.locator(".reader-panel");
+  await expect(page.locator(".reader-header")).toBeHidden();
+  const title = pane.getByRole("heading",{name:"Study notebook"});
+  const heading = (await title.boundingBox())!;
+  const before = (await pane.boundingBox())!;
+  expect(before.width).toBeLessThanOrEqual(480);
+  const x = heading.x+heading.width/2, y = heading.y+heading.height/2;
+  if (browserName === "chromium") {
+    const input = await page.context().newCDPSession(page);
+    await input.send("Input.dispatchTouchEvent",{type:"touchStart",touchPoints:[{x,y}]});
+    await input.send("Input.dispatchTouchEvent",{type:"touchMove",touchPoints:[{x:x+75,y:y+40}]});
+    await input.send("Input.dispatchTouchEvent",{type:"touchEnd",touchPoints:[]});
+    await input.detach();
+  } else {
+    await page.mouse.move(x,y); await page.mouse.down();
+    await page.mouse.move(x+75,y+40,{steps:5}); await page.mouse.up();
+  }
+  const after = (await pane.boundingBox())!;
+  expect(after.x-before.x).toBeCloseTo(75,0);
+  expect(after.y-before.y).toBeCloseTo(40,0);
+  for (const size of [{width:1100,height:680},{width:640,height:760},{width:500,height:680}]) {
+    await page.setViewportSize(size);
+    await expect(pane.getByRole("button",{name:"Close panel"})).toBeInViewport({ratio:1});
+    await noOverflow(page);
+  }
+  await pane.getByRole("button",{name:"Close panel"}).click();
+  await expect(pane).toHaveCount(0);
+});
+
 test("tablet bookshelf and every navigation destination fit portrait, landscape and split screen", async ({ page }) => {
   await page.goto("/");
   await page.locator("input[type=file]").setInputFiles(Array.from({ length: 6 }, (_, n) => ({

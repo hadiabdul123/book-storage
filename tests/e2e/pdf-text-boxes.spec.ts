@@ -27,6 +27,9 @@ test("PDF text box stays on its page through editing, zoom, rotation and a sprea
   const editor = page.getByRole("textbox", { name: "Text box on page 1" });
   await editor.fill(note);
   const draft = paper.locator(".pdf-text-box-edit");
+  const cornerGrip = page.getByRole("button",{name:"Resize text box",exact:true});
+  const originalGrip = (await cornerGrip.boundingBox())!;
+  expect(originalGrip.width).toBeLessThanOrEqual(17);
   const beforeMove = await draft.evaluate(el => el.style.transform);
   await page.getByRole("button", { name: "Move text box", exact: true }).press("ArrowRight");
   await expect.poll(() => draft.evaluate(el => el.style.transform)).not.toBe(beforeMove);
@@ -45,6 +48,8 @@ test("PDF text box stays on its page through editing, zoom, rotation and a sprea
     await expect.poll(() => draft.evaluate(el => Number.parseFloat(el.style.width))).toBeGreaterThan(width);
     expect(await editor.evaluate(el => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThan(16);
   }
+  const more = page.getByRole("button", { name:"More",exact:true });
+  if (await more.isVisible()) await more.click();
   await expect(page.getByRole("combobox", { name: "Background", exact: true })).toHaveValue("transparent");
   await page.getByRole("combobox", { name: "Text size", exact: true }).selectOption("14");
   await page.getByRole("combobox", { name: "Weight", exact: true }).selectOption("light");
@@ -86,6 +91,7 @@ test("PDF text box stays on its page through editing, zoom, rotation and a sprea
   await clickTool(page, "Text box");
   await box.click();
   await expect(editor).toHaveValue(note);
+  expect(Math.abs((await cornerGrip.boundingBox())!.width-originalGrip.width)).toBeLessThan(2);
   await editor.fill("Edited margin note.");
   await page.getByRole("button", { name: "Save text box", exact: true }).click();
   await expect(box).toHaveText("Edited margin note.");

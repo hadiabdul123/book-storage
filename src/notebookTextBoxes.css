@@ -6,11 +6,22 @@
 }
 :is(.workspace-notebooks, .study-notebook) .notebook-writing [data-notebook-text-box="tinted"] { background: #eaf2f8; }
 :is(.workspace-notebooks, .study-notebook) .notebook-writing [data-free-box="true"] { position: absolute; top: calc(var(--text-box-y) * var(--text-box-unit, 0px)); z-index: 3; margin: 0; }
-.notebook-box-frame { pointer-events: none; position: absolute; z-index: 7; outline: 2px solid #729ab9; outline-offset: -1px; border-radius: 6px; }
+.notebook-box-frame { pointer-events: none; position: absolute; z-index: 7; outline: 1px solid #729ab9; outline-offset: -1px; border-radius: 6px; }
 .notebook-box-frame :is(button, .workspace-item) { pointer-events: auto; }
 .notebook-box-frame .workspace-item, .notebook-box-move, .notebook-box-resize { position: absolute; }
-.notebook-box-frame .workspace-item { top: 1px; right: 1px; background: transparent; }
-.notebook-box-move, .notebook-box-resize { display: grid; place-items: center; width: 30px; height: 30px; background: var(--page-bg, white); touch-action: none; }
-.notebook-box-move { top: 0; left: 0; transform: translateY(-65%); cursor: grab; }
-.notebook-box-resize { right: 0; bottom: 0; cursor: nwse-resize; }
-@media (pointer: coarse) { .notebook-box-move, .notebook-box-resize { width: 44px; height: 44px; } }
+.notebook-box-frame .workspace-item { top:0; right:0; transform:translateY(-70%); background:transparent; }
+.notebook-box-frame .workspace-more { min-width:24px; min-height:22px; width:24px; height:22px; padding:2px; }
+.notebook-box-move, .notebook-box-resize {
+  display:grid; place-items:center; width:15px; height:15px; min-height:0; min-width:0; padding:0;
+  border:1px solid #557792; border-radius:3px; background:var(--page-bg,white); touch-action:none;
+}
+.notebook-box-frame :is(.notebook-box-move,.notebook-box-resize) svg { width:11px; height:11px; }
+.notebook-box-move::before,.notebook-box-resize::before,.notebook-box-frame .workspace-more::before {
+  content:""; position:absolute; inset:-5px;
+}
+@media(pointer:coarse) {
+  .notebook-box-move::before,.notebook-box-resize::before { inset:-14px; }
+  .notebook-box-frame .workspace-more::before { inset:-8px; }
+}
+.notebook-box-move { top:0; left:0; transform:translate(-30%,-55%); cursor:grab; }
+.notebook-box-resize { right:0; bottom:0; transform:translate(30%,35%); cursor:nwse-resize; }

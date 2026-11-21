@@ -13,6 +13,7 @@ type Settings = { voice: string; speed: number; follow: boolean; allowDeviceFall
 type Status = "idle" | "buffering" | "playing" | "paused" | "missing" | "complete" | "error";
 type Session = {
   abort: AbortController; source: AsyncGenerator<NarrationItem>; items: Map<number, NarrationItem>;
+  ahead?: { through: number; running: boolean; next: number };
   deviceVoice?: SpeechSynthesisVoice;
   next: number; ended: boolean; loading?: Promise<void>;
   cached: Map<string, ReturnType<NarrationAudio["generate"]>>;
@@ -81,6 +82,7 @@ export function ReadAlong({ book, adapter, host, controls, start, selected }: {
   const devices = useRef<SpeechSynthesisVoice[]>([]);
   const cursor = useRef(0);
   const pauseRequested = useRef(false);
+  const waitingForClip = useRef(false);
 
   useEffect(() => {
     let active = true;
@@ -139,7 +141,7 @@ export function ReadAlong({ book, adapter, host, controls, start, selected }: {
       if (request.current === token) setDownload(percent < 100 ? percent : undefined);
     });
     current.cached.set(key, result);
-    void result.catch(() => current.cached.delete(key));
+    void result.catch(() => { if (current.cached.get(key) === result) current.cached.delete(key); });
     return result;
   }
 
@@ -154,6 +156,23 @@ export function ReadAlong({ book, adapter, host, controls, start, selected }: {
     }
   }
 
+  function keepAhead(current: Session, at: number, config: Settings, token: number) {
+    const queue = current.ahead ??= { through: at, next: at, running: false };
+    queue.through = at + 5;
+    if (queue.running) return;
+    queue.running = true;
+    void (async () => {
+      while (current.ahead === queue && !current.abort.signal.aborted && queue.next <= queue.through) {
+        const index = queue.next;
+        const item = await itemAt(current, index);
+        if (!item || item.missing || current.ahead !== queue || current.abort.signal.aborted) break;
+        await buffer(current, item, index, config, token);
+        queue.next++;
+      }
+    })().catch(() => { /* Playback reports synthesis failures when it reaches this sentence. */ })
+      .finally(() => { queue.running = false; });
+  }
+
   function play(at: number, unlock = false, automatic = false, preparePassage = false) {
     const current = session.current;
     const reader = adapter.current;
@@ -163,7 +182,10 @@ export function ReadAlong({ book, adapter, host, controls, start, selected }: {
     const token = ++request.current;
     const playing = () => token === request.current && current === session.current;
     const device = !!current.deviceVoice || config.voice.startsWith("device:");
-    engine.halt();
+    if (!automatic) {
+      engine.halt();
+      current.ahead = undefined;
+    }
     // Request audio access while the start/skip button still holds user activation.
     let access: Promise<void> | undefined;
     if (!device && unlock) {
@@ -171,8 +193,12 @@ export function ReadAlong({ book, adapter, host, controls, start, selected }: {
       catch (cause) { fail(cause); return; }
     }
     pauseRequested.current = false;
+    waitingForClip.current = true;
     cursor.current = at;
-    setIndex(at); setPreparedCount(preparePassage ? 0 : undefined); setStatus("buffering"); setMessage(""); setDownload(undefined);
+    setIndex(at); setPreparedCount(preparePassage ? 0 : undefined); setMessage(""); setDownload(undefined);
+    // Cached clips normally start in the same turn. Only announce a gap if playback waits.
+    const waitTimer = automatic ? window.setTimeout(() => { if (playing()) setStatus("buffering"); }, 150) : undefined;
+    if (!automatic) setStatus("buffering");
     if (!current.items.has(at)) setPart(undefined);
 
     void (async () => {
@@ -206,12 +232,22 @@ export function ReadAlong({ book, adapter, host, controls, start, selected }: {
           if (!playing()) return;
           if (!samples && preferences.current.allowDeviceFallback) {
             voice = current.deviceVoice = fallback;
+            current.ahead = undefined;
             engine.cancelPending();
           } else if (!samples) samples = await generated;
         } else samples = await generated;
       }
       if (!playing()) return;
-      if (samples) void fillAhead(current, at + 1, 6, config, token).catch(() => {});
+      if (samples && at === 0 && !automatic && !preparePassage) {
+        let timer: number | undefined;
+        try {
+          await Promise.race([fillAhead(current, at + 1, 1, config, token).catch(() => {}),
+            new Promise<void>(resolve => { timer = window.setTimeout(resolve, 2000); })]);
+        } finally { clearTimeout(timer); }
+        if (!playing()) return;
+      }
+      if (samples) keepAhead(current, at + 1, config, token);
+      clearTimeout(waitTimer);
       if (preferences.current.follow) {
         const viewport = host.current?.getBoundingClientRect();
         const top = viewport?.top ?? 0;
@@ -226,11 +262,18 @@ export function ReadAlong({ book, adapter, host, controls, start, selected }: {
         if (playing()) play(at + 1, false, true);
       }, error => { if (playing()) fail(error); });
       if (!playing()) return;
+      waitingForClip.current = false;
       if (pauseRequested.current) engine.pause();
       setStatus(pauseRequested.current ? "paused" : "playing");
       for (const number of current.items.keys()) if (number < at - 8) current.items.delete(number);
       for (const key of current.cached.keys()) if (Number(key.split(":", 1)[0]) < at - 2) current.cached.delete(key);
-    })().catch(error => { if (playing()) fail(error); });
+    })().catch(error => { if (playing()) fail(error); }).finally(() => clearTimeout(waitTimer));
+  }
+
+  function redirect(at: number) {
+    if (session.current) { session.current.ahead = undefined; session.current.cached.clear(); }
+    audio.current?.cancelPending();
+    play(at, true);
   }
 
   function begin(locator = start, preparePassage = false, deviceVoice?: SpeechSynthesisVoice) {
@@ -293,16 +336,16 @@ export function ReadAlong({ book, adapter, host, controls, start, selected }: {
         change({ ...settings, allowDeviceFallback: event.target.checked });
         if (!event.target.checked && session.current?.deviceVoice) {
           session.current.deviceVoice = undefined;
-          if (playing || status === "buffering") play(cursor.current, true);
-          else if (paused) { audio.current?.halt(); pauseRequested.current = true; }
+          if (playing || status === "buffering") redirect(cursor.current);
+          else if (paused) { if (session.current) session.current.ahead = undefined; audio.current?.cancelPending(); audio.current?.halt(); pauseRequested.current = true; }
         }
       }} />Use an installed voice if narration falls behind</label>}
     {active && session.current?.deviceVoice && <p role="status">Continuing with {session.current.deviceVoice.name}.</p>}
     <label>Playback speed<select value={settings.speed} onChange={event => {
       const next = { ...settings, speed: Number(event.target.value) };
       change(next);
-      if (playing || status === "buffering") play(cursor.current, true);
-      else if (paused) { audio.current?.halt(); pauseRequested.current = true; }
+      if (playing || status === "buffering") redirect(cursor.current);
+      else if (paused) { if (session.current) session.current.ahead = undefined; audio.current?.cancelPending(); audio.current?.halt(); pauseRequested.current = true; }
     }}>{[.75, 1, 1.15, 1.25, 1.5, 1.75, 2, 2.25, 2.5].map(speed => <option key={speed} value={speed}>{speed}×</option>)}</select></label>
     <label className="narration-follow"><input type="checkbox" checked={settings.follow} onChange={event => change({ ...settings, follow: event.target.checked })} />Follow the narration on the page</label>
     {!active && <div className="narration-actions">
@@ -312,17 +355,17 @@ export function ReadAlong({ book, adapter, host, controls, start, selected }: {
       {saved && <button className="secondary" onClick={() => begin(saved)}>Resume listening</button>}
     </div>}
     {active && <div className="narration-actions">
-      <button className="icon-button" aria-label="Previous sentence" disabled={index === 0 || !session.current?.items.has(index - 1)} onClick={() => play(index - 1, true)}><SkipBack size={19} /></button>
+      <button className="icon-button" aria-label="Previous sentence" disabled={index === 0 || !session.current?.items.has(index - 1)} onClick={() => redirect(index - 1)}><SkipBack size={19} /></button>
       {(playing || paused || status === "buffering") && <button className="secondary" onClick={() => {
         if (paused) {
           if (pauseRequested.current) play(cursor.current, true);
           else { void audio.current?.resume().then(() => setStatus("playing"), fail); }
-        } else if (status === "buffering") {
+        } else if (status === "buffering" || waitingForClip.current) {
           request.current++; audio.current?.halt(); pauseRequested.current = true; setStatus("paused");
         }
         else { audio.current?.pause(); setStatus("paused"); }
       }}>{paused ? <><Play size={17} />Resume</> : <><Pause size={17} />Pause</>}</button>}
-      <button className="icon-button" aria-label="Next sentence" disabled={preparing} onClick={() => play(index + 1, true)}><SkipForward size={19} /></button>
+      <button className="icon-button" aria-label="Next sentence" disabled={preparing} onClick={() => redirect(index + 1)}><SkipForward size={19} /></button>
       <button className="icon-button" aria-label="Stop narration" onClick={() => { cancel(); setStatus("idle"); }}><Square size={17} /></button>
     </div>}
     {part && !part.missing && <blockquote>{part.text}</blockquote>}
@@ -340,7 +383,7 @@ export function ReadAlong({ book, adapter, host, controls, start, selected }: {
         } catch (error) { if (request.current === token) setMessage(error instanceof Error ? error.message : String(error)); }
         finally { setPreparing(false); }
       }}>{preparing ? "Preparing text…" : "Prepare text"}</button>
-      <button className="text-button" disabled={preparing} onClick={() => play(index + 1, true)}>Skip page</button></div>
+      <button className="text-button" disabled={preparing} onClick={() => redirect(index + 1)}>Skip page</button></div>
       {message && <p role="alert">{message}</p>}
     </div>}
   </div>;

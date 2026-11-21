@@ -148,6 +148,57 @@ test("switches to an installed voice from the current sentence while the model i
   await page.getByRole("button", { name: "Stop narration" }).click();
 });
 
+test("natural narration prepares the next sentence before playing and skips buffering for ready clips", async ({page}) => {
+  await provideTestAudioBackend(page, true);
+  await page.route(url => url.pathname.endsWith("/narration.worker.ts"), route => route.fulfill({
+    contentType:"text/javascript", body: `self.onmessage = ({data}) => {
+      setTimeout(() => {
+        const samples = new Float32Array(12000);
+        self.postMessage({id:data.id, samples, rate:24000}, [samples.buffer]);
+        new BroadcastChannel("prepared-voice").postMessage(data.text);
+      }, 70);
+    }`,
+  }));
+  await page.goto("/");
+  await page.locator("input[type=file]").setInputFiles({name:"Read ahead.pdf",mimeType:"application/pdf",
+    buffer:textPdf(["First paragraph.", "Another observation.", "One more thought."])});
+  await page.locator(".book-cover-link").click();
+  await clickTool(page,"Listen");
+  await expect(page.locator(".read-along")).toBeVisible();
+  await page.evaluate(() => {
+    const ui = document.querySelector(".read-along")!;
+    document.body.dataset.prepared = "";
+    new BroadcastChannel("prepared-voice").onmessage = event => { document.body.dataset.prepared += event.data; };
+    new MutationObserver(() => {
+      if (ui.textContent?.includes("Preparing the next sentence")) document.body.dataset.waited = "yes";
+    }).observe(ui,{childList:true,subtree:true,characterData:true});
+  });
+  await page.getByRole("button",{name:"Play from here"}).click();
+  await expect(page.locator(".read-along blockquote")).toHaveText("First paragraph.");
+  await expect(page.locator("body")).toHaveAttribute("data-prepared",/Another observation/);
+  await expect(page.locator(".read-along")).toContainText("You reached the end of the book");
+  expect(await page.locator("body").getAttribute("data-waited")).toBeNull();
+});
+
+test("retrying a failed narration sentence keeps the chosen voice and passage", async ({page}) => {
+  await provideTestAudioBackend(page);
+  await page.route(url=>url.pathname.endsWith("/narration.worker.ts"),route=>route.fulfill({contentType:"text/javascript",
+    body:`let failed=false; self.onmessage=({data})=>{
+      if (!failed) { failed=true; self.postMessage({id:data.id,error:"Voice temporarily unavailable"}); }
+      else self.postMessage({id:data.id,samples:new Float32Array(96000),rate:24000});
+    }`}));
+  await page.goto("/");
+  await page.locator("input[type=file]").setInputFiles({name:"Retry.pdf",mimeType:"application/pdf",buffer:textPdf(["Try this sentence again."])});
+  await page.locator(".book-cover-link").click();
+  await clickTool(page,"Listen");
+  await page.getByRole("button",{name:"Play from here"}).click();
+  await expect(page.locator(".read-along [role=alert]")).toHaveText("Voice temporarily unavailable");
+  await page.getByRole("button",{name:"Retry sentence"}).click();
+  await expect(page.locator(".read-along blockquote")).toHaveText("Try this sentence again.");
+  await expect(page.getByLabel("Voice",{exact:true})).toHaveValue("af_heart");
+  await page.getByRole("button",{name:"Stop narration"}).click();
+});
+
 test("continuous listening reads the next two sentences in order when neural synthesis falls behind", async ({ page }) => {
   await provideTestAudioBackend(page, true);
   await provideInstalledVoice(page, true);

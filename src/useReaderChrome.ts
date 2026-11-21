@@ -9,6 +9,7 @@ export function useReaderChrome(
   ready: number,
   locked: boolean,
   immersive = false,
+  edgeOnly = false,
 ) {
   const [pinned, setPinnedState] = useState(() => {
     try {
@@ -69,9 +70,9 @@ export function useReaderChrome(
     if (value) setVisible(true);
   };
   useEffect(() => {
-    if (!host.current) return;
+    if (!host.current || edgeOnly) return;
     return bindReadingTaps(host.current, () => tap.current());
-  }, [ready, host]);
+  }, [ready, host, edgeOnly]);
   useEffect(() => {
     if (visible) hideLater();
     return () => clearTimeout(hideTimer.current);
