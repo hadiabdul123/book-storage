@@ -21,7 +21,7 @@ test("clip a PDF passage and region to the same notebook page", async ({ page })
   await expect(editor).toBeEditable();
   await page.getByRole("button",{name:"Insert at caret"}).click();
   await expect(editor.locator(".source-citation a")).toHaveCount(1);
-  await page.locator(".study-writing-tools summary").click();
+  await page.getByRole("button",{name:"Insert",exact:true}).click();
   await page.getByRole("button",{name:"Clip PDF region"}).click();
   const paper = (await page.locator('.pdf-page[data-page="1"]').boundingBox())!;
   const host = (await page.locator(".reading-column").boundingBox())!;
@@ -36,6 +36,58 @@ test("clip a PDF passage and region to the same notebook page", async ({ page })
   await expect(editor.locator(".source-citation a")).toHaveCount(2);
   await page.getByRole("figure",{name:"Attachment: Page 1.png"}).scrollIntoViewIfNeeded();
   await expect(page.locator(".study-notebook img").first()).toBeVisible();
+});
+
+for (const empty of [true, false]) test(empty ? "drag selected PDF words into an empty notebook page" : "drag selected PDF words directly between notebook paragraphs", async ({page,isMobile,browserName}) => {
+  await page.goto("/");
+  await page.locator("input[type=file]").setInputFiles({ name:"Margin notes.pdf", mimeType:"application/pdf", buffer:numberedPdf(2) });
+  await page.locator(".book-cover-link").click();
+  await clickTool(page,"Study notebook");
+  await page.getByText("Create a page",{exact:true}).click();
+  await page.getByRole("button",{name:"Create note",exact:true}).click();
+  const editor = page.getByRole("textbox",{name:"Topic note content"});
+  await expect(editor).toBeEditable();
+  if (!empty) {
+    await editor.fill("Before"); await editor.press("End"); await editor.press("Enter");
+    await editor.pressSequentially("After");
+  }
+  const move = page.getByRole("button",{name:"Move study notebook"});
+  if (await move.isVisible()) {
+    for (let i=0;i<10;i++) await move.press("ArrowRight");
+  }
+  const word = page.locator('.pdf-page[data-page="1"] .textLayer span').first();
+  const origin = await word.evaluate(el => {
+    const range=document.createRange(); range.selectNodeContents(el);
+    const sel=document.getSelection()!; sel.removeAllRanges(); sel.addRange(range);
+    const r=range.getBoundingClientRect(); return { x:r.left+r.width*.5,y:r.top+r.height*.5,text:range.toString() };
+  });
+  await expect(page.locator(".passage-popup")).toBeVisible();
+  const target = (await (empty ? editor.locator("p").first() : editor.getByText("After",{exact:true})).boundingBox())!;
+  expect(await page.evaluate(({x,y})=>!!document.elementFromPoint(x,y)?.closest(".reader-host"),origin)).toBe(true);
+  const x = target.x+1, y = target.y+target.height*.5;
+  if (isMobile && browserName === "chromium") {
+    const client = await page.context().newCDPSession(page);
+    await client.send("Input.dispatchTouchEvent",{type:"touchStart",touchPoints:[{x:origin.x,y:origin.y}]});
+    await client.send("Input.dispatchTouchEvent",{type:"touchMove",touchPoints:[{x,y}]});
+    await expect(page.locator(".notebook-drop-line")).toBeVisible();
+    await client.send("Input.dispatchTouchEvent",{type:"touchEnd",touchPoints:[]});
+    await client.detach();
+  } else {
+    await page.mouse.move(origin.x,origin.y); await page.mouse.down();
+    await page.mouse.move(x,y,{steps:15});
+    await expect(page.locator(".notebook-drop-line")).toBeVisible(); await page.mouse.up();
+  }
+  await expect(editor.locator(".source-citation a")).toHaveCount(1);
+  if (!empty) {
+    await expect(editor.locator("p").first()).toHaveText("Before");
+    await expect(editor.locator("p").last()).toHaveText("After");
+  }
+  const quote=editor.getByText(origin.text,{exact:true});
+  await expect(quote).toBeVisible();
+  expect(await quote.evaluate(el=>getComputedStyle(el).color)).not.toBe("rgba(0, 0, 0, 0)");
+  await page.reload(); await clickTool(page,"Study notebook");
+  await expect(editor.getByText(origin.text,{exact:true})).toBeVisible();
+  await expect(editor.locator(".source-citation a")).toHaveAttribute("href",/%22page%22%3A1/);
 });
 
 test("study notebooks reopen the page chosen for each PDF", async ({page}) => {

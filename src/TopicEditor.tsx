@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import "./notebookWorkspace.css";
+import { NotebookToolRail, type ToolName } from "./NotebookToolRail";
 import type { DragEvent, PointerEvent } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { closeHistory } from "@tiptap/pm/history";
@@ -8,7 +10,8 @@ import { TextSelection } from "@tiptap/pm/state";
 import { useLiveQuery } from "dexie-react-hooks";
 import StarterKit from "@tiptap/starter-kit";
 import { TaskList, TaskItem } from "@tiptap/extension-list";
-import { db, get } from "./db";
+import { NotebookBoxSelection, NoteObjectsStep, writeObjectSteps, selectedObjects, copySelection, lastCopiedSelection, removeSelection, pasteSelection, readSelection, objectsInRange, selectBoxText, selectPage } from "./notebookClipboard";
+import { db, get, list } from "./db";
 import type { NotebookNote, SourceRef } from "./researchTypes";
 import type { RichNode } from "./model";
 import { paragraph, validRichDocument } from "./richText";
@@ -17,7 +20,7 @@ import { registerNoteFlusher, saveNotebookNote } from "./notebookStore";
 import { noteFormatting } from "./noteFormatting";
 import { NoteFormatButtons } from "./NoteFormatButtons";
 import { DrawingExtension } from "./NotebookDrawing";
-import { Paperclip, PenLine, MousePointer2, Type, ScanLine, Quote, SquarePen } from "lucide-react";
+import { Paperclip, PenLine, MousePointer2, Type, Quote, SquarePen } from "lucide-react";
 import { InsertQuote } from "./InsertQuote";
 import { NotebookTextBoxControls } from "./NotebookTextBoxControls";
 import { insertTextBox, notebookJSON, NotebookTextBoxes, validTextBox } from "./notebookTextBox";
@@ -35,17 +38,30 @@ import { copiedMediaIds, decodeMediaSelection, encodeMediaSelection, useMediaSel
 import { useSearchParams } from "react-router-dom";
 
 const noMedia: NotebookMedia[] = [];
+const noInk = {drawings:[], strokes:[]};
 
 export type StudyClip = { source: SourceRef; text: string; file?: File; point?: { x: number; y: number } };
 export type StudyInsert = (clip: StudyClip) => Promise<void>;
-export function TopicEditor({ note, headerHost, toolbarHost, insertHandle }: { insertHandle?: React.RefObject<StudyInsert | null>; note: NotebookNote; headerHost: HTMLElement | null; toolbarHost?: HTMLElement | null }) {
+export function TopicEditor({ note, toolbarHost, insertHandle, onReady, clipRegion }: { clipRegion?: React.ReactNode; onReady?: (ready: boolean) => void; insertHandle?: React.RefObject<StudyInsert | null>; note: NotebookNote; toolbarHost?: HTMLElement | null }) {
   const [title, setTitle] = useState(note.title), [tags, setTags] = useState(note.tags.join(", "));
   const [status, setStatus] = useState("Opening note…");
   const [loaded, setLoaded] = useState(false);
   const [params] = useSearchParams();
   const drawing = params.get("drawing") || undefined;
   const [paperTool, setPaperTool] = useState<PaperTool>(drawing ? "select" : "write");
-  const [inkStyle, setInkStyle] = useState(defaultInkStyle);
+  const [markColor, setMarkColor] = useState(() => {
+    try { const saved = localStorage.getItem("notebook-highlight-color"); if (saved && /^#[0-9a-f]{6}$/i.test(saved)) return saved; } catch { /* Private browsing */ }
+    return "#f4cc60";
+  });
+  const [markTool, setMarkTool] = useState(false);
+  const [inkStyle, setInkStyle] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("notebook-pen-style") || "null");
+      if (saved && ["pen","highlighter","eraser","lasso"].includes(saved.tool) && typeof saved.width === "number" &&
+          saved.width > 0 && saved.width <= 40 && /^#[0-9a-f]{6}$/i.test(saved.color)) return {...defaultInkStyle,...saved} as typeof defaultInkStyle;
+    } catch { /* Private browsing */ }
+    return defaultInkStyle;
+  });
   const [inkHistory] = useState(() => new InkHistory());
   const [notice, setNotice] = useState("");
   const [attaching, setAttaching] = useState(false);
@@ -56,7 +72,13 @@ export function TopicEditor({ note, headerHost, toolbarHost, insertHandle }: { i
   const [cue, setCue] = useState<MediaCue | undefined>(() => readCue(location.href, note.id));
   const files = useLiveQuery(async () => (await notebookMediaList()).filter(media => media.noteId === note.id), [note.id]);
   const paper = useRef<HTMLDivElement>(null);
-  const lasso = useMediaSelection(paper, selectingMedia, ids => setSelectedMedia(new Set(ids)));
+  const [selectedStrokes, setSelectedStrokes] = useState<Set<string>>(new Set());
+  const ink = useLiveQuery(async () => ({
+    drawings:(await list("notebook-overlay")).filter(d => d.noteId === note.id),
+    strokes:(await list("ink-stroke")).filter(s => s.target.type === "notebook" && s.target.noteId === note.id),
+  }), [note.id]);
+  const steps = useRef<NoteObjectsStep[]>([]), originals = useRef(new Map<string,ArrayBuffer>());
+  const allObjects = {media:files ?? noMedia, ...(ink ?? noInk)};
   const fileInput = useRef<HTMLInputElement>(null);
   const inkBinding = useRef<ReturnType<typeof bindInkSurface> | undefined>(undefined);
   const inkWrites = useRef(new Set<Promise<void>>());
@@ -66,17 +88,37 @@ export function TopicEditor({ note, headerHost, toolbarHost, insertHandle }: { i
   const mediaWrite = useRef<Promise<void> | undefined>(undefined);
   const cleanupDrag = useRef<(() => void) | undefined>(undefined);
   useEffect(() => () => cleanupDrag.current?.(), []);
+  const titleField = useRef<HTMLTextAreaElement>(null);
   const draftKey = `topic-draft:${note.id}`;
   const editor = useEditor({
-    extensions: [NotebookInkAnchors, NotebookTextBoxes, InlineMediaExtension, CitationExtension, DrawingExtension.configure({ noteId: note.id }), ...noteFormatting(), StarterKit.configure({ heading: { levels: [1, 2, 3] }, blockquote: false, code: false, codeBlock: false, horizontalRule: false, link: { openOnClick: false, autolink: false, linkOnPaste: false }, strike: false }), TaskList, TaskItem.configure({ nested: true })],
+    extensions: [NotebookBoxSelection, NotebookInkAnchors, NotebookTextBoxes, InlineMediaExtension, CitationExtension, DrawingExtension.configure({ noteId: note.id }), ...noteFormatting(), StarterKit.configure({ heading: { levels: [1, 2, 3] }, blockquote: false, code: false, codeBlock: false, horizontalRule: false, link: { openOnClick: false, autolink: false, linkOnPaste: false }, strike: false }), TaskList, TaskItem.configure({ nested: true })],
     content: note.document, editable: false,
     editorProps: { attributes: { role: "textbox", "aria-label": "Topic note content", "aria-multiline": "true", class: "notebook-writing" } },
+    onTransaction: ({editor,transaction}) => {
+      const changes = transaction.steps.filter((s): s is NoteObjectsStep => s instanceof NoteObjectsStep);
+      if (!changes.length) return;
+      steps.current.push(...changes);
+      change({document:notebookJSON(editor.getJSON() as RichNode)});
+      queueMicrotask(() => void flush());
+    },
     onUpdate: ({ editor }) => change({ document: notebookJSON(editor.getJSON() as RichNode) }),
   });
+  useEffect(() => {
+    const el = titleField.current;
+    if (!el) return;
+    const grow = () => { el.style.height = "auto"; el.style.height = el.scrollHeight + "px"; };
+    grow();
+    if (el.parentElement) {
+      // Width changes rewrap the title. Height changes are produced by grow().
+      let previousWidth = el.clientWidth;
+      const resize = new ResizeObserver(() => { if (previousWidth !== el.clientWidth) { previousWidth = el.clientWidth; grow(); } });
+      resize.observe(el.parentElement); return () => resize.disconnect();
+    }
+  }, [title]);
   function change(patch: Partial<NotebookNote>) {
     value.current = { ...value.current, note: { ...value.current.note, ...patch }, revision: value.current.revision + 1 };
     setStatus("Saving…");
-    void db.meta.put({ key: draftKey, value: JSON.stringify(value.current.note) }).catch(() => { if (active.current) setStatus("Could not store a recovery draft. Keep this note open."); });
+    if (!steps.current.length) void db.meta.put({ key: draftKey, value: JSON.stringify(value.current.note) }).catch(() => { if (active.current) setStatus("Could not store a recovery draft. Keep this note open."); });
     clearTimeout(timer.current); timer.current = setTimeout(() => void flush(), 450);
   }
   async function flush(): Promise<boolean> {
@@ -87,7 +129,13 @@ export function TopicEditor({ note, headerHost, toolbarHost, insertHandle }: { i
       try {
         while (value.current.revision !== value.current.saved) {
           const snapshot = value.current;
-          const saved = await saveNotebookNote(snapshot.note, snapshot.note.updatedAt);
+          const batch = steps.current.slice();
+          const saved = batch.length ? await db.transaction("rw", [db.rows, db.outbox, db.conflicts, db.meta, db.mediaFiles], async () => {
+            await writeObjectSteps(batch, originals.current);
+            return saveNotebookNote(snapshot.note, snapshot.note.updatedAt);
+          }) : await saveNotebookNote(snapshot.note, snapshot.note.updatedAt);
+          steps.current.splice(0,batch.length);
+          for (const step of batch) for (const media of step.objects.media) originals.current.delete(media.id);
           value.current.saved = snapshot.revision;
           value.current.note = { ...value.current.note, updatedAt: saved.updatedAt };
           if (value.current.revision === snapshot.revision) await db.meta.delete(draftKey);
@@ -129,8 +177,8 @@ export function TopicEditor({ note, headerHost, toolbarHost, insertHandle }: { i
     return () => { cancelled = true; active.current = false; clearTimeout(timer.current); void flush(); window.removeEventListener("leafmark-clipped", clipped); window.removeEventListener("beforeunload", leave); document.removeEventListener("visibilitychange", hide); };
   }, [editor, note.id]);
   function switchTool(tool: PaperTool) {
-    inkBinding.current?.flush(); setPaperTool(tool);
-    if (tool !== "write") { setSelectingMedia(false); setSelectedMedia(new Set()); }
+    inkBinding.current?.flush(); setPaperTool(tool); if (tool !== "write") setMarkTool(false);
+    if (tool !== "write") { setSelectedStrokes(new Set()); setSelectingMedia(false); setSelectedMedia(new Set()); }
     if (tool === "write") editor?.commands.focus();
   }
 
@@ -287,6 +335,19 @@ export function TopicEditor({ note, headerHost, toolbarHost, insertHandle }: { i
     cleanupDrag.current = clean;
   }
 
+  useEffect(() => {
+    if (!insertHandle || !editor || !loaded) return;
+    const preview = (event: Event) => {
+      const point = (event as CustomEvent<{x:number;y:number} | null>).detail;
+      const root = paper.current;
+      if (!point || !root) { setDropLine(undefined); return; }
+      const pos = editor.view.posAtCoords({ left: point.x, top: point.y })?.pos ?? editor.state.doc.content.size;
+      setDropLine(Math.max(0, editor.view.coordsAtPos(pos).top - root.getBoundingClientRect().top));
+    };
+    document.addEventListener("leafmark-study-drop-preview", preview);
+    return () => document.removeEventListener("leafmark-study-drop-preview", preview);
+  }, [insertHandle, editor, loaded]);
+
   function handleDrop(event: DragEvent<HTMLDivElement>, commit: boolean) {
     const types = event.dataTransfer.types;
     if (!editor || !loaded || (!types.includes("Files") && !types.includes(mediaDragType))) return;
@@ -314,15 +375,16 @@ export function TopicEditor({ note, headerHost, toolbarHost, insertHandle }: { i
       const { source, point } = clip;
       let exists = false;
       editor.state.doc.descendants(node => { if (node.type.name === "citation" && node.attrs.source?.id === source.id) exists = true; });
-      const position = (point && editor.view.posAtCoords({ left: point.x, top: point.y })?.pos) ?? editor.state.selection.to;
+      const position = point ? editor.view.posAtCoords({ left: point.x, top: point.y })?.pos ?? editor.state.doc.content.size : editor.state.selection.to;
       if (!exists && !insertQuote(clip.file ? "" : clip.text, source, { position, doc: editor.state.doc }, clip.file ? source.id : undefined))
         throw new Error("Place the caret in the note and try again.");
       if (!(await flush())) throw new Error("Could not save the clip. Keep the note open and retry.");
       if (clip.file && !(await get("notebook-image", source.id)))
         await attachMedia(note.id, clip.file, { after: source.id, order: 0 }, source.id);
     };
-    return () => { insertHandle.current = null; };
-  }, [editor, loaded, insertHandle, note.id]);
+    onReady?.(true);
+    return () => { insertHandle.current = null; onReady?.(false); };
+  }, [editor, loaded, insertHandle, note.id, onReady]);
   function insertQuote(text: string, source: SourceRef, anchor = quoteAnchor, imageAnchor?: string) {
     if (!editor || editor.isDestroyed || !anchor || editor.state.doc !== anchor.doc) return false;
     const { position } = anchor;
@@ -346,9 +408,66 @@ export function TopicEditor({ note, headerHost, toolbarHost, insertHandle }: { i
     requestAnimationFrame(() => { if (!editor.isDestroyed) editor.view.focus(); });
     return true;
   }
-  const ribbon = <div className="notebook-ribbon">
-    <div className="notebook-toolbar" role="toolbar" aria-label="Topic note formatting" onMouseDown={e => { if (!(e.target as Element).closest("input,select")) e.preventDefault(); }}>
-      <button type="button" aria-pressed={paperTool === "draw"} disabled={!loaded} onClick={() => switchTool(paperTool === "draw" ? "write" : "draw")}><PenLine size={17} />Pen</button>
+  const selected = () => editor && selectedObjects(editor, allObjects, selectedMedia, selectedStrokes);
+  const lasso = useMediaSelection(paper, selectingMedia, (ids, area) => {
+    if (!editor || !paper.current) return;
+    editor.view.focus();
+    if (area) selectBoxText(editor,area);
+    const hit = area ? objectsInRange(editor,paper.current,allObjects.media,area) : undefined;
+    setSelectedMedia(hit?.ids ?? new Set(ids)); setSelectedStrokes(hit?.strokes ?? new Set());
+  });
+  useEffect(() => {
+    if (!editor || !loaded) return;
+    let frame = 0;
+    function refresh() {
+      if (!editor || !paper.current || selectingMedia || !editor.view.hasFocus()) return;
+      const hit = objectsInRange(editor,paper.current,files ?? noMedia);
+      setSelectedMedia(hit.ids); setSelectedStrokes(hit.strokes);
+    }
+    const update = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(refresh); };
+    editor.on("selectionUpdate", update); document.addEventListener("selectionchange", update);
+    return () => { cancelAnimationFrame(frame); editor.off("selectionUpdate",update); document.removeEventListener("selectionchange",update); };
+  }, [editor,loaded,selectingMedia,files]);
+  function currentObjects() {
+    if (!editor || !paper.current) return;
+    if (selectingMedia) return selected();
+    const hit = objectsInRange(editor,paper.current,allObjects.media);
+    return selectedObjects(editor,allObjects,hit.ids,hit.strokes);
+  }
+  function clearPicked() { setSelectedMedia(new Set()); setSelectedStrokes(new Set()); }
+  async function clipboardAction(cut: boolean) {
+    if (!editor) return;
+    const data = new DataTransfer(), objects = currentObjects();
+    if (!objects || !copySelection(editor,data,objects)) {
+      editor.view.focus(); document.execCommand(cut ? "cut" : "copy"); return;
+    }
+    const state = editor.state;
+    try {
+      await navigator.clipboard.write([new ClipboardItem(Object.fromEntries(["text/plain","text/html"].map(type => [type,new Blob([data.getData(type)],{type})])))]);
+      const canCut = cut && !editor.isDestroyed && editor.state.doc === state.doc && editor.state.selection.eq(state.selection);
+      if (canCut) {
+        if (!removeSelection(editor,objects,allObjects)) editor.commands.deleteSelection(); clearPicked();
+      }
+      setNotice(canCut ? "Selection cut." : "Selection copied.");
+    } catch { setNotice("Use the system Copy or Cut command for this selection."); }
+  }
+  function paintSelectedWords() {
+    if (!markTool || !editor || selectingMedia || paperTool !== "write") return;
+    requestAnimationFrame(() => {
+      if (!editor.isDestroyed && editor.view.hasFocus() && !editor.state.selection.empty)
+        editor.commands.setHighlight({color:markColor});
+    });
+  }
+  const activeTool: ToolName | undefined = selectingMedia ? "Select" : paperTool !== "write" ? "Pen" : markTool ? "Highlight" : undefined;
+  function chooseTool(name: ToolName) {
+    setMarkTool(name === "Highlight");
+    switchTool(name === "Pen" ? "draw" : "write");
+    setSelectingMedia(name === "Select");
+    if (name === "Highlight") editor?.chain().focus().setHighlight({ color: markColor }).run();
+  }
+  const ribbon = <NotebookToolRail active={activeTool} disabled={!editor || !loaded} choose={chooseTool}
+    palette={(name, close) => {
+      if (name === "Insert") return <div className="note-action-list" onClick={close}>
       <button type="button" disabled={!loaded || attaching} onClick={() => fileInput.current?.click()}><Paperclip size={17} />Attach media</button>
       <button type="button" disabled={!loaded || !editor} onClick={() => {
         if (!editor) return;
@@ -356,7 +475,10 @@ export function TopicEditor({ note, headerHost, toolbarHost, insertHandle }: { i
         const position = $to.depth === 1 && validTextBox($to.parent.attrs.textBox) ? $to.after() : $to.pos;
         setQuoteAnchor({ doc: editor.state.doc, position });
       }}><Quote size={17} />Insert quote</button>
-      <button type="button" aria-pressed={selectingMedia} disabled={!loaded || !files?.length} onClick={() => { switchTool("write"); setSelectingMedia(!selectingMedia); setSelectedMedia(new Set()); }}><ScanLine size={16} />Select media</button>
+        <button onClick={() => { if (editor) { switchTool("write"); setSelectingMedia(false); insertTextBox(editor); } }}><SquarePen size={17}/>Text box</button>
+        {clipRegion}
+      </div>;
+      if (name === "Format") return <div className="note-format-grid">
       <button aria-label="Bold" aria-pressed={editor?.isActive("bold") || false} onClick={() => editor?.chain().focus().toggleBold().run()}><b>B</b></button>
       <button aria-label="Italic" onClick={() => editor?.chain().focus().toggleItalic().run()}><i>I</i></button>
       <NoteFormatButtons editor={editor} />
@@ -365,8 +487,33 @@ export function TopicEditor({ note, headerHost, toolbarHost, insertHandle }: { i
       <button aria-label="Numbered list" onClick={() => editor?.chain().focus().toggleOrderedList().run()}>1. List</button>
       <button aria-label="Checklist" onClick={() => editor?.chain().focus().toggleTaskList().run()}>☑</button>
       <button aria-label="Undo" onClick={() => editor?.chain().focus().undo().run()}>↶</button><button aria-label="Redo" onClick={() => editor?.chain().focus().redo().run()}>↷</button>
-    </div>
-    {selectingMedia && <div className="notebook-media-tools">
+      </div>;
+      if (name === "Highlight") return <><strong>Highlight color</strong><div className="note-swatches">
+        {Object.entries({ Gold:"#f4cc60", Green:"#a2cfaa", Blue:"#9abedc", Rose:"#ebb3bd", Lavender:"#c9b9de" }).map(([label,color]) =>
+          <button key={color} aria-label={label} aria-pressed={markColor === color} style={{backgroundColor:color}}
+            onClick={() => { setMarkColor(color); try {localStorage.setItem("notebook-highlight-color",color);} catch { /* Private browsing */ } editor?.chain().focus().setHighlight({color}).run(); close(); }} />)}
+        </div><button onClick={() => { editor?.chain().focus().unsetHighlight().run(); setMarkTool(false); close(); }}>Remove highlight</button></>;
+      if (name === "Pen") return <>
+    {paperTool !== "write" && <div className="paper-ink-tools">
+      <button className="text-button" aria-pressed={paperTool === "draw"} onClick={() => { switchTool("draw"); close(); }}><PenLine size={16} />Draw</button>
+      <button className="text-button" aria-pressed={paperTool === "select"} onClick={() => { switchTool("select"); close(); }}><MousePointer2 size={16} />Select drawing</button>
+      <button className="text-button" onClick={() => { switchTool("write"); close(); }}><Type size={16} />Write</button>
+      <InkToolbar style={inkStyle} change={style => { inkBinding.current?.flush(); setInkStyle(style); try {localStorage.setItem("notebook-pen-style",JSON.stringify(style));} catch { /* Private browsing */ } switchTool("draw"); }} undo={() => void inkHistory.move().catch(e => setNotice(e.message))} redo={() => void inkHistory.move(true).catch(e => setNotice(e.message))} />
+    </div>}
+      </>;
+      return <div className="note-action-list">
+        <button onClick={() => { if (editor) selectPage(editor); close(); }}>Select all</button>
+        <button onClick={() => { void clipboardAction(false); close(); }}>Copy selection</button>
+        <button onClick={() => { void clipboardAction(true); close(); }}>Cut selection</button>
+        {lastCopiedSelection() && <button onClick={() => {
+          const clip = lastCopiedSelection(), objects = currentObjects();
+          if (editor && clip && objects) void pasteSelection(editor,note.id,clip,originals.current,objects,allObjects).then(clearPicked,e=>setNotice(e.message));
+          close();
+        }}>Paste selection</button>}
+        <button onClick={() => { const objects=currentObjects(); if(editor && objects) {
+          if (!removeSelection(editor,objects,allObjects)) editor.commands.deleteSelection(); clearPicked();
+        } close(); }}>Delete selection</button>
+{selectingMedia && <div className="notebook-media-tools">
       <span role="status">{selectedMedia.size ? `${selectedMedia.size} selected` : "Tap attachments or drag a box around them"}</span>
       <button className="text-button" disabled={!selectedMedia.size} onClick={() => {
         const ids = selectedIds();
@@ -378,26 +525,14 @@ export function TopicEditor({ note, headerHost, toolbarHost, insertHandle }: { i
       <button className="text-button" disabled={!selectedMedia.size} onClick={() => toggleFree()}>Move selection freely</button>
       <button className="text-button" onClick={() => { setSelectingMedia(false); setSelectedMedia(new Set()); }}>Done</button>
     </div>}
-    {copiedMediaIds().length > 0 && <div className="notebook-media-tools"><button className="text-button" onClick={() => pasteMedia(copiedMediaIds())}>Paste attachments</button></div>}
-    {paperTool !== "write" && <div className="paper-ink-tools">
-      <button className="text-button" aria-pressed={paperTool === "draw"} onClick={() => switchTool("draw")}><PenLine size={16} />Draw</button>
-      <button className="text-button" aria-pressed={paperTool === "select"} onClick={() => switchTool("select")}><MousePointer2 size={16} />Select drawing</button>
-      <button className="text-button" onClick={() => switchTool("write")}><Type size={16} />Write</button>
-      <InkToolbar style={inkStyle} change={style => { inkBinding.current?.flush(); setInkStyle(style); switchTool("draw"); }} undo={() => void inkHistory.move().catch(e => setNotice(e.message))} redo={() => void inkHistory.move(true).catch(e => setNotice(e.message))} />
-    </div>}
-    {quoteAnchor && <InsertQuote onClose={() => setQuoteAnchor(undefined)} onInsert={insertQuote} />}
-  </div>;
+    {copiedMediaIds().length > 0 && <div className="notebook-media-tools"><button className="text-button" onClick={() => pasteMedia(copiedMediaIds())}>Paste attachments</button></div>}      </div>;
+    }}/>;
   return <section className="topic-editor" onBlur={e => {
     const target = e.relatedTarget as Node | null;
-    if (!e.currentTarget.contains(target) && !headerHost?.contains(target) && !toolbarHost?.contains(target)) void flush();
+    if (!e.currentTarget.contains(target) && !toolbarHost?.contains(target)) void flush();
   }}>
-    {headerHost && createPortal(<button className="secondary notebook-insert-text-box" type="button" disabled={!loaded || !editor}
-      onMouseDown={event => event.preventDefault()} onClick={() => {
-        if (!editor) return;
-        switchTool("write"); setSelectingMedia(false);
-        insertTextBox(editor);
-      }}><SquarePen size={17} aria-hidden="true" />Text box</button>, headerHost)}
     {toolbarHost ? createPortal(ribbon, toolbarHost) : ribbon}
+    {quoteAnchor && <InsertQuote onClose={() => setQuoteAnchor(undefined)} onInsert={insertQuote} />}
     <input ref={fileInput} type="file" multiple accept={Object.keys(mediaTypes).map(ext => `.${ext}`).join(",")} aria-label="Attach image, video or audio" hidden onChange={e => {
       const input = Array.from(e.currentTarget.files || []);
       e.currentTarget.value = "";
@@ -411,23 +546,41 @@ export function TopicEditor({ note, headerHost, toolbarHost, insertHandle }: { i
       {cue && files && !files.some(media => media.id === cue.id) && <p role="status">This attachment is unavailable. Check sync or restore it from Trash.</p>}
       <div className="note-paper-column">
         <time className="page-date" dateTime={note.createdAt}>{new Date(note.createdAt).toLocaleDateString(undefined,{month:"long",day:"numeric"})}</time>
-        <label className="topic-title-label"><input aria-label="Topic note title" maxLength={200} disabled={!loaded} value={title} onChange={e => { setTitle(e.target.value); change({ title: e.target.value }); }} /></label>
+        <label className="topic-title-label"><textarea rows={1} ref={titleField} onKeyDown={e => { if(e.key === "Enter") { e.preventDefault(); editor?.commands.focus(); } }} aria-label="Topic note title" maxLength={200} disabled={!loaded} value={title} onChange={e => { const text = e.target.value.replace(/[\r\n]+/g," "); setTitle(text); change({ title: text }); }} /></label>
         <div ref={paper} className="notebook-paper" data-media-select={selectingMedia} data-writing-tool={paperTool} {...lasso.handlers}
           onClickCapture={event => {
             const target = event.target as Element;
             const id = target.closest<HTMLElement>("[data-media-id]")?.dataset.mediaId;
             if (id && (selectingMedia || event.shiftKey || event.ctrlKey || event.metaKey) && !target.closest("button, dialog, .workspace-menu")) { event.preventDefault(); event.stopPropagation(); toggleMedia(id); }
+          }} onKeyDownCapture={event => {
+            if (!editor || (event.target as Element).closest("input,textarea,button,select,video,audio")) return;
+            if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
+              event.preventDefault(); event.stopPropagation(); selectPage(editor);
+              setSelectedMedia(new Set(allObjects.media.map(m=>m.id))); setSelectedStrokes(new Set(allObjects.strokes.map(s=>s.id)));
+            } else if (event.key === "Backspace" || event.key === "Delete") {
+              const objects = currentObjects();
+              if (objects && removeSelection(editor,objects,allObjects)) { event.preventDefault(); event.stopPropagation(); clearPicked(); }
+            }
           }} onCopyCapture={event => {
-            if (!selectingMedia) return;
-            const ids = selectedIds();
-            if (!ids.length || ids.length > 30) return;
-            event.preventDefault(); event.clipboardData.setData("text/plain", encodeMediaSelection(ids)); setNotice("Attachments copied. Paste on a notebook page.");
+            const objects=currentObjects();
+            if (editor && objects && copySelection(editor,event.clipboardData,objects)) {event.preventDefault();event.stopPropagation();}
+          }} onCutCapture={event => {
+            const objects=currentObjects();
+            if (editor && objects && copySelection(editor,event.clipboardData,objects)) {
+              event.preventDefault(); event.stopPropagation(); if (!removeSelection(editor,objects,allObjects)) editor.commands.deleteSelection(); clearPicked();
+            }
           }} onPasteCapture={event => {
+            const clip=readSelection(event.clipboardData), objects=currentObjects();
+            if (editor && clip && objects) {
+              event.preventDefault(); event.stopPropagation();
+              void pasteSelection(editor,note.id,clip,originals.current,objects,allObjects).then(clearPicked,e=>setNotice(e.message));
+              return;
+            }
             const ids = decodeMediaSelection(event.clipboardData.getData("text/plain"));
             if (ids) { event.preventDefault(); event.stopPropagation(); pasteMedia(ids); }
           }} onDragOverCapture={event => handleDrop(event, false)} onDropCapture={event => handleDrop(event, true)}
           onDragLeave={event => { if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setDropLine(undefined); }} onDragEnd={() => setDropLine(undefined)}>
-          <EditorContent editor={editor} onClickCapture={event => {
+          <EditorContent editor={editor} onPointerUp={paintSelectedWords} onClickCapture={event => {
             const link = (event.target as Element).closest("a"); const next = link && readCue(link.href, note.id);
             if (next) { event.preventDefault(); event.stopPropagation(); setCue(next); }
           }} />
@@ -438,11 +591,11 @@ export function TopicEditor({ note, headerHost, toolbarHost, insertHandle }: { i
             switchTool("write");
             editor.chain().focus().insertContentAt(editor.state.selection.to, [{ type: "text", text: mediaLabel(value.time), marks: [{ type: "link", attrs: { href: cueHref(note.id, value), target: "_self", rel: null, class: null } }] }, { type: "text", text: " " }]).run();
           }} />}
-          {editor && loaded && <NotebookPaperInk editor={editor} noteId={note.id} paper={paper} mode={paperTool} style={inkStyle} history={inkHistory} notice={setNotice} saveNote={flush} bindingRef={inkBinding} writes={inkWrites} openDrawing={drawing} />}
+          {editor && loaded && <NotebookPaperInk overlays={allObjects.drawings} strokes={allObjects.strokes} selectedStrokes={selectedStrokes} editor={editor} noteId={note.id} paper={paper} mode={paperTool} style={inkStyle} history={inkHistory} notice={setNotice} saveNote={flush} bindingRef={inkBinding} writes={inkWrites} openDrawing={drawing} />}
         </div>
       </div>
     </div>
     <label className="note-tags">Tags<input aria-label="Topic note tags" maxLength={500} disabled={!loaded} value={tags} onChange={e => { setTags(e.target.value); change({ tags: e.target.value.split(",").map(t => t.trim()).filter(Boolean) }); }} placeholder="Add tags" /></label>
-    <div className="topic-save-status"><span role="status">{status}</span><button className="text-button" disabled={!loaded} onClick={() => void flush()}>Save now</button></div>
+    <div className="topic-save-status" data-error={status.startsWith("Could not")}><span role="status">{status}</span><button className="text-button" disabled={!loaded} onClick={() => void flush()}>Save now</button></div>
   </section>;
 }

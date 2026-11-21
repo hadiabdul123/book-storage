@@ -326,7 +326,7 @@ test("notebook sections, text highlighting and inline drawings persist", async (
   page.once("dialog", d => d.accept("Questions")); await newSection.click();
   await expect(page.locator(".notebook-sections button[aria-current=page]")).toContainText("Questions");
   await page.getByRole("button", { name: "New page", exact: true }).click();
-  await page.getByRole("button", {name:"Tools",exact:true}).click();
+  await page.getByRole("button", {name:"Page options",exact:true}).click();
   await page.getByLabel("Topic note title").fill("The useful idea");
   const editor = page.getByRole("textbox", { name: "Topic note content", exact: true });
   await editor.fill("An important thought worth keeping.");
@@ -338,7 +338,7 @@ test("notebook sections, text highlighting and inline drawings persist", async (
     document.dispatchEvent(new Event("selectionchange"));
   });
   await expect.poll(() => page.evaluate(() => document.getSelection()?.toString())).toBe("An important thought worth keeping.");
-  await page.getByRole("button", { name: "Highlight text", exact: true }).click(); await expect(editor.locator("mark")).toHaveCount(1);
+  await page.getByRole("button", { name: "Highlight", exact: true }).click(); await expect(editor.locator("mark")).toHaveCount(1);
   // Mobile browser emulation can retain the DOM range through ArrowRight.
   // Collapse the real selection before Enter so it cannot replace the passage.
   await editor.evaluate(el => {

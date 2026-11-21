@@ -11,14 +11,15 @@ async function openNote(page: Page) {
   await expect(page.locator(".pages-heading")).toContainText("Field journal");
   await page.getByRole("button", { name: "New page", exact: true }).click();
   await expect(page.getByRole("textbox", { name: "Topic note content" })).toHaveAttribute("contenteditable", "true");
-  await page.getByRole("button", {name:"Tools",exact:true}).click();
+  await page.getByRole("button", {name:"Page options",exact:true}).click();
 }
 
 test("notebook text boxes resize, move freely and reopen with their text", async ({ page }, info) => {
   await openNote(page);
   const editor = page.getByRole("textbox", { name: "Topic note content" });
   await editor.fill("A normal paragraph.");
-  const insertBox = page.locator("header.notebook-detail-actions").getByRole("button", { name: "Text box", exact: true });
+  await page.getByRole("button",{name:"Insert",exact:true}).click();
+  const insertBox = page.getByRole("button", { name: "Text box", exact: true });
   await expect(insertBox).toBeInViewport({ ratio: 1 });
   await insertBox.click();
   const box = editor.locator("[data-notebook-text-box]");
@@ -84,9 +85,11 @@ test("inserting a saved quote offline preserves the selected writing and undoes 
   await context.setOffline(true);
   const picker = page.getByRole("dialog", { name: "Insert quote" });
   const trigger = page.getByRole("button", { name: "Insert quote", exact: true });
+  await page.getByRole("button",{name:"Insert",exact:true}).click();
   await trigger.click();
   await picker.getByRole("button", { name: "Close" }).click();
   await expect(editor.locator(".source-citation")).toHaveCount(0);
+  await page.getByRole("button",{name:"Insert",exact:true}).click();
   await trigger.click();
   await picker.getByRole("combobox", { name: "Book", exact: true }).selectOption({ label: "River journal" });
   await picker.getByLabel("Search highlights").fill("floodplains");
@@ -95,6 +98,7 @@ test("inserting a saved quote offline preserves the selected writing and undoes 
   await expect(editor.locator("p")).toHaveText([
     "Keep these words", "Rivers need healthy floodplains.", "River journal · page 2", " and this suffix.", "Second paragraph.",
   ]);
+  await page.getByRole("button",{name:"Format",exact:true}).click();
   await page.getByRole("button", { name: "Undo", exact: true }).click();
   await expect(editor.locator("p")).toHaveText(["Keep these words and this suffix.", "Second paragraph."]);
   await page.getByRole("button", { name: "Redo", exact: true }).click();
@@ -150,6 +154,7 @@ test("paper ink stays with its paragraph, reopens and can be resized", async ({ 
   const anchor = editor.locator("[data-ink-anchor]");
   await expect(anchor).toHaveText("The river runs through the old town.");
   await expect(page.locator(".paper-ink-frame")).toHaveCount(0);
+  await page.getByRole("button", {name:"Pen",exact:true}).click();
   await page.getByRole("button", { name: "Select drawing", exact: true }).click();
   const point = await stroke.evaluate(element => {
     const path = element as SVGPathElement;
@@ -175,6 +180,7 @@ test("paper ink stays with its paragraph, reopens and can be resized", async ({ 
     const [drawing] = await (await import("/src/db.ts")).list("notebook-overlay");
     return drawing.scaleY! > drawing.scaleX!;
   })).toBe(true);
+  await page.getByRole("button", {name:"Pen",exact:true}).click();
   await page.getByRole("button", { name: "Write", exact: true }).click();
   // Insert a paragraph before the anchored block without splitting its identity.
   const paperOffset = () => stroke.evaluate(path => path.getBoundingClientRect().top - path.closest(".notebook-paper")!.getBoundingClientRect().top);
@@ -339,10 +345,11 @@ test("a group of attachments can move freely and be copied to a different page",
   expect(sheet.width).toBeLessThanOrEqual(768);
   await media.last().scrollIntoViewIfNeeded();
   const top = (await media.first().boundingBox())!, bottom = (await media.last().boundingBox())!;
-  await page.getByRole("button", { name: "Select media" }).click();
+  await page.getByRole("button", { name: "Select", exact:true }).click();
   const paper = (await page.locator(".notebook-paper").boundingBox())!;
   await page.mouse.move(paper.x + paper.width - 10, top.y - 4); await page.mouse.down();
   await page.mouse.move(paper.x + 4, bottom.y + bottom.height + 3, { steps: 12 }); await page.mouse.up();
+  await page.getByRole("button", {name:"Select",exact:true}).click();
   await expect(page.getByText("2 selected", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Move selection freely" }).click();
   const floated = page.locator(".notebook-free-media .is-free");
@@ -354,11 +361,14 @@ test("a group of attachments can move freely and be copied to a different page",
   await expect.poll(async () => (await floated.first().boundingBox())!.x).toBeGreaterThan(before + 70);
   const left = (await floated.last().boundingBox())!.x;
   expect(left).toBeGreaterThan(before + 70);
+  await page.getByRole("button", {name:"Select",exact:true}).click();
   await page.getByRole("button", { name: "Copy attachments" }).click();
   await page.getByRole("button", {name:"Pages",exact:true}).click();
   await page.getByRole("button", { name: "New page", exact: true }).click();
   await expect(writing).toHaveAttribute("contenteditable", "true");
-  await page.getByRole("button", {name:"Tools",exact:true}).click();
+  await page.getByRole("button", {name:"Page options",exact:true}).click();
+  await page.getByRole("button", {name:"Select",exact:true}).click();
+  await page.getByRole("button", {name:"Select",exact:true}).click();
   await page.getByRole("button", { name: "Paste attachments" }).click();
   await expect(writing.locator(".note-media")).toHaveCount(2);
   await expect(writing.getByRole("img", { name: "first.png" })).toBeVisible();
@@ -403,4 +413,76 @@ test("peeking at pages preserves the selected words and the writing column", asy
   await expect(page.getByLabel("Notebook pages")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByLabel("Notebook pages")).toBeHidden();
+});
+
+test("mixed page selection cuts, undoes and pastes text, media and ink together", async ({page}) => {
+  await openNote(page);
+  const editor=page.getByRole("textbox",{name:"Topic note content"});
+  await editor.fill("First paragraph."); await editor.press("End"); await editor.press("Enter");
+  await editor.pressSequentially("Second paragraph.");
+  await page.getByLabel("Attach image, video or audio").setInputFiles([
+    {name:"Diagram.png",mimeType:"image/png",buffer:Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=","base64")},
+    {name:"Recording.wav",mimeType:"audio/wav",buffer:wavFixture()},
+  ]);
+  const media=page.locator(".notebook-paper .note-media"), strokes=page.locator(".paper-ink-art path");
+  await expect(media).toHaveCount(2);
+  await page.evaluate(async () => {
+    const {save,list}=await import("/src/db.ts");
+    const [note]=await list("notebook-note");
+    const createdAt=new Date().toISOString();
+    await save("notebook-overlay",{id:"page-ink",noteId:note.id,anchor:"paper",x:30,y:20,scale:1,createdAt});
+    await save("ink-stroke",{id:"pen-mark",target:{type:"notebook",noteId:note.id,blockId:"page-ink"},tool:"pen",
+      color:"#315c86",width:3,points:[[0,0,.5],[25,12,.5]],createdAt});
+  });
+  await expect(strokes).toHaveCount(1);
+  // A real browser range preserves the endpoint words in either direction.
+  // Place an inline attachment between the two paragraphs.
+  await page.evaluate(async () => {
+    const {list,save}=await import("/src/db.ts");
+    const [note]=await list("notebook-note"), [image]=await list("notebook-image");
+    const el=document.querySelector(".notebook-writing");
+    const ed=(el as HTMLElement & {editor:import("@tiptap/core").Editor}).editor;
+    const first=ed.state.doc.firstChild!;
+    ed.view.dispatch(ed.state.tr.setNodeMarkup(0,undefined,{...first.attrs,inkAnchor:"between-lines"}));
+    await save("notebook-image",{...image,placement:{after:"between-lines",order:0}});
+    const [overlay]=await list("notebook-overlay");
+    await save("notebook-overlay",{...overlay,noteId:note.id,anchor:"between-lines",x:110,y:6});
+  });
+  for (const backward of [true,false]) {
+    await editor.evaluate((el,reverse) => {
+      const first=el.querySelector("p")!.firstChild!;
+      const last=Array.from(el.querySelectorAll("p")).find(p=>p.textContent==="Second paragraph.")!.firstChild!;
+      (el as HTMLElement).focus();
+      const sel=document.getSelection()!;
+      if (reverse) sel.setBaseAndExtent(last,6,first,6); else sel.setBaseAndExtent(first,6,last,6);
+      document.dispatchEvent(new Event("selectionchange"));
+    },backward);
+    await expect(page.getByRole("figure",{name:"Attachment: Diagram.png"})).toHaveClass(/is-selected/);
+    const selectedText=await editor.evaluate(el=>{
+      const data=new DataTransfer();
+      el.dispatchEvent(new ClipboardEvent("copy",{clipboardData:data,bubbles:true,cancelable:true}));
+      return data.getData("text/plain");
+    });
+    expect(selectedText).toContain("paragraph."); expect(selectedText).toContain("Second"); expect(selectedText).not.toContain("First");
+  }
+  await editor.press("Control+a");
+  await expect(media.first()).toHaveClass(/is-selected/); await expect(strokes).toHaveClass(/note-stroke-picked/);
+  const clip = await editor.evaluateHandle(el => {
+    const clipboardData=new DataTransfer();
+    el.dispatchEvent(new ClipboardEvent("cut",{clipboardData,bubbles:true,cancelable:true}));
+    return clipboardData;
+  });
+  expect(await clip.evaluate(data=>data.getData("text/plain"))).toContain("First paragraph.");
+  await expect(media).toHaveCount(0); await expect(strokes).toHaveCount(0);
+  await expect(editor).not.toContainText("First paragraph.");
+  await page.getByRole("button",{name:"Format",exact:true}).click();
+  await page.getByRole("button",{name:"Undo",exact:true}).click();
+  await expect(media).toHaveCount(2); await expect(strokes).toHaveCount(1); await expect(editor).toContainText("First paragraph.");
+  await page.getByRole("button",{name:"Pages",exact:true}).click();
+  await page.getByRole("button",{name:"New page",exact:true}).click();
+  await expect(editor).toBeEditable();
+  await editor.click(); await editor.evaluate((el,data)=>{el.dispatchEvent(new ClipboardEvent("paste",{clipboardData:data,bubbles:true,cancelable:true}));},clip);
+  await expect(editor).toContainText("Second paragraph."); await expect(media).toHaveCount(2); await expect(strokes).toHaveCount(1);
+  await page.reload();
+  await expect(editor).toContainText("First paragraph."); await expect(media).toHaveCount(2); await expect(strokes).toHaveCount(1);
 });

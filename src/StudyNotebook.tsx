@@ -1,16 +1,17 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
+import { Ellipsis } from "lucide-react";
 import { db, list, save } from "./db";
 import { now, uid } from "./model";
 import { emptyDocument } from "./richText";
 import { flushTopicNote, saveNotebookNote } from "./notebookStore";
 import { TopicEditor, type StudyClip, type StudyInsert } from "./TopicEditor";
 
-export function StudyNotebook({ bookId, sizeControl, clip, inserted, selectedNote, crop, region }: {
+export function StudyNotebook({ bookId, sizeControl, clip, finishClip, selectedNote, crop, region }: {
   bookId: string;
   sizeControl: ReactNode;
   clip?: StudyClip;
-  inserted: () => void;
+  finishClip: (id: string, saved: boolean) => void;
   selectedNote: React.RefObject<string>;
   crop: () => void;
   region: boolean;
@@ -25,6 +26,7 @@ export function StudyNotebook({ bookId, sizeControl, clip, inserted, selectedNot
   const [busy, setBusy] = useState(false), [error,setError] = useState("");
   const insert = useRef<StudyInsert | null>(null);
   const newNoteMenu = useRef<HTMLDetailsElement>(null);
+  const [editorReady, setEditorReady] = useState(false);
   const [toolbar, setToolbar] = useState<HTMLElement | null>(null);
   const note = notes?.find(n => n.id === chosen);
   useEffect(() => { selectedNote.current = note?.id || ""; return () => { selectedNote.current = ""; }; }, [selectedNote, note?.id]);
@@ -53,16 +55,16 @@ export function StudyNotebook({ bookId, sizeControl, clip, inserted, selectedNot
     if (!clip || busy) return;
     if (!insert.current) { setError("The note is opening. Try inserting again in a moment."); return; }
     setBusy(true); setError("");
-    try { await insert.current(atCaret ? {...clip,point:undefined} : clip); inserted(); }
+    try { await insert.current(atCaret ? {...clip,point:undefined} : clip); finishClip(clip.source.id, true); }
     catch(e) { setError(String(e)); } finally { setBusy(false); }
   }
   const attempted = useRef("");
   useEffect(() => {
-    if (clip?.point && note && insert.current && attempted.current !== clip.source.id) {
+    if (!busy && clip?.point && note && editorReady && insert.current && attempted.current !== clip.source.id) {
       attempted.current = clip.source.id;
       void add();
     }
-  }, [clip, note?.id]);
+  }, [clip, note?.id, editorReady, busy]);
   return <section className="study-notebook">
     {note && <button className="study-path" aria-expanded={switching} aria-label="Switch notebook page" onClick={() => setSwitching(!switching)}>{notebooks?.find(n => n.id === note.notebookId)?.title} / {sections?.find(s => s.id === note.sectionId)?.title || "Notes"} ▾</button>}
     {(!note || switching) && <div className="study-destinations"><label>Write in<select value={note?.id || ""} disabled={busy} onChange={e => void change(e.target.value)}>
@@ -74,9 +76,13 @@ export function StudyNotebook({ bookId, sizeControl, clip, inserted, selectedNot
       {notebooks?.map(b=><option key={b.id} value={b.id}>{b.title}</option>)}</select></label>
       <button disabled={busy || !notebooks} onClick={()=>void createNote()}>Create note</button></details>
     </div>}
-    {clip && (!clip.point || !note || error) && <div className="study-pending"><q>{clip.text.slice(0,140)}</q><button disabled={!note || busy} onClick={()=>void add(true)}>Insert at caret</button></div>}
+    {clip && (!clip.point || !note || !editorReady || error) && <div className="study-pending"><q>{clip.text.slice(0,140)}</q><button disabled={!note || busy} onClick={()=>void add(true)}>{error ? "Retry insertion" : "Insert at caret"}</button><button disabled={busy} onClick={() => { setError(""); finishClip(clip.source.id,false); }}>Dismiss</button></div>}
     {error && <p role="alert">{error}</p>}
-    <details className="study-writing-tools"><summary>Tools</summary>{sizeControl}{note && <button disabled={busy} aria-pressed={region} onClick={crop}>Clip PDF region</button>}<div ref={setToolbar} /></details>
-    {note && <TopicEditor key={note.id} note={note} headerHost={null} toolbarHost={toolbar} insertHandle={insert} />}
+    <details className="study-writing-tools"><summary aria-label="Page options" title="Page options"><Ellipsis size={19}/></summary>{sizeControl}</details>
+    {note && <div className="note-editor-body">
+      <div className="note-rail-host" ref={setToolbar} />
+      <TopicEditor key={note.id} note={note} toolbarHost={toolbar} insertHandle={insert} onReady={setEditorReady}
+        clipRegion={<button disabled={busy} aria-pressed={region} onClick={crop}>Clip PDF region</button>} />
+    </div>}
   </section>;
 }

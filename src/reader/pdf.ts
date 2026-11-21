@@ -1442,10 +1442,14 @@ export class PdfReader implements ReaderAdapter {
     if (!this.drawing) layer.binding.cancel();
     layer.binding.paint();
   }
-  hasSelection() { return !!this.touch?.hasSelection() || !!document.getSelection()?.toString().trim(); }
+  hasSelection() {
+    const selection = document.getSelection();
+    return !!this.touch?.hasSelection() || !!(selection && !selection.isCollapsed && this.host.contains(selection.anchorNode) && selection.toString().trim());
+  }
   clearSelection() {
     this.touch?.clear();
-    document.getSelection()?.removeAllRanges();
+    const selection = document.getSelection();
+    if (selection && this.host.contains(selection.anchorNode)) selection.removeAllRanges();
   }
   bounds(locator: Locator) {
     if (locator.type !== "pdf" || locator.hash !== this.book.hash) return [];

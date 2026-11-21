@@ -201,7 +201,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
     viewport?.addEventListener("resize", resize);
     return () => viewport?.removeEventListener("resize", resize);
   }, [book?.id]);
-  const [clip, setClip] = useState<StudyClip>();
+  const [clips, setClips] = useState<StudyClip[]>([]);
   const [paneSize, setPaneSize] = useState(38);
   const [notebookPlace, setNotebookPlace] = useState({ x: 0.18, y: 0.38 });
   const dragPane = useRef<{ id: number; dx: number; dy: number } | undefined>(undefined);
@@ -1047,7 +1047,10 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
             </header>
             <div className="panel-body">
               {panel === "study-notebook" && <Suspense fallback={<p>Opening notebook...</p>}>
-                <StudyNotebook key={book.id} bookId={book.id} sizeControl={<label className="study-size">Pane size<input type="range" aria-label="Notebook pane size" min={28} max={65} value={paneSize} onChange={e=>setPaneSize(+e.target.value)} /></label>} clip={clip} selectedNote={sideNote} inserted={() => {setClip(undefined); notify("Inserted with a link to the PDF.");}}
+                <StudyNotebook key={book.id} bookId={book.id} sizeControl={<label className="study-size">Pane size<input type="range" aria-label="Notebook pane size" min={28} max={65} value={paneSize} onChange={e=>setPaneSize(+e.target.value)} /></label>} clip={clips[0]} selectedNote={sideNote} finishClip={(id, saved) => {
+                    setClips(current => current.filter(item => item.source.id !== id));
+                    if (saved) notify("Inserted with a link to the PDF.");
+                  }}
                   region={region} crop={() => {interactions.current?.dismiss(); (adapter.current as PdfReader)?.setRegionMode(!region); setRegion(!region);}} />
               </Suspense>}
               {panel === "listen" && <div ref={setListenHost} />}
@@ -1668,9 +1671,11 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
         ready={!loading}
         suspended={(panel !== "" && panel !== "study-notebook") || drawing}
         onStudy={async (selection, point) => {
-          if (book.format !== "pdf" || !(await flushNotebook())) return;
+          if (book.format !== "pdf") return;
+          if (panel !== "study-notebook" && !(await flushNotebook())) throw Error("Save the open note and retry inserting the passage.");
           const file = selection.text.startsWith("Region on page ") ? await (adapter.current as PdfReader).captureRegion(selection.locator) : undefined;
-          setClip({ text:selection.text, file, point, source:{ id:uid(), kind:"book", title:book.title, bookId:book.id, locator:selection.locator, excerpt:selection.text.slice(0,2400) } });
+          const clip: StudyClip = { text:selection.text, file, point, source:{ id:uid(), kind:"book", title:book.title, bookId:book.id, locator:selection.locator, excerpt:selection.text.slice(0,2400) } };
+          setClips(current => [...current, clip]);
           interactions.current?.dismiss(); adapter.current?.clearSelection();
           if (region) { (adapter.current as PdfReader)?.setRegionMode(false); setRegion(false); }
           setPanel("study-notebook"); chrome.setMenu(false);

@@ -380,9 +380,9 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
     await first.getByRole("button", { name: "New page", exact: true }).click();
     const writing = first.getByRole("textbox", { name: "Topic note content" });
     await expect(writing).toHaveAttribute("contenteditable", "true");
-    await first.getByRole("button", {name:"Tools",exact:true}).click();
     await writing.fill("Return to this moment. ");
     await writing.press("ControlOrMeta+a");
+    await first.getByRole("button", {name:"Format",exact:true}).click();
     await first.getByRole("spinbutton", { name: "Note text size" }).fill("14");
     await first.getByRole("spinbutton", { name: "Note text size" }).press("Enter");
     await expect(writing.locator("span[style*=font-size]")).toHaveCSS("font-size", "14px");

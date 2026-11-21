@@ -52,7 +52,7 @@ test("an authenticated production install opens offline with an expired session 
     await offlinePage.goto(new URL("#/notebooks", baseURL!).href); await offlinePage.getByRole("button", { name: /^Offline writing/ }).click();
     await expect(offlinePage.getByRole("textbox", { name: "Topic note content" })).toContainText("before the offline restart");
     await offlinePage.getByRole("textbox", { name: "Topic note content" }).fill("Edited while fully offline."); await offlinePage.getByRole("button", { name: "Save now", exact: true }).click(); await expect(offlinePage.locator(".topic-save-status")).toContainText("Saved on this device");
-    await offlinePage.getByRole("button", {name:"Tools",exact:true}).click();
+    await offlinePage.getByRole("button", {name:"Page options",exact:true}).click();
     await offlinePage.getByRole("button", { name: "Research", exact: true }).click();
     await offlinePage.getByRole("textbox", { name: "Research question" }).fill("What is cosmic expansion?");
     await offlinePage.getByText("More actions", { exact: true }).click();

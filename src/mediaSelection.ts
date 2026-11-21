@@ -15,7 +15,7 @@ export function decodeMediaSelection(text: string) {
 
 type Box = { left: number; top: number; width: number; height: number };
 
-export function useMediaSelection(paper: RefObject<HTMLDivElement | null>, active: boolean, onSelect: (ids: string[]) => void) {
+export function useMediaSelection(paper: RefObject<HTMLDivElement | null>, active: boolean, onSelect: (ids: string[], area?: {left:number;right:number;top:number;bottom:number}) => void) {
   const drag = useRef<{ id: number; x: number; y: number; area: Box } | undefined>(undefined);
   const [box, setBox] = useState<Box>();
   function start(event: PointerEvent<HTMLDivElement>) {
@@ -47,7 +47,7 @@ export function useMediaSelection(paper: RefObject<HTMLDivElement | null>, activ
       const b = item.getBoundingClientRect();
       return b.left <= x + area.width && b.right >= x && b.top <= y + area.height && b.bottom >= y;
     }).map(item => item.dataset.mediaId!);
-    onSelect(ids);
+    onSelect(ids, area.width + area.height < 8 ? undefined : {left:x,top:y,right:x+area.width,bottom:y+area.height});
   }
   return { box, handlers: { onPointerDownCapture: start, onPointerMoveCapture: move, onPointerUpCapture: finish, onPointerCancelCapture: finish, onLostPointerCapture: finish } };
 }

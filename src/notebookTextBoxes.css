@@ -1,10 +1,11 @@
 .workspace-notebooks .notebook-paper .notebook-writing { min-height: max(55dvh, var(--text-box-extent, 0px)); }
-.workspace-notebooks .notebook-writing [data-notebook-text-box] {
+.study-notebook .notebook-writing { min-height: max(230px, var(--text-box-extent, 0px)); }
+:is(.workspace-notebooks, .study-notebook) .notebook-writing [data-notebook-text-box] {
   max-width: 100%; border: 1px solid #b3c4d2; border-radius: 6px; padding: 10px 30px 12px 11px;
   background: var(--page-bg, white); min-width: 0;
 }
-.workspace-notebooks .notebook-writing [data-notebook-text-box="tinted"] { background: #eaf2f8; }
-.workspace-notebooks .notebook-writing [data-free-box="true"] { position: absolute; top: calc(var(--text-box-y) * var(--text-box-unit, 0px)); z-index: 3; margin: 0; }
+:is(.workspace-notebooks, .study-notebook) .notebook-writing [data-notebook-text-box="tinted"] { background: #eaf2f8; }
+:is(.workspace-notebooks, .study-notebook) .notebook-writing [data-free-box="true"] { position: absolute; top: calc(var(--text-box-y) * var(--text-box-unit, 0px)); z-index: 3; margin: 0; }
 .notebook-box-frame { pointer-events: none; position: absolute; z-index: 7; outline: 2px solid #729ab9; outline-offset: -1px; border-radius: 6px; }
 .notebook-box-frame :is(button, .workspace-item) { pointer-events: auto; }
 .notebook-box-frame .workspace-item, .notebook-box-move, .notebook-box-resize { position: absolute; }

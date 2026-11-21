@@ -1,0 +1,41 @@
+/* Tools stay beside the paper, including inside the smaller reading pane. */
+.note-editor-body { display:flex; align-items:stretch; flex:1; min-height:0; min-width:0; position:relative; }
+.note-editor-body > .notebook-page-scroll,.note-editor-body > .topic-editor { flex:1; min-width:0; }
+.note-rail-host { position:relative; flex:0 0 48px; padding:8px 2px; border-right:1px solid var(--line,#dedbd0); background:var(--surface,#faf9f4); }
+.note-tool-rail { position:sticky; top:4px; display:grid; justify-content:center; gap:2px; }
+.note-tool-rail > button { display:grid; place-items:center; color:inherit; padding:0; width:42px; height:44px; background:transparent; border:0; border-radius:3px; }
+.note-tool-rail > button:is(:hover,:focus-visible,[aria-pressed=true],[aria-expanded=true]) { color:var(--accent,#315c86); background:var(--soft,#e9ece9); }
+.note-tool-tip,.note-tool-palette { position:fixed; z-index:120; font:14px/1.4 "Source Sans 3",sans-serif; }
+.note-tool-tip { background:#29343a; color:white; padding:5px 9px; border-radius:3px; pointer-events:none; }
+.note-tool-palette { box-sizing:border-box; padding:10px; overflow:auto; overscroll-behavior:contain; color:var(--ink,#292a27); background:var(--surface,#fffdf7); border:1px solid var(--line,#d2cfc2); box-shadow:0 3px 14px #29271f21; }
+.note-tool-palette button { color:inherit; border:0; background:transparent; padding:7px; min-height:38px; }
+.note-tool-palette button:is(:hover,:focus-visible,[aria-pressed=true]) { background:var(--soft,#eeeae0); }
+.note-action-list,.note-tool-palette .paper-ink-tools,.note-tool-palette .ink-toolbar { display:flex; flex-direction:column; align-items:stretch; position:static; max-width:100%; width:auto; }
+.note-action-list button { display:flex; align-items:center; gap:8px; text-align:left; }
+.note-format-grid,.note-swatches { display:flex; align-items:center; gap:4px; flex-wrap:wrap; }
+.note-swatches button { min-width:32px; border:3px solid transparent; background-clip:padding-box; }
+.note-swatches [aria-pressed=true] { outline:1px solid currentColor; }
+.reader-shell .study-notebook .note-editor-body { margin-top:4px; }
+.reader-shell .study-notebook .topic-editor { display:flex; flex-direction:column; gap:12px; padding:8px clamp(8px,2vw,24px); max-width:none; }
+.reader-shell .study-notebook :is(.note-paper-layout,.note-paper-column,.notebook-paper,.notebook-writing,.topic-title-label) { box-sizing:border-box; width:100%; max-width:72ch; margin-inline:auto; padding:0; border:0; box-shadow:none; background:transparent; }
+.reader-shell .study-notebook .note-paper-layout { display:block; }
+.reader-shell .study-notebook .notebook-writing { min-height:230px; color:inherit; padding-block:8px 32px; }
+.reader-shell .study-notebook:has(.study-path) .study-writing-tools > summary { position:static; }
+.reader-shell .study-notebook:has(.study-path) .study-writing-tools { margin:0; }
+.reader-shell .study-notebook:has(.study-path) .study-writing-tools:not([open]) { position:absolute; top:0; right:0; }
+.reader-shell .study-notebook .study-path { padding-right:96px; }
+.study-notebook .topic-save-status[data-error=true] { display:flex !important; }
+.note-editor-body .note-rail-host { z-index:4; }
+@media(min-width:701px){.workspace-writing .note-editor-body { margin-left:12px; }}
+
+.note-stroke-picked { stroke:#315c86; stroke-width:1.5; vector-effect:non-scaling-stroke; }
+.notebook-paper .note-media.is-selected { outline:2px solid #426b9b; outline-offset:2px; }
+
+.topic-editor .topic-title-label textarea { display:block; resize:none; overflow:hidden; box-sizing:border-box; width:100%; min-height:0; margin:0; padding:0; border:0; border-radius:0; box-shadow:none; color:inherit; background:transparent; font:500 clamp(28px,3.7vw,48px)/1.28 Literata,Georgia,serif; letter-spacing:-.035em; }
+.reader-shell .study-notebook .topic-title-label textarea { font-size:clamp(21px,2vw,27px); margin-block:8px; }
+.reader-shell[data-study-open] .study-notebook:has(.study-path) .study-writing-tools > summary { display:grid; place-items:center; position:static; width:42px; min-height:38px; padding:0; list-style:none; }
+.study-writing-tools > summary::-webkit-details-marker { display:none; }
+.reader-shell[data-study-open] .study-notebook:has(.study-path) .study-writing-tools[open] > summary { position:absolute; top:0; right:0; }
+
+.app .notebook-navigation .notebook-list > .search-field { flex:0 0 auto; height:42px; }
+.notebook-box-selection { background:#bfd6ea; }

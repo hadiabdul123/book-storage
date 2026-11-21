@@ -104,7 +104,7 @@ test("topic writing autosaves and remains editable after reload, with valid JSON
   const downloaded = page.waitForEvent("download"); await page.getByLabel("Export notebooks").selectOption("json");
   const download = await downloaded; expect(download.suggestedFilename()).toMatch(/leafmark-research.*json/);
   await page.getByRole("button", {name:"Close notebook navigation"}).click();
-  await page.getByRole("button",{name:"Tools",exact:true}).click();
+  await page.getByRole("button",{name:"Page options",exact:true}).click();
   page.once("dialog", d => d.accept()); await page.getByRole("button", { name: "Trash note", exact: true }).click();
   await expect(page.getByRole("textbox", { name: "Topic note content" })).toHaveCount(0);
   await page.goto("/#/settings"); const row = page.locator(".trash-row").filter({ hasText: "Questions about the universe" }); await row.getByRole("button", { name: "Restore" }).click();
@@ -267,7 +267,8 @@ for (const format of ["epub", "docx"] as const) test(`${format} contextual resea
     return { noteId: note.id, sourceTitle: source.title };
   });
   await page.goto(`/#/notebooks?note=${saved.noteId}`);
-  await page.getByRole("button", {name:"Tools",exact:true}).click();
+  await page.getByRole("button", {name:"Page options",exact:true}).click();
+  await page.getByRole("button",{name:"Insert",exact:true}).click();
   await page.getByRole("button", { name: "Insert quote", exact: true }).click();
   await page.getByRole("dialog", { name: "Insert quote" }).locator(".quote-picker-list button").click();
   const citations = page.getByRole("textbox", { name: "Topic note content" }).getByRole("link", { name: saved.sourceTitle, exact: true });

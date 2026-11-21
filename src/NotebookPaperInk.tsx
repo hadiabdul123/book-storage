@@ -1,8 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
 import { Extension, type Editor } from "@tiptap/react";
 import { Plugin } from "@tiptap/pm/state";
-import { useLiveQuery } from "dexie-react-hooks";
-import { get, list, save } from "./db";
+import { get, save } from "./db";
 import { bindInkSurface, inkPath, InkHistory, recoverInkDrafts } from "./ink";
 import { now, uid } from "./model";
 import type { NotebookOverlay } from "./notebookAssets";
@@ -58,8 +57,9 @@ function resizeDrawing(overlay: NotebookOverlay, bounds: DrawingBounds, factorX:
   return { ...overlay, scale, scaleX, scaleY, x: overlay.x + bounds.left * (oldX - scaleX), y: overlay.y + bounds.top * (oldY - scaleY) };
 }
 
-export function NotebookPaperInk({ editor, noteId, paper, mode, style, saveNote, history, notice, bindingRef, writes, openDrawing }: {
-  editor: Editor; noteId: string; paper: RefObject<HTMLDivElement | null>; mode: PaperTool;
+export function NotebookPaperInk({ editor, overlays, strokes, selectedStrokes, noteId, paper, mode, style, saveNote, history, notice, bindingRef, writes, openDrawing }: {
+  overlays: NotebookOverlay[]; strokes: InkStroke[];
+  selectedStrokes: Set<string>; editor: Editor; noteId: string; paper: RefObject<HTMLDivElement | null>; mode: PaperTool;
   style: InkStyle; saveNote: () => Promise<boolean>; history: InkHistory;
   notice: (message: string) => void;
   bindingRef: RefObject<ReturnType<typeof bindInkSurface> | undefined>;
@@ -67,8 +67,6 @@ export function NotebookPaperInk({ editor, noteId, paper, mode, style, saveNote,
   openDrawing?: string;
 }) {
   const scratch = useRef<SVGSVGElement>(null);
-  const overlays = useLiveQuery(async () => (await list("notebook-overlay")).filter(drawing => drawing.noteId === noteId), [noteId]) || [];
-  const strokes = useLiveQuery(async () => (await list("ink-stroke")).filter(s => s.target.type === "notebook" && s.target.noteId === noteId), [noteId]) || [];
   const strokeRef = useRef(strokes); strokeRef.current = strokes;
   const [selected, setSelected] = useState<string>();
   const [preview, setPreview] = useState<NotebookOverlay>();
@@ -236,7 +234,7 @@ export function NotebookPaperInk({ editor, noteId, paper, mode, style, saveNote,
         if (!anchor) return null;
         const origin = frameFor(anchor, drawing);
         return <g key={drawing.id} transform={`translate(${origin.left} ${origin.top}) scale(${origin.unitX} ${origin.unitY})`}>
-          {ink.filter(s => s.target.type === "notebook" && s.target.blockId === drawing.id).map(s => <path key={s.id} data-stroke={s.id} d={inkPath(s)} fill={s.color} opacity={s.tool === "highlighter" ? .3 : 1}
+          {ink.filter(s => s.target.type === "notebook" && s.target.blockId === drawing.id).map(s => <path key={s.id} className={selectedStrokes.has(s.id) ? "note-stroke-picked" : undefined} data-stroke={s.id} d={inkPath(s)} fill={s.color} opacity={s.tool === "highlighter" ? .3 : 1}
             onPointerDown={event => {
               if (event.button !== 0 || (!erasing && mode !== "select")) return;
               event.preventDefault();

@@ -1,3 +1,4 @@
+import { bindStudyPassageDrag, markStudyDrop } from "./studyPassageDrag";
 import { samePassage } from "./reader/passages";
 import {
   forwardRef,
@@ -700,6 +701,18 @@ export const ReaderInteractions = forwardRef<
     }
   }
   const [filing, setFiling] = useState<string>();
+  const studyAction = useRef(onStudy);
+  studyAction.current = onStudy;
+  useEffect(() => {
+    const surface = host.current;
+    if (!ready || !surface || suspended || book.format !== "pdf") return;
+    return bindStudyPassageDrag(surface, ({ x, y }) => {
+      const selection = latest.current.selected;
+      if (selection && selection.locator.type === "pdf" && !selection.text.startsWith("Region on page ") &&
+          adapter.current?.bounds(selection.locator).some(r => x >= r.left && x <= r.right && y >= r.top && y <= r.bottom)) return selection;
+    }, (selection, point) => { void studyAction.current(selection, point).catch(error => notify(String(error))); },
+    () => adapter.current?.clearSelection());
+  }, [host, adapter, ready, suspended, book.id]);
   const clipAction = (compact: boolean) => <button aria-label="Insert into notebook" title="Insert into notebook, or drag to the open note" style={{touchAction:"none"}} disabled={busy}
     onPointerDown={event => {
       event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId);
@@ -713,13 +726,14 @@ export const ReaderInteractions = forwardRef<
         (host.current?.closest(".reader-shell") || document.body).append(label); dragLabel.current=label;
       }
       const overNote=document.elementFromPoint(event.clientX,event.clientY)?.closest(".study-notebook");
+      markStudyDrop(overNote ? {x:event.clientX,y:event.clientY} : undefined);
       dragLabel.current.textContent=overNote ? "Drop into note" : "Drag to your note";
       dragLabel.current.style.left=Math.min(innerWidth-122,Math.max(6,event.clientX-45))+"px";
       dragLabel.current.style.top=Math.max(3,event.clientY-46)+"px";
     }}
-    onPointerCancel={() => { clipDrag.current = undefined; clearDragLabel(); }}
+    onPointerCancel={() => { clipDrag.current = undefined; markStudyDrop(); clearDragLabel(); }}
     onPointerUp={event => {
-      clearDragLabel();
+      markStudyDrop(); clearDragLabel();
       const start = clipDrag.current;
       if (!start || !selected) return;
       start.moved = Math.hypot(event.clientX - start.x, event.clientY - start.y) > 8;
