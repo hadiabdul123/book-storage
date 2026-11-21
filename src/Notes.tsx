@@ -17,7 +17,7 @@ import { ItemMenu, type ItemAction } from "./ItemMenu";
 import { EditHighlightTags, HighlightFollowups, HighlightLabels } from "./HighlightStudyPanel";
 import { highlightStudyData, priorities, setHighlightPriority, type HighlightFollowup, type HighlightPriority } from "./highlightStudy";
 import { CardCategories } from "./CardCategories";
-import { CollectionBoard } from "./CollectionBoard";
+import { CollectionBoard, passagePreview } from "./CollectionBoard";
 import { CategoryBoard } from "./CategoryBoard";
 import { cardLibrary, emptyCards, viewKeys, unpackFacet, packFacet } from "./cardStore";
 import { sourceHref, sourceLabel } from "./sourceReferences";
@@ -241,6 +241,9 @@ export function Notes() {
     browse.update({category:id ? packFacet([id]) : "",compare:"",arrange:"",page:"1"});
     setRailOpen(false);
   };
+  const searchField = <label className="search-field"><Search size={18} aria-hidden="true" />
+    <input type="search" aria-label="Search annotations" placeholder="Search highlights" value={query} onChange={e => setQuery(e.target.value)} /></label>;
+  const filterCount = [bookId, notebookSource, color, tag, priority, type !== "all"].filter(Boolean).length;
   const arranging = isBoard && !!boardCategory && browse.value("arrange") === "1";
   return (
     <div data-board={isBoard || undefined} data-rail-open={railOpen || undefined} data-filters-open={filtersOpen || undefined} className={`notes-page notes-browser ${bookView ? "common-book-view" : ""} ${mode==="gallery" && !detail ? "card-gallery" : ""} ${detail ? "notes-detail-open" : ""}`}>
@@ -261,15 +264,10 @@ export function Notes() {
         </div>
         {isBoard && <div className="board-actions">
           <button className="board-rail-toggle" aria-expanded={railOpen} onClick={() => setRailOpen(!railOpen)}>Collections</button>
-          {boardCategory && !comparison && <button onClick={() => browse.update({arrange:arranging ? "" : "1"})}>{arranging ? "Read cards" : "Arrange cards"}</button>}
-          {comparison ? <button onClick={() => browse.update({compare:""})}>Close comparison</button> : <button disabled={collections.length < 2} onClick={() => {
-            const first = categories[0] || collections[0].id;
-            compare(first, collections.find(c => c.id !== first)!.id);
-          }}>Compare collections</button>}
-          <button onClick={() => browse.update({layout:"book",compare:"",arrange:""})}>Book view</button>
-          <button aria-expanded={filtersOpen} onClick={() => setFiltersOpen(!filtersOpen)}>Filters &amp; tools</button>
+          {searchField}
+          <button aria-expanded={filtersOpen} onClick={() => setFiltersOpen(!filtersOpen)}>Filters &amp; tools{filterCount > 0 && " (" + filterCount + ")"}</button>
         </div>}
-        {isBoard && <p className="board-subtitle">{comparison ? comparison.map(id => collections.find(c => c.id === id)?.name).join(" / ") : categories.map(id => collections.find(c => c.id === id)?.name).filter(Boolean).join(", ") || "All highlights"}</p>}
+        {isBoard && (comparison || categories.length > 0) && <p className="board-subtitle">{comparison ? comparison.map(id => collections.find(c => c.id === id)?.name).join(" / ") : categories.map(id => collections.find(c => c.id === id)?.name).filter(Boolean).join(", ") || "All highlights"}</p>}
         <button className="secondary mobile-filter-toggle" aria-expanded={filtersOpen} onClick={() => setFiltersOpen(!filtersOpen)}>Filters & collections</button>
         <label className="export-select">
           <Download size={17} />
@@ -313,15 +311,7 @@ export function Notes() {
           <option value="research">Research cards</option>
           <option value="drawing">Drawings</option>
         </select>
-        <label className="search-field">
-          <Search size={18} />
-          <input
-            aria-label="Search annotations"
-            placeholder="Search quotes, notes, or tags…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-        </label>
+        {!isBoard && searchField}
         <select
           aria-label="Filter by book"
           value={bookId}
@@ -368,6 +358,13 @@ export function Notes() {
       <div className="filter-summary"><span>{rows.length} matching saved items</span>{(category || query || bookId || notebookSource || color || tag || priority || type !== "all") && <button onClick={() => browse.update({ q: "", book: "", notebook: "", color: "", tag: "", priority: "", category: "", type: "", page: "1", item: "" })}>Clear filters</button>}</div>
       {actionError && <p role="alert">{actionError}</p>}
       <div className="card-collection-actions"><div role="group" aria-label="Highlight layout">{["book","gallery","list","board"].map(v=><button key={v} aria-pressed={mode===v} onClick={()=>browse.update({layout:v,item:""})}>{v[0].toUpperCase()+v.slice(1)}</button>)}</div><button className="secondary" onClick={() => { setBulk(!bulk); setChecked([]); }}>{bulk ? "Finish selection" : "Select cards"}</button>
+        {isBoard && <>
+          {boardCategory && !comparison && <button onClick={() => browse.update({arrange:arranging ? "" : "1"})}>{arranging ? "Read cards" : "Arrange cards"}</button>}
+          {comparison ? <button onClick={() => { browse.update({compare:""}); setFiltersOpen(false); }}>Close comparison</button> : <button disabled={collections.length < 2} onClick={() => {
+            const first = categories[0] || collections[0].id;
+            compare(first, collections.find(c => c.id !== first)!.id); setFiltersOpen(false);
+          }}>Compare collections</button>}
+        </>}
         {bulk && <><button onClick={() => setChecked([...new Set([...checked, ...(isBoard ? cards : page.items).filter(r => !r.drawing && r.annotation?.type !== "page-note").map(r => r.id)])])}>{isBoard ? "Select matching cards" : "Select page"}</button>
         <button disabled={!checked.length} onClick={() => setFiling(checked)}>File selected ({checked.length})</button></>}
       </div>
@@ -378,7 +375,7 @@ export function Notes() {
         <details open className="source-navigator"><summary>Books &amp; notebooks</summary><nav aria-label="Books & notebooks"><button onClick={()=>browse.update({book:"",notebook:"",page:"1",item:""})}>All sources</button>
         {sourceItems.map(s=><button key={s.id} aria-pressed={s.id.startsWith("book:")?bookIds.includes(s.id.slice(5)):notebookSource===s.id.slice(9)} onClick={()=>s.id.startsWith("book:")?toggleFacet("book",bookIds,s.id.slice(5)):browse.update({notebook:s.id.slice(9),book:"",page:"1",item:""})}><span>{s.title}<em>{s.detail}</em></span><small>{s.count}</small></button>)}</nav></details></aside><div>
       {isBoard ? arranging && cards.length ? <CategoryBoard key={boardCategory} category={boardCategory} filings={library.filings.filter(f=>f.categoryId===boardCategory).sort((a,b)=>a.id.localeCompare(b.id))} cards={cards} open={(id,button)=>{setOrigin(button);setOpened(id);}} /> :
-        <CollectionBoard collections={collections} groups={boardGroups} selected={categories} comparison={comparison} compare={compare}
+        <CollectionBoard query={query} collections={collections} groups={boardGroups} selected={categories} comparison={comparison} compare={compare}
           checked={bulk ? checked : undefined} open={(id,button) => {
             if (bulk) setChecked(ids => ids.includes(id) ? ids.filter(i => i !== id) : [...ids,id]);
             else { setOrigin(button); setOpened(id); }
@@ -400,7 +397,7 @@ export function Notes() {
             }}><small>{mode==="gallery"?r.title+" / ":""}{r.subtitle}</small>
               {r.annotation && <HighlightLabels tags={r.annotation.tags} priority={priorityMap.get(r.id)} />}
               {categoryMap.has(r.id) && <small>{library.categories.filter(c => categoryMap.get(r.id)?.includes(c.id)).map(c => c.name).join(" · ")}</small>}
-              <span className="notes-passage-text">{bookView ? r.text : r.text.slice(0, 150)}</span>{r.annotation?.note && <em>{bookView && <strong>My note</strong>}{bookView ? r.annotation.note : r.annotation.note.slice(0, 80)}</em>}
+              <span className="notes-passage-text">{passagePreview(r.text, bookView ? 500 : 180, query)}</span>{r.annotation?.note && <em>{bookView && <strong>My note</strong>}{bookView ? r.annotation.note : r.annotation.note.slice(0, 80)}</em>}
             </button>;
             const row = r.annotation && r.annotation.type !== "page-note" ? <ItemMenu key={r.id} title={r.text.slice(0, 75) || "highlight"} actions={studyActions(r.annotation)}>{open}</ItemMenu> : open;
             return bookView ? <div key={r.id} className="common-entry" style={{"--passage-color":r.color} as React.CSSProperties}>
@@ -458,12 +455,11 @@ export function Notes() {
           }) : openCard.text}</blockquote>
           {openCard.annotation?.note && <p className="paper-note">{openCard.annotation.note}</p>}
           <div className="card-chips">{library.categories.filter(c => categoryMap.get(openCard.id)?.includes(c.id)).map(c => <span key={c.id}>{c.name}</span>)}
-          <button className="text-button" onClick={() => setFiling([openCard.id])}>Edit categories</button></div>
+          {researchCard && <button className="text-button" onClick={() => setFiling([openCard.id])}>Edit categories</button>}</div>
           {openCard.annotation && <><div className="button-row"><Link to={`/read/${openCard.annotation.bookId}?annotation=${openCard.id}`}>Go to passage</Link>
             <button onClick={() => setClipping(true)}>Add to notebook</button>
             {previewLocator && <button onClick={() => setPdfItem(openCard.id)}>Show PDF page</button>}
-            <button onClick={() => setEditing(openCard.annotation)}>Edit highlight</button>
-            <ItemMenu title="Card actions" actions={studyActions(openCard.annotation)}>{null}</ItemMenu></div>
+            <ItemMenu title="Card actions" actions={[{label:"Edit highlight",run:() => setEditing(openCard.annotation)},...studyActions(openCard.annotation)]}>{null}</ItemMenu></div>
             <HighlightFollowups key={openCard.id} annotationId={openCard.id} notes={followupMap.get(openCard.id) || []} /></>}
           {(researchCard?.sources || openCard.annotation?.sources)?.map((s,i) => <SourceLink key={i} source={s} />)}
           {researchCard && <div className="research-card-actions">{researchCard.studyId && <Link to={"/notebooks?view=research&thread=" + encodeURIComponent(researchCard.studyId)}>Open study</Link>}<ItemMenu title="Research card" actions={[{ label:"Move to Trash", danger:true, run:() => {

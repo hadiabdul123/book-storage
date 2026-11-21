@@ -16,6 +16,8 @@ export function bindTouchSelection(root: HTMLElement, options: {
   const scrollHost = options.scrollHost || root;
   let range: Range | undefined, timer: ReturnType<typeof setTimeout> | undefined;
   let press: { x: number; y: number; element: HTMLElement; at: number; scroll: number } | undefined;
+  let touchOwnsSelection = false;
+  let held: Promise<void> | undefined;
   let generation = 0, frame = 0, destroyed = false, handleDragging = false;
   const handles: HTMLButtonElement[] = [];
   const dragCleanups: (() => void)[] = [];
@@ -98,7 +100,7 @@ export function bindTouchSelection(root: HTMLElement, options: {
     win.cancelAnimationFrame(frame); frame = 0;
     if (notify && hadSelection && !destroyed) options.cleared?.();
   }
-  const cancel = () => { clearTimeout(timer); press = undefined; generation++; if (!handleDragging) options.adjusting?.(false); };
+  const cancel = () => { clearTimeout(timer); press = undefined; held = undefined; generation++; if (!handleDragging) options.adjusting?.(false); };
   const apply = (next: Range) => {
     if (next.collapsed || !next.toString().trim()) return;
     range = next.cloneRange();
@@ -148,7 +150,7 @@ export function bindTouchSelection(root: HTMLElement, options: {
     }
     paint(); options.selected(range);
   };
-  const hold = async () => {
+  const selectHeldWord = async () => {
     const began = press, token = generation;
     if (!began || options.allowed?.() === false) return;
     // Claim the gesture before asynchronous OCR/text preparation. A held
@@ -160,8 +162,10 @@ export function bindTouchSelection(root: HTMLElement, options: {
       const next = wordAt(began.x, began.y); if (next) apply(next);
     } catch { /* OCR errors are reported by the adapter. */ }
   };
+  // Android can deliver contextmenu, the hold timer and touchend for one press.
+  const hold = () => held ??= selectHeldWord();
   const pointer = (e: PointerEvent) => {
-    if (e.pointerType === "mouse") { cancel(); root.classList.remove("app-touch-selection"); clear(); return; }
+    if (e.pointerType === "mouse") { touchOwnsSelection = false; cancel(); root.classList.remove("app-touch-selection"); clear(); return; }
     root.classList.add("app-touch-selection");
   };
   const start = (e: TouchEvent) => {
@@ -169,6 +173,7 @@ export function bindTouchSelection(root: HTMLElement, options: {
     if (e.touches.length !== 1) { clear(); return; }
     const element = e.target as HTMLElement;
     if (options.allowed?.() === false || element.closest("button,a,input,textarea,select,[contenteditable]")) return;
+    touchOwnsSelection = true;
     clear();
     doc.getSelection()?.removeAllRanges();
     const t = e.touches[0]; press = { x: t.clientX, y: t.clientY, element, at: Date.now(), scroll: scrollHost.scrollTop };
@@ -179,7 +184,7 @@ export function bindTouchSelection(root: HTMLElement, options: {
   const end = (e: TouchEvent) => {
     clearTimeout(timer);
     const token = generation;
-    if (press && Date.now() - press.at >= 450) {
+    if (press && (held || Date.now() - press.at >= 450)) {
       // A compatibility click at the release point must not activate freshly
       // positioned toolbar buttons underneath the lifting finger.
       if (e.cancelable) e.preventDefault();
@@ -188,10 +193,19 @@ export function bindTouchSelection(root: HTMLElement, options: {
     } else { press = undefined; if (!handleDragging) options.adjusting?.(false); }
   };
   const context = (e: Event) => { if (root.classList.contains("app-touch-selection")) { e.preventDefault(); if (press) void hold(); } };
-  const selectStart = (e: Event) => { if (root.classList.contains("app-touch-selection") && !(e.target as Element).closest("input,textarea,[contenteditable]")) e.preventDefault(); };
+  const editable = (node: Node | null) => (node instanceof win.Element ? node : node?.parentElement)?.closest("input,textarea,[contenteditable]");
+  const selectStart = (e: Event) => {
+    if (root.classList.contains("app-touch-selection") && !editable(e.target as Node | null)) e.preventDefault();
+  };
   const nativeChanged = () => {
     const selected = doc.getSelection();
     if (selected?.rangeCount && !selected.isCollapsed && root.contains(selected.anchorNode) && root.contains(selected.focusNode)) {
+      // WebKit and Android may publish a native page range after a touch.
+      // Keep our word range and handles until the input switches to mouse or keyboard.
+      if (touchOwnsSelection && !editable(selected.anchorNode)) {
+        selected.removeAllRanges();
+        return;
+      }
       clear(false); root.classList.remove("app-touch-selection");
     }
   };
@@ -200,12 +214,12 @@ export function bindTouchSelection(root: HTMLElement, options: {
   if (scrollHost !== root) resize.observe(root);
   const layoutChanges = new MutationObserver(schedule);
   layoutChanges.observe(scrollHost, { attributes: true, attributeFilter: ["class", "style"] });
-  const key = (e: KeyboardEvent) => { if (e.key === "Escape") { cancel(); clear(); } else if (e.shiftKey) { clear(); root.classList.remove("app-touch-selection"); } };
+  const key = (e: KeyboardEvent) => { if (e.key === "Escape") { cancel(); clear(); } else if (e.shiftKey || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a")) { touchOwnsSelection = false; clear(); root.classList.remove("app-touch-selection"); } };
   root.addEventListener("pointerdown", pointer, { capture: true });
   root.addEventListener("touchstart", start, { passive: true }); root.addEventListener("touchmove", move, { passive: true });
   root.addEventListener("touchend", end, { passive: false }); root.addEventListener("touchcancel", cancel);
   root.addEventListener("contextmenu", context); root.addEventListener("selectstart", selectStart);
-  doc.addEventListener("selectionchange", nativeChanged);
+  doc.addEventListener("selectionchange", nativeChanged, true);
   doc.addEventListener("scroll", scroll, { capture: true, passive: true }); win.addEventListener("resize", schedule); doc.addEventListener("keydown", key);
   // Apply before the first long press on touch devices; pointerdown switches
   // back to native selection when a mouse is used on a hybrid device.
@@ -217,7 +231,7 @@ export function bindTouchSelection(root: HTMLElement, options: {
       destroyed = true; cancel(); clear(); style.remove(); root.classList.remove("app-touch-selection");
       root.removeEventListener("pointerdown", pointer, true); root.removeEventListener("touchstart", start); root.removeEventListener("touchmove", move);
       root.removeEventListener("touchend", end); root.removeEventListener("touchcancel", cancel); root.removeEventListener("contextmenu", context); root.removeEventListener("selectstart", selectStart);
-      doc.removeEventListener("selectionchange", nativeChanged);
+      doc.removeEventListener("selectionchange", nativeChanged, true);
       doc.removeEventListener("scroll", scroll, true); win.removeEventListener("resize", schedule); doc.removeEventListener("keydown", key);
     } };
 }

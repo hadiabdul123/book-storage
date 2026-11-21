@@ -162,7 +162,8 @@ test("annotation edits, filters, exports, JSON restore and malformed backups", a
   await page.goto("/#/notes?layout=book");
   await expect(page.locator(".annotation-card")).toHaveCount(1);
   await page.locator(".notes-passage-open").first().click();
-  await page.getByRole("dialog", { name: "Quote card" }).getByRole("button", { name: "Edit highlight" }).click();
+  await page.getByRole("button", { name: "More actions for Card actions" }).click();
+  await page.getByRole("menuitem", { name: "Edit highlight" }).click();
   const dialog = page.getByRole("dialog", { name: "Edit annotation", exact: true });
   await dialog
     .getByRole("textbox", { name: "Your note" })
@@ -201,7 +202,8 @@ test("annotation edits, filters, exports, JSON restore and malformed backups", a
     if (format === "json") backup = bytes;
   }
   await page.locator(".notes-passage-open").first().click();
-  await page.getByRole("dialog", { name: "Quote card" }).getByRole("button", { name: "Edit highlight" }).click();
+  await page.getByRole("button", { name: "More actions for Card actions" }).click();
+  await page.getByRole("menuitem", { name: "Edit highlight" }).click();
   await dialog.getByRole("button", { name: "Delete annotation" }).click();
   await expect(page.locator(".annotation-card")).toHaveCount(0);
   await page.goto("/#/settings");

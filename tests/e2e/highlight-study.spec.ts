@@ -143,6 +143,8 @@ test("a scoped page and notebook comparison becomes a reusable filed card", asyn
   await page.reload();
   await expect(page.locator(".notes-passage-open")).toHaveCount(1);
   await page.getByRole("button",{name:"Board",exact:true}).click();
+  const tools = page.getByRole("button",{name:"Filters & tools"});
+  if (await tools.getAttribute("aria-expanded") === "false") await tools.click();
   await page.getByRole("button",{name:"Arrange cards"}).click();
   const tile=page.locator(".category-board [data-card]");
   await expect(tile).toHaveCount(1);
@@ -180,12 +182,19 @@ test("an unfiled passage opens on the board and keeps its source in a notebook",
     const {list,save} = await import("/src/db.ts");
     const [book] = await list("book");
     await save("annotation", {id:"kept-passage",bookId:book.id,locator:{v:1,type:"pdf",page:1,y:0,hash:book.hash},
-      text:"A passage to keep",color:"yellow",tags:[],note:"Return to the source.",createdAt:new Date().toISOString()});
+      text:"A passage to keep. ".repeat(26) + "\n\nThis final paragraph is still searchable.",color:"yellow",tags:[],note:"Return to the source.",createdAt:new Date().toISOString()});
   });
   await page.goto("/#/notes");
   await expect(page.getByRole("heading",{name:"Collection board"})).toBeVisible();
   await expect(page.locator(".collection-overview")).toContainText("Unfiled");
-  await page.locator(".board-slips button").click();
+  const slip = page.locator(".board-slips button");
+  await expect(slip).toContainText("Read full passage");
+  await expect(slip).not.toContainText("final paragraph");
+  await page.screenshot({path:test.info().outputPath("collection-board.png")});
+  await page.getByLabel("Search annotations").fill("final paragraph");
+  await expect(slip.locator("mark")).toHaveText("final paragraph");
+  await slip.click();
+  await expect(page.getByRole("dialog").locator("blockquote")).toContainText("This final paragraph is still searchable.");
   await page.getByRole("button",{name:"Add to notebook",exact:true}).click();
   await page.getByLabel("Note title").fill("Source notes");
   await page.getByRole("button",{name:"Save excerpt"}).click();
@@ -219,6 +228,7 @@ test("compare collections keeps shared cards, exact counts and the phone selecti
   });
   await page.goto("/#/notes");
   await expect(page.locator(".collection-overview section")).toHaveCount(2);
+  await page.getByRole("button",{name:"Filters & tools"}).click();
   await page.getByRole("button",{name:"Compare collections",exact:true}).click();
   const left = page.getByRole("region",{name:"Left collection"}),right=page.getByRole("region",{name:"Right collection"});
   await expect(left).toContainText("16 highlights");

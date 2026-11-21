@@ -958,7 +958,8 @@ export class PdfReader implements ReaderAdapter {
     });
   }
   private imageMenu = (event: MouseEvent) => {
-    if (this.region || this.drawing || this.textBoxMode || this.hasSelection()) return;
+    // A long press may still be preparing OCR on a full-page scan.
+    if (event.defaultPrevented || this.region || this.drawing || this.textBoxMode || this.hasSelection()) return;
     const element = (event.target as Element).closest<HTMLElement>(".pdf-page");
     const page = element && this.pages[Number(element.dataset.page)-1];
     if (!page || !element) return;
