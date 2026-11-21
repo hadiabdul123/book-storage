@@ -272,6 +272,7 @@ test("two devices transfer original bytes, notes, bookmarks and offline access",
     await expect(secondBox).toHaveText("A text box shared between devices.");
     await clickTool(second, "Text box");
     await secondBox.press("Enter");
+    await second.getByRole("button",{name:"More",exact:true}).click();
     await expect(second.getByRole("combobox", { name: "Weight", exact: true })).toHaveValue("bold");
     await expect(second.getByRole("combobox", { name: "Background", exact: true })).toHaveValue("transparent");
     await expect(second.getByRole("button", { name: "Underline", exact: true })).toHaveAttribute("aria-pressed", "true");
