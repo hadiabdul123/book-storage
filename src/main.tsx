@@ -11,6 +11,7 @@ import App from "./App";
 import "./tablet.css";
 import "./workspacePaper.css";
 import "./readerRail.css";
+import "./pdfPaper.css";
 import "./commonplace.css";
 import "./referenceLayouts.css";
 

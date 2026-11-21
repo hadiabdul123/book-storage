@@ -32,12 +32,17 @@ async function drag(page: Page, fraction: number, release = true) {
   return box;
 }
 test("PDF curl follows a held edge, reverses without navigation, and commits a complete turn", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("leafmark-reader-comfort-v1", JSON.stringify({texture:"ripples", strength:35})));
   await open(page);
   await expect(page.locator('.pdf-page[data-page="1"] canvas')).toBeVisible();
   const box = await drag(page, .60, false);
   await expect(page.locator(".reader-host")).toHaveAttribute("data-page-turn-state", "user_fold");
   await page.waitForTimeout(1800);
   await expect(page.locator(".paper-turn-stage")).toBeVisible();
+  const surface = (el: Element) => getComputedStyle(el, "::before").backgroundImage;
+  const livePaper = await page.locator('.pdf-page[data-page="1"]').evaluate(surface);
+  expect(livePaper).toContain("radial-gradient");
+  expect(await page.frameLocator(".paper-turn-stage").locator(".pdf-turn-content").first().evaluate(surface)).toBe(livePaper);
   await expect(page.locator(".reader-progress")).toContainText("Page 1");
   await page.screenshot({ path: `.local/curl-${test.info().project.name}.png` });
   await page.mouse.move(box.x + box.width - 8, box.y + box.height * .8, { steps: 10 });

@@ -1,0 +1,21 @@
+/* Paper effects stay in sheet coordinates through cropping, zooming and page turns. */
+[data-sheet-texture="grain"], [data-sheet-texture="ripples"] { --pdf-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.84' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Cpath filter='url(%23n)' opacity='.65' d='M0 0h140v140H0z'/%3E%3C/svg%3E"); }
+[data-sheet-texture="linen"] { --pdf-grain:repeating-linear-gradient(0deg,#594d3d33 0 1px,transparent 1px 4px),repeating-linear-gradient(90deg,#594d3d55 0 1px,transparent 1px 3px); }
+[data-sheet-texture="custom"] { --pdf-grain:var(--pdf-custom-grain,none); }
+[data-sheet-texture] :is(.pdf-page,.pdf-zoom-page,.pdf-turn-content)::before,
+[data-sheet-texture] :is(.pdf-page,.pdf-zoom-page,.pdf-turn-content)::after { content:""; position:absolute; inset:0; pointer-events:none; }
+[data-sheet-texture] :is(.pdf-page,.pdf-zoom-page,.pdf-turn-content)::before { z-index:1; opacity:var(--pdf-grain-opacity,0); background-image:var(--pdf-grain,none); background-size:196px auto; }
+[data-sheet-texture] :is(.pdf-page,.pdf-zoom-page,.pdf-turn-content)::after { z-index:5; background:linear-gradient(rgb(0 0 0 / var(--pdf-paper-dim,0)),rgb(0 0 0 / var(--pdf-paper-dim,0))),linear-gradient(rgb(255 171 72 / var(--pdf-paper-warm,0)),rgb(255 171 72 / var(--pdf-paper-warm,0))); }
+
+/* Shallow ripples catch the light across the sheet. The broad mask
+   keeps their relief strongest in the margins, including on dark paper. */
+[data-sheet-texture="ripples"] :is(.pdf-page,.pdf-zoom-page,.pdf-turn-content)::before {
+  background-image:
+    radial-gradient(ellipse 115% 36% at 3% 5%, transparent 40%, #fffaeb88 57%, #554b3dac 66%, transparent 86%),
+    radial-gradient(ellipse 150% 49% at 90% 113%, transparent 47%, #fffaeb99 61%, #514536b8 70%, transparent 91%),
+    linear-gradient(163deg, transparent 37%, #fff8e580 45%, #68564085 52%, transparent 63%),
+    var(--pdf-grain);
+  background-size: 100% 100%, 100% 100%, 100% 100%, 158px 158px;
+  background-repeat: no-repeat, no-repeat, no-repeat, repeat;
+  mask-image: radial-gradient(ellipse at center, #0007 30%, #000a 64%, black 93%);
+}

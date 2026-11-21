@@ -53,7 +53,7 @@ export function ComfortSettings({ value, update, original, setOriginal, openText
     <div className="paper-comparison" role="group" aria-label="Compare PDF appearance">
       <button type="button" aria-label="Preview original PDF" aria-pressed={original} onClick={() => setOriginal(true)}>Original</button>
       <button type="button" aria-pressed={!original} onClick={() => setOriginal(false)}>Preview</button>
-      <button type="button" onClick={() => update({paperEdge:"torn",surround:surrounds["Warm gray"],clearPrint:true,printFace:"original"})}>Paper preset</button>
+      <button type="button" onClick={() => update({texture:"ripples",strength:35,surround:surrounds["Warm gray"],clearPrint:true})}>Paper preset</button>
     </div>
     <label>Paper edges<select value={value.paperEdge} onChange={e=>update({paperEdge:e.target.value})}>
       <option value="straight">Straight</option><option value="torn">Soft torn edge</option><option value="fold">Folded corner</option>
@@ -69,10 +69,10 @@ export function ComfortSettings({ value, update, original, setOriginal, openText
     </select></label>
     {value.printFace !== "original" && <small>Applies to matching body text. Scans and complex layouts keep their printed type.</small>}
     <button type="button" className="secondary" disabled={!textAvailable} onClick={openText}>Open text view</button>
+    <label>Paper texture <select value={value.texture} onChange={e => update({ texture:e.target.value })}><option value="plain">Plain</option><option value="ripples">Soft paper ripples</option><option value="grain">Paper grain</option><option value="linen">Linen</option>{texture && <option value="custom">My texture</option>}</select></label>
     {(["brightness","warmth","strength"] as const).filter(k => k !== "strength" || value.texture !== "plain").map(k => <label key={k}>
       {k === "brightness" ? "Page brightness" : k === "warmth" ? "Warmth" : "Texture intensity"} <output>{value[k]}%</output>
       <input type="range" aria-label={k === "brightness" ? "Page brightness" : k === "warmth" ? "Warmth" : "Texture intensity"} min={k === "brightness" ? 25 : 0} max="100" value={value[k]} onChange={e => update({ [k]:+e.target.value })} /></label>)}
-    <label>Paper texture <select value={value.texture} onChange={e => update({ texture:e.target.value })}><option value="plain">Plain</option><option value="grain">Paper grain</option><option value="linen">Linen</option>{texture && <option value="custom">My texture</option>}</select></label>
     <label>Import a texture <input type="file" accept="image/png,image/jpeg,image/webp" onChange={e => void importTexture(e.target.files?.[0])} /></label>
     <label><input type="checkbox" checked={value.edge} onChange={e => update({ edge:e.target.checked })} /> Slide along the right edge to adjust PDF brightness</label>
     {error && <p role="alert">{error}</p>}

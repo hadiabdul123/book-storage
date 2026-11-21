@@ -2,6 +2,7 @@ import { animationClock } from "./animationClock";
 import flipScript from "page-flip/dist/js/page-flip.browser.js?url";
 import { waitForSurfaces, type TurnDirection, type TurnPoint, type TurnPreview, type TurnSpread } from "./turnSurfaces";
 import "../pageTurn.css";
+import pdfPaperStyles from "../pdfPaper.css?inline";
 
 interface FlipEngine {
   loadFromHTML(pages: HTMLElement[]): void;
@@ -174,6 +175,7 @@ export class PageTurn {
       frame.contentWindow!.cancelAnimationFrame = clock.cancel;
       const style = doc.createElement("style");
       style.textContent = `html,body{margin:0;width:100%;height:100%;overflow:hidden}#book{width:100%;height:100%}.turn-leaf{position:relative;overflow:hidden;background:${getComputedStyle(shell).getPropertyValue("--page-bg") || "#f4ecd9"}}.turn-leaf iframe{border:0;pointer-events:none}.turn-leaf img{max-width:none}`;
+      style.textContent += pdfPaperStyles;
       doc.head.append(style);
       await new Promise<void>((resolve, reject) => {
         const script = doc.createElement("script");
@@ -204,7 +206,17 @@ export class PageTurn {
     const { engine, clock } = realm!;
     try {
       const doc = frame.contentDocument!;
-      const background = getComputedStyle(shell).getPropertyValue("--page-bg") || "#f4ecd9";
+      const appearance = getComputedStyle(shell);
+      // Cached leaves live in a separate document. Refresh appearance even when
+      // reusing a fold, so changing the intensity never requires a new PDF raster.
+      if (preview.outgoing.leaves.some(leaf => leaf.querySelector(".pdf-turn-content"))) {
+        const root = doc.documentElement;
+        root.dataset.sheetTexture = shell.dataset.sheetTexture;
+        for (const property of ["--pdf-grain-opacity", "--pdf-paper-dim", "--pdf-paper-warm", "--pdf-custom-grain"]) {
+          root.style.setProperty(property, appearance.getPropertyValue(property));
+        }
+      }
+      const background = appearance.getPropertyValue("--page-bg") || "#f4ecd9";
       doc.querySelectorAll<HTMLElement>(".turn-leaf").forEach(leaf => { leaf.style.background = background; });
       if (columns === 1 && direction === "next") engine.getPageCollection().getPages()[0].newTemporaryCopy();
       await waitForSurfaces(doc);

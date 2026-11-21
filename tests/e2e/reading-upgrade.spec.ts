@@ -535,8 +535,14 @@ test("paper and print preserve the PDF while text view follows the page", async 
   await expect(page.locator('.pdf-page[data-page="1"] .textLayer span').first()).toBeVisible();
   await clickTool(page,"Reading settings");
   const shell=page.locator(".reader-shell"), host=page.locator(".reader-host"), paper=page.locator('.pdf-page[data-page="1"] > canvas');
+  await page.getByLabel("Paper edges").selectOption("fold");
+  await page.getByLabel("PDF typeface").selectOption("serif");
   await page.getByRole("button",{name:"Paper preset",exact:true}).click();
-  await expect(shell).toHaveAttribute("data-paper-edge","torn");
+  await expect(page.getByLabel("PDF typeface")).toHaveValue("serif");
+  await expect(page.getByLabel("Paper texture")).toHaveValue("ripples");
+  await expect(page.getByRole("slider",{name:"Texture intensity"})).toHaveValue("35");
+  await expect(shell).toHaveAttribute("data-sheet-texture","ripples");
+  await expect(shell).toHaveAttribute("data-paper-edge","fold");
   await expect(host).toHaveCSS("background-color","rgb(199, 194, 185)");
   await expect(page.getByLabel("Clear print",{exact:true})).toBeChecked();
   const raster = () => paper.evaluate(async el => {
@@ -544,13 +550,13 @@ test("paper and print preserve the PDF while text view follows the page", async 
     const pixels = canvas.getContext("2d")!.getImageData(0, 0, canvas.width, canvas.height);
     return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", pixels.data))).join(".");
   });
-  await page.getByLabel("PDF typeface").selectOption("serif");
   await expect(paper).toHaveAttribute("data-print-face","serif",{timeout:15000});
   const previewRaster = await raster();
   await page.getByRole("button",{name:"Preview original PDF",exact:true}).click();
   await expect(paper).not.toHaveAttribute("data-print-face","serif");
   expect(await raster()).not.toBe(previewRaster);
   await expect(shell).not.toHaveAttribute("data-clear-print","true");
+  await expect(shell).toHaveAttribute("data-sheet-texture","plain");
   await page.getByRole("button",{name:"Preview",exact:true}).click();
   await expect(paper).toHaveAttribute("data-print-face","serif");
   expect(await raster()).toBe(previewRaster);
@@ -573,6 +579,7 @@ test("paper and print preserve the PDF while text view follows the page", async 
   await expect(dialog).toContainText("Recognized page");
   await dialog.getByRole("button",{name:"Back to PDF"}).click();
   await expect(page.locator(".reader-progress")).toContainText("Page 3");
-  await page.reload(); await expect(shell).toHaveAttribute("data-paper-edge","torn");
+  await page.reload(); await expect(shell).toHaveAttribute("data-paper-edge","fold");
+  await expect(shell).toHaveAttribute("data-sheet-texture","ripples");
   await expect(host).toHaveCSS("background-color","rgb(199, 194, 185)");
 });
