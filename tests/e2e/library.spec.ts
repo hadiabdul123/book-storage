@@ -177,7 +177,7 @@ test("annotation edits, filters, exports, JSON restore and malformed backups", a
   await showHighlightFilters(page);
   await page.getByText("More filters", { exact: true }).click();
   await page
-    .getByRole("textbox", { name: "Search annotations" })
+    .getByRole("searchbox", { name: "Search annotations" })
     .fill("important");
   await page
     .getByRole("combobox", { name: "Filter by highlight color" })
