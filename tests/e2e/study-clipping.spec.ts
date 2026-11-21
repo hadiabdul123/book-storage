@@ -233,6 +233,14 @@ test("drag the study pane larger and close immediately after writing an untitled
   await page.getByRole("button",{name:"Create note",exact:true}).click();
   const editor=page.getByRole("textbox",{name:"Topic note content"});
   await expect(editor).toBeEditable();
+  await expect(editor).toBeFocused();
+  expect(await editor.evaluate(el => {
+    const sel=document.getSelection();
+    return sel?.isCollapsed && el.contains(sel.anchorNode) && getComputedStyle(el).caretColor !== "transparent";
+  })).toBe(true);
+  await page.keyboard.insertText("Typing from the opening caret.");
+  await expect(editor).toHaveText("Typing from the opening caret.");
+
   if (!isMobile) {
     const pane = page.locator(".reader-panel"), before = (await pane.boundingBox())!;
     const x=before.x+before.width-3,y=before.y+before.height-4;
@@ -259,6 +267,14 @@ test("drag the study pane larger and close immediately after writing an untitled
   await page.reload(); await clickTool(page,"Study notebook");
   await expect(editor).toHaveText("Previously invisible draft");
   await expect(editor.locator("span[style]")).toHaveCount(0);
+  await editor.evaluate(element => {
+    const canvas = document.createElement("canvas");
+    const data = new DataTransfer();
+    data.setData("text/html", '<img src="' + canvas.toDataURL() + '">');
+    element.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: data }));
+  });
+  const imported = page.getByRole("img", { name: "Dropped media.png" });
+  await expect(imported).toBeVisible();
   await page.getByRole("button",{name:"Close panel",exact:true}).click();
   await expect(page.locator(".reader-panel")).toHaveCount(0);
 });

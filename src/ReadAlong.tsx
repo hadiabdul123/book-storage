@@ -9,7 +9,7 @@ import type { ReaderAdapter, ScreenRect } from "./reader/types";
 import { validLocator } from "./validation";
 import "./readAlong.css";
 
-type Settings = { voice: string; speed: number; follow: boolean; continuous: boolean };
+type Settings = { voice: string; speed: number; follow: boolean; allowDeviceFallback: boolean };
 type Status = "idle" | "buffering" | "playing" | "paused" | "missing" | "complete" | "error";
 type Session = {
   abort: AbortController; source: AsyncGenerator<NarrationItem>; items: Map<number, NarrationItem>;
@@ -17,7 +17,7 @@ type Session = {
   next: number; ended: boolean; loading?: Promise<void>;
   cached: Map<string, ReturnType<NarrationAudio["generate"]>>;
 };
-const defaultSettings: Settings = { voice: "af_heart", speed: 1, follow: true, continuous: true };
+const defaultSettings: Settings = { voice: "af_heart", speed: 1, follow: true, allowDeviceFallback: false };
 const settingsKey = "narration-settings:v1";
 const keyFor = (book: Book) => `narration-position:${book.id}:${book.hash}`;
 
@@ -96,7 +96,7 @@ export function ReadAlong({ book, adapter, host, controls, start, selected }: {
         const value: Partial<Settings> = JSON.parse(configuration.value);
         const next = { voice: typeof value.voice === "string" ? value.voice : defaultSettings.voice,
           speed: typeof value.speed === "number" && value.speed >= .75 && value.speed <= 2.5 ? value.speed : 1,
-          continuous: value.continuous !== false,
+          allowDeviceFallback: value.allowDeviceFallback === true,
           follow: typeof value.follow === "boolean" ? value.follow : true };
         preferences.current = next; setSettings(next);
       }
@@ -191,7 +191,7 @@ export function ReadAlong({ book, adapter, host, controls, start, selected }: {
       let samples: Awaited<ReturnType<NarrationAudio["generate"]>> | undefined;
       if (!voice) {
         const generated = buffer(current, item, at, config, token);
-        const fallback = automatic && preferences.current.continuous
+        const fallback = automatic && preferences.current.allowDeviceFallback
           ? devices.current.find(candidate => candidate.default && /^en(?:-|$)/i.test(candidate.lang))
             ?? devices.current.find(candidate => /^en(?:-|$)/i.test(candidate.lang)) : undefined;
         if (fallback) {
@@ -204,7 +204,7 @@ export function ReadAlong({ book, adapter, host, controls, start, selected }: {
             })]);
           } finally { clearTimeout(timer); }
           if (!playing()) return;
-          if (!samples && preferences.current.continuous) {
+          if (!samples && preferences.current.allowDeviceFallback) {
             voice = current.deviceVoice = fallback;
             engine.cancelPending();
           } else if (!samples) samples = await generated;
@@ -233,12 +233,12 @@ export function ReadAlong({ book, adapter, host, controls, start, selected }: {
     })().catch(error => { if (playing()) fail(error); });
   }
 
-  function begin(locator = start, preparePassage = false) {
+  function begin(locator = start, preparePassage = false, deviceVoice?: SpeechSynthesisVoice) {
     const reader = adapter.current;
     if (!reader) return;
     cancel();
     const abort = new AbortController();
-    session.current = { abort, source: reader.narration(locator, abort.signal), items: new Map(), cached: new Map(), next: 0, ended: false };
+    session.current = { abort, deviceVoice, source: reader.narration(locator, abort.signal), items: new Map(), cached: new Map(), next: 0, ended: false };
     play(0, true, false, preparePassage);
   }
 
@@ -264,21 +264,19 @@ export function ReadAlong({ book, adapter, host, controls, start, selected }: {
     || voices.find(v => /^en(?:-|$)/i.test(v.lang)) || voices.find(v => v.default) || voices[0];
   function playInstalled() {
     if (!instantVoice) return;
-    const next = { ...preferences.current, voice: "device:" + instantVoice.voiceURI };
-    change(next);
     if (session.current && status !== "complete") {
-      session.current.deviceVoice = undefined;
+      session.current.deviceVoice = instantVoice;
       request.current++;
       audio.current?.cancelPending();
       play(cursor.current, true);
-    } else begin();
+    } else begin(start, false, instantVoice);
   }
   const ui = <div className="read-along">
     <label>Voice<select aria-label="Voice" value={settings.voice} onChange={event => {
       if (active) { cancel(); setStatus("idle"); }
       change({ ...settings, voice: event.target.value });
     }}>
-      <optgroup label="On-device Kokoro">{neuralVoices.map(voice =>
+      <optgroup label="Natural voices · Kokoro">{neuralVoices.map(voice =>
         <option key={voice.id} value={voice.id}>{voice.name} · {voice.accent}</option>)}</optgroup>
       {!!voices.length && <optgroup label="Installed device voices">{voices.map(voice =>
         <option key={voice.voiceURI} value={`device:${voice.voiceURI}`}>{voice.name} · {voice.lang}</option>)}</optgroup>}
@@ -291,8 +289,8 @@ export function ReadAlong({ book, adapter, host, controls, start, selected }: {
     {!deviceVoice && !session.current?.deviceVoice && instantVoice && ["idle", "complete", "buffering", "error"].includes(status) &&
       <button className="text-button" onClick={playInstalled}>Play now with {instantVoice.name}</button>}
     {!deviceVoice && voices.some(voice => /^en(?:-|$)/i.test(voice.lang)) &&
-      <label className="narration-follow"><input type="checkbox" checked={settings.continuous} onChange={event => {
-        change({ ...settings, continuous: event.target.checked });
+      <label className="narration-follow"><input type="checkbox" checked={settings.allowDeviceFallback} onChange={event => {
+        change({ ...settings, allowDeviceFallback: event.target.checked });
         if (!event.target.checked && session.current?.deviceVoice) {
           session.current.deviceVoice = undefined;
           if (playing || status === "buffering") play(cursor.current, true);

@@ -143,7 +143,8 @@ test("switches to an installed voice from the current sentence while the model i
   await expect(page.locator(".read-along [role=status]")).toContainText("Preparing the first sentence");
   await page.getByRole("button", { name: "Play now with Test voice" }).click();
   await expect(page.locator("body")).toHaveAttribute("data-spoken", "Read this aloud.");
-  await expect(page.getByLabel("Voice", { exact: true })).toHaveValue("device:local-test");
+  await expect(page.getByLabel("Voice", { exact: true })).toHaveValue("af_heart");
+  await expect(page.getByText("Continuing with Test voice.")).toBeVisible();
   await page.getByRole("button", { name: "Stop narration" }).click();
 });
 
@@ -160,6 +161,9 @@ test("continuous listening reads the next two sentences in order when neural syn
   await page.locator(".book-cover-link").click();
   await expect(page.locator(".textLayer span").first()).toBeVisible();
   await clickTool(page, "Listen");
+  const fallback = page.getByLabel("Use an installed voice if narration falls behind");
+  await expect(fallback).not.toBeChecked();
+  await fallback.check();
   await page.getByRole("button", {name:"Play from here"}).click();
   await expect(page.locator("body")).toHaveAttribute("data-speech-log", JSON.stringify(["Continue this passage.", "Finish the paragraph."]));
   await expect(page.locator(".read-along")).toContainText("You reached the end of the book");

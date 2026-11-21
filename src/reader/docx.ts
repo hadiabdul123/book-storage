@@ -279,7 +279,8 @@ export class DocxReader implements ReaderAdapter {
   hasSelection() { return !!this.touch?.hasSelection() || !!document.getSelection()?.toString().trim(); }
   clearSelection() {
     this.touch?.clear();
-    document.getSelection()?.removeAllRanges();
+    const selection = document.getSelection();
+    if (selection && this.article.contains(selection.anchorNode)) selection.removeAllRanges();
   }
   destroy() {
     this.touch?.destroy();

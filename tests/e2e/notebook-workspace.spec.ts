@@ -156,13 +156,23 @@ test("paper ink stays with its paragraph, reopens and can be resized", async ({ 
   await expect(page.locator(".paper-ink-frame")).toHaveCount(0);
   await page.getByRole("button", {name:"Pen",exact:true}).click();
   await page.getByRole("button", { name: "Select drawing", exact: true }).click();
-  const point = await stroke.evaluate(element => {
+  const strokePoint = () => stroke.evaluate(element => {
     const path = element as SVGPathElement;
     const p = path.getPointAtLength(path.getTotalLength() / 4);
     const screen = new DOMPoint(p.x, p.y).matrixTransform(path.getScreenCTM()!);
     return { x: screen.x, y: screen.y };
   });
+  const point = await strokePoint();
   await page.mouse.click(point.x, point.y);
+  await expect(page.getByRole("button",{name:"Delete drawing",exact:true})).toBeVisible();
+  await page.keyboard.press("Delete");
+  await expect(stroke).toHaveCount(0);
+  await page.getByRole("button",{name:"Pen",exact:true}).click();
+  await page.getByRole("button",{name:"Undo drawing",exact:true}).click();
+  await expect(stroke).toHaveCount(1);
+  await page.getByRole("button",{name:"Select drawing",exact:true}).click();
+  const restoredPoint = await strokePoint();
+  await page.mouse.click(restoredPoint.x, restoredPoint.y);
   const handle = page.getByRole("button", { name: "Resize drawing", exact: true });
   await expect(handle).toBeVisible();
   if (info.project.name === "desktop") {
@@ -485,4 +495,43 @@ test("mixed page selection cuts, undoes and pastes text, media and ink together"
   await expect(editor).toContainText("Second paragraph."); await expect(media).toHaveCount(2); await expect(strokes).toHaveCount(1);
   await page.reload();
   await expect(editor).toContainText("First paragraph."); await expect(media).toHaveCount(2); await expect(strokes).toHaveCount(1);
+});
+
+test("external drops use the writing page and free images clear the words underneath", async ({page})=>{
+  await openNote(page);
+  const writing=page.getByRole("textbox",{name:"Topic note content"});
+  await writing.fill("Field observations");
+  const sheet=page.locator(".topic-editor");
+  await sheet.evaluate(section=>{
+    const r=section.getBoundingClientRect(), data=new DataTransfer();
+    data.setData("text/plain","Words from another app");
+    section.dispatchEvent(new DragEvent("drop",{bubbles:true,cancelable:true,clientX:r.left+2,clientY:r.bottom-4,dataTransfer:data}));
+  });
+  await expect(writing).toContainText("Words from another app");
+  await sheet.evaluate(async section=>{
+    const canvas=document.createElement("canvas"); canvas.width=180;canvas.height=80;
+    canvas.getContext("2d")!.fillRect(0,0,180,80);
+    const data=new DataTransfer();
+    data.items.add(new File([await new Promise<Blob>(resolve=>canvas.toBlob(b=>resolve(b!)))],"map.png",{type:"image/png"}));
+    section.dispatchEvent(new DragEvent("drop",{bubbles:true,cancelable:true,dataTransfer:data}));
+  });
+  const image=page.getByRole("img",{name:"map.png"});
+  await expect(image).toBeVisible();
+  await image.click({button:"right"}); await page.getByRole("menuitem",{name:"Move freely"}).click();
+  const moved=page.locator(".notebook-free-media .is-free");
+  await expect(moved).toBeVisible();
+  // Exercise a saved free position intersecting the first line, including on reopen.
+  await page.evaluate(async()=>{
+    const {list}=await import("/src/db.ts"), {positionMedia}=await import("/src/notebookMediaStore.ts");
+    const [file]=await list("notebook-image");
+    await positionMedia(file.noteId,new Map([[file.id,{x:0,y:0,width:.55}]]));
+  });
+  const gap = () => writing.evaluate(el=>{
+    const r=document.createRange(); r.selectNodeContents(el.querySelector("p")!);
+    const image=el.closest(".notebook-paper")!.querySelector(".is-free figure")!;
+    return r.getBoundingClientRect().top-image.getBoundingClientRect().bottom;
+  });
+  await expect.poll(gap).toBeGreaterThanOrEqual(0);
+  await page.reload(); await expect(image).toBeVisible();
+  await expect.poll(gap).toBeGreaterThanOrEqual(0);
 });

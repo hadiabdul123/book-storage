@@ -152,3 +152,6 @@
   .workspace-writing.workspace-notebooks.navigator-open .notebook-detail { display: none; }
   .workspace-writing .notebook-list, .workspace-writing .notebook-pages { flex-shrink: 0; }
 }
+
+.notebook-writing > .notebook-media-clear::before { content:""; display:block; height:var(--media-clearance); pointer-events:none; }
+.paper-ink-frame .paper-ink-delete { top:0; right:0; transform:translateY(-100%); z-index:2; color:#752e2e; background:#fffdf8; padding:3px 8px; min-height:28px; }

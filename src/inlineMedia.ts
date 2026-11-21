@@ -9,6 +9,7 @@ import type { NotebookMedia } from "./notebookAssets";
 export const mediaDragType = "application/x-leafmark-attachment";
 type Widget = { media: NotebookMedia; host: HTMLElement };
 type MediaWidgetState = { widgets: Widget[]; decorations: DecorationSet };
+const spacingKey = new PluginKey<DecorationSet>("notebookFreeMediaSpacing");
 const widgetsKey = new PluginKey<MediaWidgetState>("notebookInlineMedia");
 
 function blocks(doc: DocumentNode) {
@@ -52,7 +53,17 @@ export function mediaFlow(doc: DocumentNode, files: NotebookMedia[]) {
 export const InlineMediaExtension = Extension.create({
   name: "notebookInlineMedia",
   addProseMirrorPlugins() {
-    return [new Plugin<MediaWidgetState>({
+    return [new Plugin<DecorationSet>({
+      key: spacingKey,
+      state: {
+        init: () => DecorationSet.empty,
+        apply(tr, previous) {
+          const next = tr.getMeta(spacingKey) as Decoration[] | undefined;
+          return next ? DecorationSet.create(tr.doc,next) : previous.map(tr.mapping,tr.doc);
+        },
+      },
+      props: { decorations: state => spacingKey.getState(state) },
+    }), new Plugin<MediaWidgetState>({
       key: widgetsKey,
       state: {
         init: () => ({ widgets: [], decorations: DecorationSet.empty }),
@@ -72,6 +83,33 @@ export const InlineMediaExtension = Extension.create({
     })];
   },
 });
+
+// A freely placed attachment keeps its paper coordinates. Reserve space before
+// intersecting paragraphs without adding blank lines to the saved document.
+export function fitTextAroundMedia(editor:Editor, obstacles:DOMRect[]) {
+  const bands = obstacles.filter(box=>box.height && box.width).sort((a,b)=>a.top-b.top);
+  const decorations:Decoration[] = [];
+  let shift = 0, changed = false;
+  editor.state.doc.forEach((node,pos) => {
+    const el = editor.view.nodeDOM(pos);
+    if (!(el instanceof HTMLElement)) return;
+    const rect = el.getBoundingClientRect();
+    const previous = parseFloat(el.style.getPropertyValue("--media-clearance")) || 0;
+    const start = rect.top + shift, height = rect.height - previous;
+    let top = start;
+    for (const band of bands) {
+      if (rect.right > band.left && rect.left < band.right && top < band.bottom+6 && top+height > band.top-6)
+        top = band.bottom+6;
+    }
+    const gap = Math.max(0, Math.ceil(top-start));
+    if (gap) decorations.push(Decoration.node(pos,pos+node.nodeSize,{
+      class:"notebook-media-clear",style:"--media-clearance:"+gap+"px",
+    }));
+    changed ||= previous !== gap;
+    if (el.dataset.freeBox !== "true") shift += gap-previous;
+  });
+  if (changed) editor.view.dispatch(editor.state.tr.setMeta(spacingKey,decorations).setMeta("addToHistory",false));
+}
 
 export function updateMediaWidgets(editor: Editor, widgets: Widget[]) {
   if (!editor.isDestroyed) editor.view.dispatch(editor.state.tr.setMeta(widgetsKey, widgets));

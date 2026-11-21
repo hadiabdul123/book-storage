@@ -190,27 +190,30 @@ export function TopicEditor({ note, toolbarHost, insertHandle, onReady, clipRegi
   }
 
   function updateMedia(action: () => Promise<void>) {
-    if (mediaWrite.current) return;
     setAttaching(true);
     setNotice("");
-    mediaWrite.current = action().catch(e => setNotice(e instanceof Error ? e.message : String(e))).finally(() => {
+    const next = (mediaWrite.current ?? Promise.resolve()).then(action).catch(e => setNotice(e instanceof Error ? e.message : String(e))).finally(() => {
+      if (mediaWrite.current !== next) return;
       mediaWrite.current = undefined;
       setAttaching(false);
     });
+    mediaWrite.current = next;
   }
 
-  function addFiles(input: File[], position: number) {
-    if (!editor || !loaded || !input.length) return;
+  function addFiles(input: File[] | (()=>Promise<File[]>), position: number) {
+    if (!editor || !loaded) return;
     updateMedia(async () => {
       const errors: string[] = [];
-      const accepted = input.filter(file => {
+      const incoming = typeof input === "function" ? await input() : input;
+      const accepted = incoming.filter(file => {
         try { attachmentExtension(file); return true; }
         catch (e) { errors.push(e instanceof Error ? e.message : String(e)); return false; }
       });
       if (!accepted.length) { setNotice(errors.join(" ")); return; }
       const gap = reserveMediaGap(editor, position);
       if (!(await flush())) throw new Error("Save the note and try attaching the files again.");
-      const before = inlineFlow().filter(item => item.position === gap.position).map(item => item.media.id);
+      const currentFiles = (await notebookMediaList()).filter(item => item.noteId === note.id && !item.placement?.free);
+      const before = mediaFlow(editor.state.doc,currentFiles).filter(item => item.position === gap.position).map(item => item.media.id);
       const saved: string[] = [];
       for (const file of accepted) {
         try { saved.push((await attachMedia(note.id, file, { after: gap.after, order: before.length + saved.length })).id); }
@@ -355,18 +358,33 @@ export function TopicEditor({ note, toolbarHost, insertHandle, onReady, clipRegi
     return () => document.removeEventListener("leafmark-study-drop-preview", preview);
   }, [insertHandle, editor, loaded]);
 
-  function handleDrop(event: DragEvent<HTMLDivElement>, commit: boolean) {
+  function handleDrop(event: DragEvent<HTMLElement> | globalThis.DragEvent, commit: boolean) {
+    if (!event.dataTransfer) return;
     const types = event.dataTransfer.types;
     if (!editor || !loaded) return;
     if (!types.includes("Files") && !types.includes(mediaDragType)) {
-      if (!insertHandle || editor.view.dragging || !types.includes("text/plain")) return;
+      if (editor.view.dragging || !types.some(type => ["text/plain","text/uri-list","text/html"].includes(type))) return;
       event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = "copy";
       const destination = dropTarget(event.clientX, event.clientY, event.target as Element);
       if (!destination) return;
       if (!commit && paper.current) setDropLine(destination.top - paper.current.getBoundingClientRect().top);
       if (commit) {
         setDropLine(undefined);
-        const text = event.dataTransfer.getData("text/plain");
+        const transfer = event.dataTransfer;
+        const html = transfer.getData("text/html");
+        const fragment = document.createElement("template"); fragment.innerHTML = html;
+        const uri = transfer.getData("text/uri-list").split(/\r?\n/).find(line => line && !line.startsWith("#"));
+        const source = fragment.content.querySelector("img[src],video[src],audio[src],video source[src],audio source[src]");
+        const url = source?.getAttribute("src") || (uri && /\.(?:png|jpe?g|webp|gif|mp4|webm|mp3|m4a|wav|ogg)(?:[?#]|$)/i.test(uri) ? uri : undefined);
+        if (url && /^(data:(?:image|video|audio)\/|https?:\/\/)/i.test(url)) {
+          addFiles(async () => {
+            const { droppedMedia } = await import("./notebookExternalMedia");
+            try { return [await droppedMedia(url)]; }
+            catch { throw Error("Could not import that media. Download the file and drop it here."); }
+          }, destination.position);
+          return;
+        }
+        const text = transfer.getData("text/plain") || uri || fragment.content.textContent || "";
         if (text.trim()) {
           const blocks = text.split(/\r?\n/).map(line => editor.schema.nodeFromJSON(paragraph(line)));
           const tr = editor.state.tr.replaceRange(destination.position, destination.position, new Slice(Fragment.fromArray(blocks), 0, 0));
@@ -391,6 +409,20 @@ export function TopicEditor({ note, toolbarHost, insertHandle, onReady, clipRegi
     if (id) moveInlineGroup(id, destination);
     else addFiles(Array.from(event.dataTransfer.files), destination.position);
   }
+  const dropHandler = useRef(handleDrop); dropHandler.current = handleDrop;
+  useEffect(() => {
+    const section = paper.current?.closest(".topic-editor");
+    const surface = section?.closest<HTMLElement>(".panel-body,.notebook-page-scroll");
+    if (!surface || !section) return;
+    const outside = (e: globalThis.DragEvent) => {
+      const target = e.target as Element;
+      if (!section.contains(target) && !target.closest("button,input,textarea,select,summary,.note-rail-host"))
+        dropHandler.current(e,e.type==="drop");
+    };
+    const clear = (e:globalThis.DragEvent) => { if (!(e.relatedTarget instanceof Node) || !surface.contains(e.relatedTarget)) setDropLine(undefined); };
+    surface.addEventListener("dragover",outside); surface.addEventListener("drop",outside); surface.addEventListener("dragleave",clear);
+    return () => { surface.removeEventListener("dragover",outside); surface.removeEventListener("drop",outside); surface.removeEventListener("dragleave",clear); };
+  }, [loaded]);
   const mediaParam = params.get("media"), timeParam = params.get("at");
   useEffect(() => { const next = readCue(location.href, note.id); if (next) setCue(next); }, [mediaParam, timeParam, note.id]);
   useEffect(() => { if (drawing) setPaperTool("select"); }, [drawing]);
@@ -407,6 +439,9 @@ export function TopicEditor({ note, toolbarHost, insertHandle, onReady, clipRegi
       if (clip.file && !(await get("notebook-image", source.id)))
         await attachMedia(note.id, clip.file, { after: source.id, order: 0 }, source.id);
     };
+    // Mount the insertion caret once the saved document is editable. Leave any
+    // selected book passage intact so it can still be dragged into the note.
+    if (!document.getSelection()?.toString() && !document.activeElement?.closest("input,textarea,select")) editor.view.focus();
     onReady?.(true);
     return () => { insertHandle.current = null; onReady?.(false); };
   }, [editor, loaded, insertHandle, note.id, onReady]);
@@ -565,7 +600,7 @@ export function TopicEditor({ note, toolbarHost, insertHandle, onReady, clipRegi
     </div>}
     {copiedMediaIds().length > 0 && <div className="notebook-media-tools"><button className="text-button" onClick={() => pasteMedia(copiedMediaIds())}>Paste attachments</button></div>}      </div>;
     }}/>;
-  return <section className="topic-editor" onBlur={e => {
+  return <section className="topic-editor" onDragOverCapture={event => handleDrop(event,false)} onDropCapture={event => handleDrop(event,true)} onBlur={e => {
     const target = e.relatedTarget as Node | null;
     if (!e.currentTarget.contains(target) && !toolbarHost?.contains(target)) void flush();
   }}>
@@ -591,7 +626,7 @@ export function TopicEditor({ note, toolbarHost, insertHandle, onReady, clipRegi
             const id = target.closest<HTMLElement>("[data-media-id]")?.dataset.mediaId;
             if (id && (selectingMedia || event.shiftKey || event.ctrlKey || event.metaKey) && !target.closest("button, dialog, .workspace-menu")) { event.preventDefault(); event.stopPropagation(); toggleMedia(id); }
           }} onKeyDownCapture={event => {
-            if (!editor || (event.target as Element).closest("input,textarea,button,select,video,audio")) return;
+            if (!editor || (event.target as Element).closest("input,textarea,button,select,video,audio,.paper-ink,.drawing-block")) return;
             if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
               event.preventDefault(); event.stopPropagation(); selectPage(editor);
               setSelectedMedia(new Set(allObjects.media.map(m=>m.id))); setSelectedStrokes(new Set(allObjects.strokes.map(s=>s.id)));
@@ -622,7 +657,7 @@ export function TopicEditor({ note, toolbarHost, insertHandle, onReady, clipRegi
             }
             const ids = decodeMediaSelection(event.clipboardData.getData("text/plain"));
             if (ids) { event.preventDefault(); event.stopPropagation(); pasteMedia(ids); }
-          }} onDragOverCapture={event => handleDrop(event, false)} onDropCapture={event => handleDrop(event, true)}
+          }}
           onDragLeave={event => { if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setDropLine(undefined); }} onDragEnd={() => setDropLine(undefined)}>
           <EditorContent editor={editor} onPointerUp={paintSelectedWords} onClickCapture={event => {
             const link = (event.target as Element).closest("a"); const next = link && readCue(link.href, note.id);

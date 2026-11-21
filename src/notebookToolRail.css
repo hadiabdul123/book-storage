@@ -49,3 +49,5 @@
 :is(.study-notebook, .workspace-notebooks) .notebook-writing h2 { font-size:1.35em; }
 :is(.study-notebook, .workspace-notebooks) .notebook-writing h3 { font-size:1.12em; }
 .reader-shell .study-notebook .notebook-writing { color:#282820; }
+
+.study-notebook .notebook-writing[contenteditable=true] { caret-color:#263d51; cursor:text; }

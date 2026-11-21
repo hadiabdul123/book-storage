@@ -1,5 +1,7 @@
 export const neuralVoices = [
   { id: "af_heart", name: "Heart", accent: "US English" },
+  { id: "af_bella", name: "Bella", accent: "US English" },
+  { id: "bm_george", name: "George", accent: "UK English" },
   { id: "am_michael", name: "Michael", accent: "US English" },
   { id: "bf_emma", name: "Emma", accent: "UK English" },
 ] as const;

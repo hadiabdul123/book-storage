@@ -179,10 +179,23 @@ export function NotebookPaperInk({ editor, overlays, strokes, selectedStrokes, n
     return () => { binding.flush(); binding.destroy(); if (bindingRef.current === binding) bindingRef.current = undefined; };
   }, [editor, noteId, paper, history, bindingRef]);
 
+  useLayoutEffect(() => {
+    if (mode === "select" && selected) frameButton.current?.focus({ preventScroll: true });
+  }, [mode, selected]);
+
   useEffect(() => { draft.current = undefined; if (mode === "write") setSelected(undefined); }, [mode]);
   useEffect(() => { bindingRef.current?.paint(); }, [mode, style, strokes, bindingRef]);
   const ink = history.visible(strokes);
   const erasing = mode === "draw" && style.tool === "eraser";
+  function deleteDrawing(drawing:NotebookOverlay, local:InkStroke[]) {
+    if (!local.length) return;
+    draft.current = undefined;
+    void track(async () => {
+      await history.edit(local.map(stroke=>({before:stroke})));
+      setSelected(undefined);
+      notice("Drawing deleted. Use Undo drawing to restore it.");
+    }).catch(e=>notice(e.message));
+  }
   function begin(event: ReactPointerEvent<HTMLButtonElement>, overlay: NotebookOverlay, anchor: AnchorBox, bounds: DrawingBounds, edge?: ResizeEdge) {
     if (event.button !== 0) return;
     event.preventDefault();
@@ -256,7 +269,10 @@ export function NotebookPaperInk({ editor, overlays, strokes, selectedStrokes, n
         }
         const width = Math.max(24, (right - left) * origin.unitX), height = Math.max(24, (bottom - top) * origin.unitY);
         const bounds = { left, top, width, height };
-        return <div key={drawing.id} className="paper-ink-frame" style={{ left: origin.left + left * origin.unitX, top: origin.top + top * origin.unitY, width, height }}>
+        return <div key={drawing.id} onKeyDown={e=>{
+          if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); e.stopPropagation(); if (!e.repeat) deleteDrawing(drawing,local); }
+        }} className="paper-ink-frame" style={{ left: origin.left + left * origin.unitX, top: origin.top + top * origin.unitY, width, height }}>
+          <button type="button" className="paper-ink-delete" aria-label="Delete drawing" onClick={()=>deleteDrawing(drawing,local)}>Delete</button>
           <button ref={frameButton} className="paper-ink-move" aria-label="Move drawing" {...gestures} onPointerDown={e => begin(e, drawing, anchor, bounds)} onKeyDown={event => {
             const offset = { ArrowUp: [0, -8], ArrowDown: [0, 8], ArrowLeft: [-8, 0], ArrowRight: [8, 0] }[event.key];
             if (!offset) return;

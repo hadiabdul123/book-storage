@@ -94,17 +94,23 @@ export function bindInkLasso(svg: SVGSVGElement, options: {
       ids=new Set(options.candidates().filter(c=>c.stroke.points.some(p=>{const [x,y]=c.project(p[0],p[1]);return inside(x,y,polygon);})).map(c=>c.stroke.id));
       const root=scope();
       root?.dispatchEvent(new CustomEvent("leafmark-ink-focus",{detail:svg}));
+      if (ids.size) { svg.setAttribute("tabindex","-1"); svg.focus({preventScroll:true}); }
       render();
     } else if(g.dx || g.dy || g.scale!==1) void edit("transform",g.dx,g.dy,g.scale);
   };
   const cancel=()=>{graphics.removeAttribute("transform");reset();};
+  const key=(e:KeyboardEvent)=>{
+    if (!ids.size || !options.enabled() || (e.key!=="Delete" && e.key!=="Backspace")) return;
+    e.preventDefault(); e.stopPropagation(); if (!e.repeat) void edit("delete");
+  };
+  svg.addEventListener("keydown",key);
   const root=scope();
   const focus=(e:Event)=>{if((e as CustomEvent).detail!==svg)cancel();};
   const action=(e:Event)=>{const operation=(e as CustomEvent).detail;if(operation==="delete"||operation==="color")void edit(operation);};
   root?.addEventListener("leafmark-ink-focus",focus);root?.addEventListener("leafmark-ink-action",action);
   svg.addEventListener("pointerdown",down,true);svg.addEventListener("pointermove",move,true);svg.addEventListener("pointerup",up,true);svg.addEventListener("pointercancel",cancel);
   return { refresh:()=>{if(!gesture)render();},destroy:()=>{
-    reset();svg.removeEventListener("pointerdown",down,true);svg.removeEventListener("pointermove",move,true);svg.removeEventListener("pointerup",up,true);svg.removeEventListener("pointercancel",cancel);
+    reset();svg.removeEventListener("keydown",key);svg.removeEventListener("pointerdown",down,true);svg.removeEventListener("pointermove",move,true);svg.removeEventListener("pointerup",up,true);svg.removeEventListener("pointercancel",cancel);
     root?.removeEventListener("leafmark-ink-focus",focus);root?.removeEventListener("leafmark-ink-action",action);
   }};
 }

@@ -2,7 +2,7 @@ import { useLayoutEffect, useMemo, useRef, type PointerEvent, type RefObject } f
 import { createPortal } from "react-dom";
 import type { Editor } from "@tiptap/react";
 import { NotebookMedia, type MediaCue } from "./NotebookMedia";
-import { updateMediaWidgets } from "./inlineMedia";
+import { fitTextAroundMedia, updateMediaWidgets } from "./inlineMedia";
 import type { FreeMediaPosition, NotebookMedia as Media } from "./notebookAssets";
 
 export function NotebookMediaLayer({ editor, files, cue, paper, selected, onTimestamp, onMove, onSelect, onFree, onMoveFree, onDragInline }: {
@@ -17,6 +17,7 @@ export function NotebookMediaLayer({ editor, files, cue, paper, selected, onTime
 }) {
   const hosts = useRef(new Map<string, HTMLElement>());
   const layer = useRef<HTMLDivElement>(null);
+  const requestFlow = useRef<() => void>(()=>{});
   const stopDrag = useRef<(() => void) | undefined>(undefined);
   const widgets = useMemo(() => files.map(media => {
     let host = hosts.current.get(media.id);
@@ -35,7 +36,10 @@ export function NotebookMediaLayer({ editor, files, cue, paper, selected, onTime
     const inline = widgets.filter(widget => !widget.media.placement?.free);
     for (const { host } of inline) { host.className = "notebook-media-widget"; host.removeAttribute("style"); }
     updateMediaWidgets(editor, inline);
+    let frame = 0;
+    const schedule = () => { if (!frame) frame=requestAnimationFrame(sizeFreeMedia); };
     function sizeFreeMedia() {
+      frame=0;
       const width = root!.clientWidth;
       let bottom = 0;
       for (const { host, media } of free) {
@@ -45,7 +49,9 @@ export function NotebookMediaLayer({ editor, files, cue, paper, selected, onTime
         host.style.width = `${placement.width * 100}%`;
         bottom = Math.max(bottom, placement.y * width + host.offsetHeight + 18);
       }
-      root!.style.minHeight = bottom ? `${Math.ceil(bottom)}px` : "";
+      root!.style.minHeight = bottom ? Math.ceil(bottom)+"px" : "";
+      if (!editor.isDestroyed && (free.length || editor.view.dom.querySelector(".notebook-media-clear")))
+        fitTextAroundMedia(editor, free.map(({host}) => host.getBoundingClientRect()));
     }
     for (const { host } of free) {
       host.className = "notebook-media-widget is-free";
@@ -53,10 +59,12 @@ export function NotebookMediaLayer({ editor, files, cue, paper, selected, onTime
     }
     for (const [id, host] of hosts.current) if (!files.some(file => file.id === id)) { host.remove(); hosts.current.delete(id); }
     sizeFreeMedia();
-    const observer = new ResizeObserver(sizeFreeMedia);
-    observer.observe(root);
+    requestFlow.current = schedule;
+    if (free.length) editor.on("transaction", schedule);
+    const observer = new ResizeObserver(schedule);
+    observer.observe(root); observer.observe(editor.view.dom);
     for (const { host } of free) observer.observe(host);
-    return () => observer.disconnect();
+    return () => { observer.disconnect(); editor.off("transaction",schedule); cancelAnimationFrame(frame); requestFlow.current=()=>{}; };
   }, [editor, widgets]);
   useLayoutEffect(() => () => stopDrag.current?.(), []);
 
@@ -82,6 +90,7 @@ export function NotebookMediaLayer({ editor, files, cue, paper, selected, onTime
       dx = Math.max(-left, Math.min(1 - right, (e.clientX - originX) / width));
       dy = Math.max(-top, Math.min(Math.max(0, height - bottom), (e.clientY - originY) / width));
       for (const { host } of group) host.style.transform = `translate(${dx * root!.clientWidth}px, ${dy * root!.clientWidth}px)`;
+      requestFlow.current();
     }
     function finish(e: globalThis.PointerEvent) {
       if (e.pointerId !== pointer) return;
@@ -96,6 +105,7 @@ export function NotebookMediaLayer({ editor, files, cue, paper, selected, onTime
       button.removeEventListener("pointermove", move); button.removeEventListener("pointerup", finish);
       button.removeEventListener("pointercancel", finish); button.removeEventListener("lostpointercapture", finish);
       for (const { host } of group) host.style.transform = "";
+      requestFlow.current();
       stopDrag.current = undefined;
     }
     button.addEventListener("pointermove", move); button.addEventListener("pointerup", finish);
