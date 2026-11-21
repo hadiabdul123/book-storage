@@ -26,6 +26,7 @@ import {
 import type { ReaderAdapter, Selection, SelectionSource } from "./reader/types";
 import { overlap, typingTarget } from "./reader/geometry";
 import { ReaderHistory, type ReaderChange } from "./readerHistory";
+import type { ImageAction } from "./MeaningGallery";
 import { Meaning } from "./Meaning";
 import { validLocator } from "./validation";
 import "./readerInteractions.css";
@@ -61,6 +62,7 @@ export const ReaderInteractions = forwardRef<
     notify: (message: string) => void;
     onDefinition: (page: number, text: string) => Promise<void>;
     onResearch: (selection: Selection) => Promise<void>;
+    onMeaningImage: ImageAction;
     onStudy: (selection: Selection, point?: { x: number; y: number }) => Promise<void>;
     onListen: (selection: Selection) => Promise<void>;
   }
@@ -80,6 +82,7 @@ export const ReaderInteractions = forwardRef<
     onDefinition,
     onResearch,
     onStudy,
+    onMeaningImage,
     onListen,
   },
   ref,
@@ -1039,6 +1042,7 @@ export const ReaderInteractions = forwardRef<
             <Meaning
               compact
               term={selected.text}
+              onImage={(file,image,destination) => onMeaningImage(file,image,destination,{id:uid(),kind:"book",bookId:book.id,title:book.title,locator:selected.locator,excerpt:selected.text})}
               context={async () => ({ id: "selection", kind: "book", bookId: book.id, title: book.title, locator: selected.locator, excerpt: await adapter.current?.context(selected) || selected.text })}
               onExplain={() => { if (selected) void attempt(() => onResearch(selected)); }}
               onAdd={

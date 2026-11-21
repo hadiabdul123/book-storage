@@ -56,6 +56,8 @@ import { AnnotationCard, EditAnnotation, messageOf } from "./components";
 import { exportAnnotations } from "./export";
 import { highlightStudyData } from "./highlightStudy";
 import { PageNotebook, type NotebookHandle } from "./PageNotebook";
+import { SaveResearch } from "./SaveResearch";
+import type { ImageAction } from "./MeaningGallery";
 import { Meaning } from "./Meaning";
 import { ResearchPanel } from "./ResearchPanel";
 import type { SourceRef } from "./researchTypes";
@@ -203,6 +205,17 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
     return () => viewport?.removeEventListener("resize", resize);
   }, [book?.id]);
   const [clips, setClips] = useState<StudyClip[]>([]);
+  const [imagePicker,setImagePicker] = useState<StudyClip & {file:File}>();
+  const copyMeaningImage: ImageAction = async (file,image,destination,passage) => {
+    if (!(await flushNotebook())) throw Error("Could not save the current note.");
+    const source: SourceRef = {id:uid(),kind:"web",title:image.title,url:image.page,excerpt:image.credit,retrievedAt:now()};
+    const clip = {file,source,passage,text:image.title + " · " + image.credit};
+    interactions.current?.dismiss();
+    adapter.current?.clearSelection();
+    if (destination === "notebook") { setImagePicker(clip); return; }
+    setClips(queue => [...queue,clip]);
+    setPanel("study-notebook"); chrome.conceal();
+  };
   const studyPane = useStudyPane();
   const sideNote = useRef("");
   const notebook = useRef<NotebookHandle | null>(null);
@@ -1122,6 +1135,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
               {panel === "meaning" && (
                 <Meaning
                   term={meaningTerm}
+                  onImage={(file,image,destination) => copyMeaningImage(file,image,destination,current ? {id:uid(),kind:"book",title:book.title,bookId:book.id,locator:current,excerpt:meaningTerm || book.title} : undefined)}
                   onAdd={
                     book.format === "pdf"
                       ? async (text) => {
@@ -1664,6 +1678,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
         secondaryControls={secondaryActionsHost}
         ready={!loading}
         suspended={(panel !== "" && panel !== "study-notebook") || drawing}
+        onMeaningImage={copyMeaningImage}
         onStudy={async (selection, point) => {
           if (panel !== "study-notebook" && !(await flushNotebook())) throw Error("Save the open note and retry inserting the passage.");
           const file = selection.kind === "image" ? await (adapter.current as PdfReader).captureRegion(selection.locator) : undefined;
@@ -1689,6 +1704,9 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
           notify("Definition added to your page notebook.");
         }}
       />
+      {imagePicker && <SaveResearch notebookOnly image={{id:imagePicker.source.id,file:imagePicker.file}}
+        text={imagePicker.text} sources={imagePicker.passage ? [imagePicker.source,imagePicker.passage] : [imagePicker.source]}
+        onClose={() => setImagePicker(undefined)}/>}
       {editing && (
         <EditAnnotation
           annotation={editing}

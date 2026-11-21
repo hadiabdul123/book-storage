@@ -16,16 +16,23 @@ export function attachmentExtension(file: File) {
   return extension;
 }
 
-export async function attachMedia(noteId: string, file: File, placement?: MediaPlacement, id: string = uid()) {
+export async function prepareAttachment(file:File) {
   const extension = attachmentExtension(file);
   const bytes = await file.arrayBuffer();
-  const media: NotebookMedia = { id, noteId, title: file.name.trim().slice(0, 200), extension, size: file.size, hash: await mediaHash(bytes), createdAt: now(), placement };
+  return {extension,bytes,hash:await mediaHash(bytes),size:file.size,title:file.name.trim().slice(0,200)};
+}
+export async function storeAttachment(noteId:string, prepared:Awaited<ReturnType<typeof prepareAttachment>>, placement?:MediaPlacement, id:string = uid()) {
+  const {bytes,...metadata} = prepared;
+  const media:NotebookMedia = { ...metadata,id,noteId,createdAt:now(),placement };
   await db.transaction("rw", [db.mediaFiles, db.rows, db.outbox, db.conflicts, db.meta], async () => {
     if (!(await get("notebook-note", noteId))) throw new Error("This notebook page has been removed.");
-    await db.mediaFiles.add({ id: media.id, bytes, uploaded: false });
-    await save(mediaKind(media), media);
+    await db.mediaFiles.add({ id, bytes, uploaded:false });
+    await save(mediaKind(media),media);
   });
   return media;
+}
+export async function attachMedia(noteId:string,file:File,placement?:MediaPlacement,id?:string) {
+  return storeAttachment(noteId,await prepareAttachment(file),placement,id);
 }
 
 export async function notebookMediaList() {

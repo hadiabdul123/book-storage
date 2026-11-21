@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { MeaningGallery, type ImageAction } from "./MeaningGallery";
 import { lookupAiMeaning } from "./meaningAi";
 import type { SourceRef } from "./researchTypes";
 import { normalizeWord, dictionaryQueryError, dictionarySource, definitionNote, type DictionaryEntry } from "./dictionary";
@@ -7,7 +8,13 @@ import {
   type ReferenceResult,
 } from "./meaningLookup";
 
-export function Meaning({ term, onAdd, compact = false, onExplain, context }: {
+function allowOnlineReferences() {
+  try { return localStorage.getItem(onlinePreferenceKey) !== "false"; }
+  catch { return true; }
+}
+
+export function Meaning({ term, onAdd, compact = false, onExplain, context, onImage }: {
+  onImage?: ImageAction;
   term: string;
   onAdd?: (text: string) => Promise<void>;
   compact?: boolean;
@@ -16,18 +23,19 @@ export function Meaning({ term, onAdd, compact = false, onExplain, context }: {
 }) {
   const [input, setInput] = useState(term), [query, setQuery] = useState(term);
   const [editing, setEditing] = useState(false), [dictionary, setDictionary] = useState(false);
-  const [attempt, setAttempt] = useState(0), [answer, setAnswer] = useState<{ answer: string; model: string; cached: boolean }>();
+  const [attempt, setAttempt] = useState(0), [answer, setAnswer] = useState<{ answer: string; model: string; visualQuery?: string; cached: boolean }>();
   const [status, setStatus] = useState(""), [busy, setBusy] = useState(false), [adding, setAdding] = useState(false);
+  const [partial,setPartial] = useState("");
   const currentContext = useRef(context); currentContext.current = context;
   const request = useRef<AbortController | undefined>(undefined);
   useEffect(() => { setInput(term); setQuery(term); setEditing(false); setDictionary(false); setAttempt(0); }, [term]);
   useEffect(() => {
-    const controller = new AbortController(); request.current = controller;
+    const controller = new AbortController(); request.current = controller; setPartial("");
     if (dictionary) { setAnswer(undefined); setBusy(false); return () => controller.abort(); }
     setAnswer(undefined); setBusy(false); setStatus("");
     if (!query.trim()) return () => controller.abort();
     setBusy(true);
-    void lookupAiMeaning(query, { signal: controller.signal, context: () => currentContext.current?.() || Promise.resolve(undefined), refresh: attempt > 0 })
+    void lookupAiMeaning(query, { signal: controller.signal, onText: text => { if (!controller.signal.aborted) setPartial(text); }, context: () => currentContext.current?.() || Promise.resolve(undefined), refresh: attempt > 0 })
       .then(result => { if (!controller.signal.aborted) setAnswer(result); })
       .catch(error => {
         if (controller.signal.aborted) return;
@@ -43,15 +51,15 @@ export function Meaning({ term, onAdd, compact = false, onExplain, context }: {
     {(!compact || editing) && <form className="meaning-search" onSubmit={event => {
       event.preventDefault(); setDictionary(false); setAttempt(0); setQuery(input); if (input === query) setAttempt(n => n + 1);
     }}><label>Look up a word or phrase<input aria-label="Dictionary word" maxLength={100} value={input} onChange={event => setInput(event.target.value)} /></label><button className="secondary">Look up</button></form>}
-    {busy && <p role="status">Explaining with Groq…</p>}
+    {busy && !partial && <p role="status">Explaining with Groq…</p>}
     {status && <p role="status">{status}</p>}
-    {answer && <article className="ai-meaning">
-      <h3>{query}</h3><p className="muted">AI explanation · Groq{answer.cached ? " · Saved on this device" : ""}</p>
-      {answer.answer.split(/\n\s*\n/).map((block, i) => {
+    {(answer || partial) && <article className="ai-meaning">
+      <h3>{query}</h3><p className="muted">AI explanation · Groq{answer?.cached ? " · Saved on this device" : ""}</p>
+      {(answer?.answer || partial).split(/\n\s*\n/).map((block, i) => {
         const at = block.indexOf("\n");
-        return <div key={i}>{at > 0 ? <><strong>{block.slice(0, at)}</strong><p style={{ whiteSpace: "pre-line" }}>{block.slice(at + 1)}</p></> : <p>{block}</p>}</div>;
+        return <div key={i}>{at > 0 ? <><strong>{block.slice(0, at)}</strong><p style={{ whiteSpace: "pre-line" }}>{block.slice(at + 1)}</p></> : <p>{block}</p>}{i === 0 && answer?.visualQuery && allowOnlineReferences() && <MeaningGallery key={answer.visualQuery} topic={answer.visualQuery} onImage={onImage}/>}</div>;
       })}
-      {onAdd && <button className="text-button" disabled={adding} onClick={async () => {
+      {answer && onAdd && <button className="text-button" disabled={adding} onClick={async () => {
         setAdding(true); try { await onAdd(`${query}\n\n${answer.answer}\n\nAI explanation · Groq (${answer.model})`); }
         catch { setStatus("Could not save the explanation. Please try again."); } finally { setAdding(false); }
       }}>Add to page note</button>}
@@ -62,7 +70,7 @@ export function Meaning({ term, onAdd, compact = false, onExplain, context }: {
       {onExplain && <button className="text-button" onClick={onExplain}>Full research</button>}
     </div>}
     {dictionary && <DictionaryMeaning term={query} onAdd={onAdd} compact hideSearch />}
-    <p className="dictionary-credit">Explain sends this word or phrase and a short nearby excerpt to Groq. AI explanations can be mistaken.</p>
+    <p className="dictionary-credit">Explain sends this word or phrase and a short nearby excerpt to Groq. Illustrations use Wikimedia. AI explanations can be mistaken.</p>
   </section>;
 }
 

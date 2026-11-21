@@ -58,3 +58,77 @@ test("AI errors fall back and a late response cannot replace a new lookup", asyn
   finish(); await expect(page.locator(".ai-meaning")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Retry AI", exact: true })).toBeVisible();
 });
+
+test("concept images load after the text and keep attribution when placed in either notebook", async ({page}) => {
+  const titles = ["File:Earth.jpg","File:Earth structure.jpg"];
+  const origin = "https://upload.wikimedia.org/";
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQI12P4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==","base64");
+  let release!:()=>void;
+  const gate = new Promise<void>(resolve => { release=resolve; });
+  await page.route("https://en.wikipedia.org/w/api.php?**", async r => {
+    await gate;
+    await r.fulfill({json:{query:{pages:[{title:"Earth",pageimage:"Earth.jpg",images:[{title:titles[1]}]}]}}});
+  });
+  await page.route("https://commons.wikimedia.org/w/api.php?**", r => r.fulfill({json:{query:{pages:titles.map((title,i)=>({
+    title,imageinfo:[{thumburl:origin+i+".png",descriptionurl:"https://commons.wikimedia.org/wiki/"+title.replaceAll(" ","_"),
+      extmetadata:{Artist:{value:"<b>Science artist</b>"},LicenseShortName:{value:"CC BY-SA 4.0"}}}],
+  }))}}}));
+  await page.route(origin+"**",r=>r.fulfill({body:png,contentType:"image/png"}));
+  await open(page,async ()=>({body:{answer,model:"test",sources:[],visualQuery:"Earth"}}));
+  async function explain() {
+    await page.locator(".textLayer span").filter({hasText:/^comfort$/}).evaluate(el => {
+      const r=document.createRange(); r.selectNodeContents(el); const s=getSelection()!; s.removeAllRanges(); s.addRange(r); document.dispatchEvent(new Event("selectionchange"));
+    });
+    await page.getByRole("button",{name:"Explain",exact:true}).click();
+  }
+  await explain();
+  await expect(page.locator(".ai-meaning")).toContainText("Comfort means feeling at ease");
+  await expect(page.getByRole("figure",{name:"Concept images"})).toHaveCount(0);
+  release();
+  await page.getByRole("button",{name:"Next image"}).click();
+  await expect(page.locator(".meaning-gallery figcaption")).toContainText("Earth structure");
+  await page.getByRole("button",{name:"Image options"}).click();
+  await page.getByRole("button",{name:"Add to notebook…"}).click();
+  const picker=page.getByRole("dialog",{name:"Add image to notebook"});
+  await picker.getByLabel("Save destination").selectOption("new");
+  await picker.getByLabel("Note title").fill("Planet notes");
+  await picker.getByRole("button",{name:"Save image"}).click();
+  await expect(picker).toContainText("Image saved to notebook.");
+  await picker.getByRole("button",{name:"Done"}).click();
+  await explain();
+  await page.locator(".meaning-picture").click({button:"right"});
+  await page.getByRole("button",{name:"Copy to Study notebook"}).click();
+  const study = page.locator(".study-notebook");
+  await study.getByLabel("Write in").selectOption({label:"Planet notes"});
+  await expect(study.locator(".notebook-paper")).toContainText("Science artist");
+  await expect(study.locator(".notebook-paper")).toContainText("Meaning");
+  await study.getByRole("button",{name:"Insert at cursor"}).click();
+  await expect(study.locator(".study-pending")).toHaveCount(0);
+  await expect(study.locator(".notebook-paper img")).toHaveCount(2);
+});
+
+test("shows the first streamed definition while the rest of the explanation is still pending", async ({page}) => {
+  await page.addInitScript(() => {
+    const original = window.fetch.bind(window);
+    window.fetch = async (url,init) => {
+      if (!String(url).endsWith("/functions/v1/research") || new Headers(init?.headers).get("accept") !== "application/x-ndjson")
+        return original(url,init);
+      const encoder = new TextEncoder(), first = "Definition\nA place of rest.";
+      return new Response(new ReadableStream({start(out) {
+        out.enqueue(encoder.encode(JSON.stringify({text:first})+"\n"));
+        window.addEventListener("finish-test-meaning",() => {
+          out.enqueue(encoder.encode(JSON.stringify({result:{answer:first+"\n\nExamples\nA quiet room.",sources:[],model:"test"}})+"\n")); out.close();
+        },{once:true});
+      }}),{headers:{"Content-Type":"application/x-ndjson"}});
+    };
+  });
+  await open(page,async ()=>({status:500,body:{}}));
+  await clickTool(page,"Dictionary");
+  await page.getByLabel("Dictionary word").fill("comfort");
+  await page.getByRole("button",{name:"Look up",exact:true}).click();
+  await expect(page.locator(".ai-meaning")).toContainText("A place of rest.",{timeout:3000});
+  await expect(page.getByRole("button",{name:"Add to page note"})).toHaveCount(0);
+  await page.evaluate(()=>window.dispatchEvent(new Event("finish-test-meaning")));
+  await expect(page.locator(".ai-meaning")).toContainText("A quiet room.");
+  await expect(page.getByRole("button",{name:"Add to page note"})).toBeVisible();
+});

@@ -48,7 +48,7 @@ export type ClipTarget = { kind: "note"; noteId: string } |
   { kind: "new"; notebookId?: string; notebookTitle?: string; title: string } |
   { kind: "page"; bookId: string; page: number } |
   { kind: "passage"; bookId: string; locator: Locator; quote: string };
-export async function saveResearchClip(target: ClipTarget, text: string, sources: SourceRef[]) {
+export async function saveResearchClip(target: ClipTarget, text: string, sources: SourceRef[], image?: {id:string;file:File}) {
   if (!text.trim() || text.length > 20000 || sources.length > 20 || !sources.every(validSourceRef)) throw new Error("Choose a shorter excerpt with valid sources.");
   if (target.kind === "note" && (await flushers.get(target.noteId)?.()) === false) throw new Error("Save the open note before adding research.");
   const blocks: RichNode[] = [...text.split(/\n\s*\n/).map(paragraph), ...sources.map(citationNode)];
@@ -66,8 +66,11 @@ export async function saveResearchClip(target: ClipTarget, text: string, sources
     }
     if (!Number.isInteger(target.page) || target.page < 1 || target.page > pages) throw new Error(`Choose a page between 1 and ${pages}.`);
   }
+  const mediaStore = image ? await import("./notebookMediaStore") : undefined;
+  const prepared = image && await mediaStore!.prepareAttachment(image.file);
+  if (image) blocks.unshift({type:"paragraph",attrs:{inkAnchor:image.id}});
   let savedId = "";
-  await db.transaction("rw", db.rows, db.outbox, db.conflicts, db.meta, async () => {
+  await db.transaction("rw", [db.rows, db.outbox, db.conflicts, db.meta, ...(image ? [db.mediaFiles] : [])], async () => {
     if (target.kind === "note" || target.kind === "new") {
       let note: NotebookNote | undefined;
       if (target.kind === "note") note = await get("notebook-note", target.noteId);
@@ -82,6 +85,7 @@ export async function saveResearchClip(target: ClipTarget, text: string, sources
       if (recovery) { const draft = JSON.parse(recovery.value); if (draft.id === note.id && validRichDocument(draft.document)) note = { ...note, document: draft.document }; }
       await saveNotebookNote({ ...note, document: { type: "doc", content: [...(note.document.content || []), ...blocks] } });
       await db.meta.delete(`topic-draft:${note.id}`);
+      if (image && prepared) await mediaStore!.storeAttachment(note.id,prepared,{after:image.id,order:0},image.id);
       savedId = note.id;
     } else {
       const book = await get("book", target.bookId);

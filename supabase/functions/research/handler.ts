@@ -1,3 +1,4 @@
+import { streamMeaning } from "./meaningStream.ts";
 // Provider orchestration is independent of Deno so it is exercised in unit tests.
 import { comparisonSourceId, comparisonText, noBookEvidence, validBookComparison, validComparisonRequest } from "./comparison.ts";
 import type { BookComparison, ComparisonRequest } from "./comparison.ts";
@@ -91,6 +92,13 @@ export function createResearchHandler(deps: Dependencies) {
       if (reservation.state === "limited") throw new ResearchError(429, "Research is paused to protect the free allowance. Try again later.", "quota", 60);
       if (reservation.state === "busy") throw new ResearchError(409, "This request is still processing. Retry shortly.", "busy", 30);
       reserved = true;
+      if (input.meaning && req.headers.get("accept")?.includes("application/x-ndjson")) {
+        const id = input.requestId;
+        return await streamMeaning({ fetcher, key:deps.groqKey, model:deps.model || "openai/gpt-oss-20b",
+          term:input.meaning.term, excerpt:input.sources[0]?.excerpt.slice(0,1800) || "", signal:req.signal,
+          headers:cors, failure:(status,body,retry)=>providerFailure("groq",status,body,retry),
+          finish:result=>deps.finish(authorization,id,result) });
+      }
       const controller = new AbortController();
       const abort = () => controller.abort();
       req.signal.addEventListener("abort", abort, { once: true });

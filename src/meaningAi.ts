@@ -5,8 +5,8 @@ import type { ResearchRequest, ResearchResult, SourceRef } from "./researchTypes
 
 const prefix = "meaning-ai:v1:";
 const maxAge = 30 * 86400000;
-type Options = { signal: AbortSignal; context?: () => Promise<SourceRef | undefined>; refresh?: boolean };
-type Transport = (request: ResearchRequest, signal: AbortSignal) => Promise<ResearchResult>;
+type Options = { onText?: (text:string)=>void; signal: AbortSignal; context?: () => Promise<SourceRef | undefined>; refresh?: boolean };
+type Transport = (request: ResearchRequest, signal: AbortSignal, onText?: (text:string)=>void) => Promise<ResearchResult>;
 export async function lookupAiMeaning(term: string, options: Options, transport: Transport = callResearch) {
   const word = term.normalize("NFKC").replaceAll("\u00ad", "").trim().replace(/\s+/g, " ");
   if (!word || word.length > 100) throw new Error("Select a word or short phrase up to 100 characters.");
@@ -14,7 +14,8 @@ export async function lookupAiMeaning(term: string, options: Options, transport:
   const cancel = () => controller.abort(options.signal.reason);
   options.signal.addEventListener("abort", cancel, { once: true });
   if (options.signal.aborted) cancel();
-  const timer = setTimeout(() => controller.abort(new Error("AI timed out. Showing the dictionary.")), 8000);
+  const timeout = () => setTimeout(() => controller.abort(new Error("AI timed out. Showing the dictionary.")), 8000);
+  let timer = timeout();
   let aborted!: () => void;
   const abort = new Promise<never>((_, reject) => {
     aborted = () => reject(controller.signal.reason || new DOMException("Cancelled", "AbortError"));
@@ -33,18 +34,21 @@ export async function lookupAiMeaning(term: string, options: Options, transport:
       try {
         const cached = JSON.parse((await db.meta.get(key))?.value || "null");
         controller.signal.throwIfAborted();
-        if (cached && Date.now() - cached.at < maxAge && validResearchResult(cached.result) && cached.result.answer.trim() && cached.result.sources.length === 0)
+        if (cached && (!options.onText || cached.visualLookup || globalThis.navigator?.onLine === false) && Date.now() - cached.at < maxAge && validResearchResult(cached.result) && cached.result.answer.trim() && cached.result.sources.length === 0)
           return { ...cached.result as ResearchResult, cached: true };
       } catch { controller.signal.throwIfAborted(); }
     }
     if (globalThis.navigator?.onLine === false) throw new Error("Offline. Showing the dictionary.");
-    const result = await transport({ ...request, requestId: uid() }, controller.signal);
+    const result = await transport({ ...request, requestId: uid() }, controller.signal, options.onText && (text => {
+      controller.signal.throwIfAborted();
+      clearTimeout(timer); timer = timeout(); options.onText!(text);
+    }));
     controller.signal.throwIfAborted();
     if (!validResearchResult(result) || !result.answer.trim() || result.sources.length) throw new Error("The AI explanation was incomplete. Showing the dictionary.");
     try {
       await db.transaction("rw", db.meta, async () => {
         controller.signal.throwIfAborted();
-        await db.meta.put({ key, value: JSON.stringify({ at: Date.now(), result }) });
+        await db.meta.put({ key, value: JSON.stringify({ at: Date.now(), result, visualLookup: !!options.onText }) });
         const rows = await db.meta.where("key").startsWith(prefix).toArray();
         if (rows.length > 100) {
           const at = (s: string) => { try { return Number(JSON.parse(s).at) || 0; } catch { return 0; } };

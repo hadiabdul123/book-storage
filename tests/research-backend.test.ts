@@ -146,3 +146,24 @@ it("compares a page and notebook entry and rejects citations assigned to the wro
     expect(response.status).toBe(misattributed ? 502 : 200);
   }
 });
+
+it.each(["Earth", "NONE"])("streams a useful definition ahead of later tokens and saves the finished result (%s)", async topic => {
+  let provider!: ReadableStreamDefaultController<Uint8Array>;
+  const body = new ReadableStream<Uint8Array>({start(out) { provider = out; }});
+  const push = (content:string) => provider.enqueue(new TextEncoder().encode("data: " + JSON.stringify({choices:[{delta:{content}}]}) + "\r\n"));
+  d.fetcher.mockResolvedValueOnce(new Response(body));
+  const response = await createResearchHandler(d)(request({...input(),mode:"explain",meaning:{term:"earth"}}, {Accept:"application/x-ndjson"}));
+  expect(response.headers.get("content-type")).toContain("ndjson");
+  const reader = response.body!.getReader(), decoder = new TextDecoder();
+  push("Definition: Our home planet.\n");
+  expect(JSON.parse(decoder.decode((await reader.read()).value)).text).toBe("Definition\nOur home planet.");
+  expect(d.finish).not.toHaveBeenCalled();
+  push("Context: The third planet.\nExample: A.\nExample: B.\nExample: C.\nUsage: Capitalize Earth.\nVisual: "+topic);
+  provider.close();
+  let rest = "";
+  for (;;) { const {value,done} = await reader.read(); if (done) break; rest += decoder.decode(value); }
+  const result = JSON.parse(rest.trim().split("\n").at(-1)!).result;
+  expect(result.answer).toContain("3. C."); expect(result.answer).not.toContain("Visual:");
+  expect(result.visualQuery).toBe(topic === "Earth" ? topic : undefined);
+  expect(d.finish).toHaveBeenCalledOnce(); expect(d.fetcher).toHaveBeenCalledOnce();
+});

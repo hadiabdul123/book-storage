@@ -1,3 +1,4 @@
+import { readLines } from "../supabase/functions/research/lines";
 import { db, get, save } from "./db";
 import { cloud } from "./sync";
 import { now, uid } from "./model";
@@ -11,6 +12,7 @@ export class ResearchFailure extends Error {
 export function validResearchResult(value: unknown): value is ResearchResult {
   const r = value as ResearchResult;
   return !!r && typeof r.answer === "string" && r.answer.length <= 12000 && typeof r.model === "string" &&
+    (r.visualQuery === undefined || (typeof r.visualQuery === "string" && r.visualQuery.length <= 80)) &&
     Array.isArray(r.sources) && r.sources.length <= 8 && r.sources.every(validSourceRef) &&
     [...r.answer.matchAll(/\[(S\d+)\]/g)].every(m => r.sources.some(s => s.id === m[1])) &&
     (r.comparison === undefined || validBookComparison(r.comparison, r.sources));
@@ -40,15 +42,26 @@ export async function enqueueResearch(threadId: string, request: Omit<ResearchRe
   window.dispatchEvent(new Event("leafmark-research"));
   return job.id;
 }
-export async function callResearch(request: ResearchRequest, signal: AbortSignal): Promise<ResearchResult> {
+export async function callResearch(request: ResearchRequest, signal: AbortSignal, onText?: (text:string)=>void): Promise<ResearchResult> {
   if (!cloud) throw new ResearchFailure("Connect your private Supabase backend to use AI research. Offline reading and notebooks still work.", "configuration");
   const { data: { session }, error } = await cloud.auth.getSession();
   if (error || !session) throw new ResearchFailure("Sign in to resume research. Your saved questions and writing are safe.", "auth");
   const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/research`, {
     method: "POST", signal,
-    headers: { Authorization: `Bearer ${session.access_token}`, apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY, "Content-Type": "application/json" },
+    headers: { ...(onText && request.meaning ? {Accept:"application/x-ndjson"} : {}), Authorization: `Bearer ${session.access_token}`, apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY, "Content-Type": "application/json" },
     body: JSON.stringify(request),
   });
+  if (response.ok && onText && response.headers.get("content-type")?.includes("application/x-ndjson") && response.body) {
+    for await (const line of readLines(response.body)) {
+      signal.throwIfAborted();
+      if (!line) continue;
+      const packet = JSON.parse(line);
+      if (validResearchResult(packet.result)) return packet.result;
+      if (typeof packet.text === "string" && packet.text.length <= 12000) onText(packet.text);
+      if (packet.error) break;
+    }
+    throw new ResearchFailure("Incomplete explanation. Try again.", "provider");
+  }
   let body: any;
   try { body = await response.json(); } catch { throw new ResearchFailure("The research service did not return an answer. Retry your saved question.", "provider"); }
   if (!response.ok) throw new ResearchFailure(typeof body.error === "string" ? body.error : "Research could not finish. Retry your saved question.",

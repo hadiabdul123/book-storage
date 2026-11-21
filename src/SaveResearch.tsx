@@ -6,13 +6,13 @@ import { Dialog } from "./components";
 import type { SourceRef } from "./researchTypes";
 import { saveResearchClip, type ClipTarget } from "./notebookStore";
 
-export function SaveResearch({ text, sources, passage, studyId, notebookOnly, onClose }: {
-  notebookOnly?: boolean; studyId?: string; text: string; sources: SourceRef[]; passage?: SourceRef; onClose: () => void;
+export function SaveResearch({ text, sources, passage, studyId, notebookOnly, image, onClose }: {
+  image?: {id:string;file:File}; notebookOnly?: boolean; studyId?: string; text: string; sources: SourceRef[]; passage?: SourceRef; onClose: () => void;
 }) {
   const notebooks = useLiveQuery(() => list("notebook"), []) || [];
   const notes = useLiveQuery(() => list("notebook-note"), []) || [];
   const books = useLiveQuery(() => list("book"), []) || [];
-  const [destination, setDestination] = useState(passage ? "passage" : "new");
+  const [destination, setDestination] = useState(image ? "note" : passage ? "passage" : "new");
   const [noteId, setNoteId] = useState("");
   const [notebookId, setNotebookId] = useState("");
   const [notebookTitle, setNotebookTitle] = useState(notebookOnly ? "Reading notes" : "Research");
@@ -20,8 +20,8 @@ export function SaveResearch({ text, sources, passage, studyId, notebookOnly, on
   const [bookId, setBookId] = useState(passage?.locator?.type === "pdf" ? passage.bookId || "" : "");
   const [page, setPage] = useState(passage?.locator?.type === "pdf" ? passage.locator.page : 1);
   const [error, setError] = useState(""), [busy, setBusy] = useState(false), [saved, setSaved] = useState(false);
-  return <Dialog title={notebookOnly ? "Add to notebook" : "Save research to…"} onClose={onClose}>
-    {saved ? <><p role="status">Excerpt and sources saved on this device.</p><button className="primary" onClick={onClose}>Done</button></> : <form className="clip-form" onSubmit={async e => {
+  return <Dialog title={image ? "Add image to notebook" : notebookOnly ? "Add to notebook" : "Save research to…"} onClose={onClose}>
+    {saved ? <><p role="status">{image ? "Image saved to notebook." : "Excerpt and sources saved on this device."}</p><button className="primary" onClick={onClose}>Done</button></> : <form className="clip-form" onSubmit={async e => {
       e.preventDefault(); setBusy(true); setError("");
       try {
         if (destination === "card") {
@@ -35,7 +35,7 @@ export function SaveResearch({ text, sources, passage, studyId, notebookOnly, on
         else if (destination === "page") target = { kind: "page", bookId, page };
         else if (destination === "note") target = { kind: "note", noteId };
         else target = { kind: "new", notebookId: notebookId || undefined, notebookTitle, title };
-        await saveResearchClip(target, text, sources); setSaved(true);
+        await saveResearchClip(target, text, sources, image); setSaved(true);
       } catch (err) { setError(err instanceof Error ? err.message : String(err)); } finally { setBusy(false); }
     }}>
       <blockquote className="clip-preview">{text}</blockquote>
@@ -48,7 +48,7 @@ export function SaveResearch({ text, sources, passage, studyId, notebookOnly, on
       {destination === "note" && <label>Topic note<select required value={noteId} onChange={e => setNoteId(e.target.value)}><option value="">Choose a note</option>{notes.filter(n => notebooks.some(b => b.id === n.notebookId)).map(n => <option key={n.id} value={n.id}>{notebooks.find(b => b.id === n.notebookId)?.title} / {n.title}</option>)}</select></label>}
       {destination === "new" && <><label>Notebook<select value={notebookId} onChange={e => setNotebookId(e.target.value)}><option value="">Create a notebook</option>{notebooks.map(n => <option key={n.id} value={n.id}>{n.title}</option>)}</select></label>{!notebookId && <label>Notebook name<input required maxLength={150} value={notebookTitle} onChange={e => setNotebookTitle(e.target.value)} /></label>}<label>Note title<input required maxLength={200} value={title} onChange={e => setTitle(e.target.value)} /></label></>}
       <p className="muted">{sources.length} source reference{sources.length === 1 ? "" : "s"} will be kept with this excerpt.</p>
-      {error && <p role="alert" className="error">{error}</p>}<button className="primary" disabled={busy}>{busy ? "Saving…" : destination === "card" ? "Save card" : "Save excerpt"}</button>
+      {error && <p role="alert" className="error">{error}</p>}<button className="primary" disabled={busy}>{busy ? "Saving…" : destination === "card" ? "Save card" : image ? "Save image" : "Save excerpt"}</button>
     </form>}
   </Dialog>;
 }

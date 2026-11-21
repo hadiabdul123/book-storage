@@ -5,7 +5,25 @@ import { db, list, save } from "./db";
 import { now, uid } from "./model";
 import { emptyDocument } from "./richText";
 import { flushTopicNote, saveNotebookNote } from "./notebookStore";
+import { markStudyDrop } from "./studyPassageDrag";
 import { TopicEditor, type StudyClip, type StudyInsert } from "./TopicEditor";
+
+type Point = {x:number; y:number};
+function StagedImage({file, disabled, onPlace}: {file:File;disabled:boolean;onPlace:(point:Point)=>void}) {
+  const [url,setUrl] = useState("");
+  const drag = useRef<Point | undefined>(undefined);
+  useEffect(() => {
+    const objectUrl = URL.createObjectURL(file); setUrl(objectUrl);
+    return () => { URL.revokeObjectURL(objectUrl); markStudyDrop(); };
+  },[file]);
+  function onPaper(point:Point) { return !!document.elementFromPoint(point.x,point.y)?.closest(".study-notebook .notebook-paper"); }
+  function end() { drag.current = undefined; markStudyDrop(); }
+  return <img className="study-image-handle" src={url || undefined} alt="Drag image into the note" draggable={false}
+    onPointerDown={e => { if (disabled || !e.isPrimary || e.button !== 0) return; e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); drag.current = {x:e.clientX,y:e.clientY}; }}
+    onPointerMove={e => { if (drag.current) { const p = {x:e.clientX,y:e.clientY}; markStudyDrop(p,onPaper(p)); } }}
+    onPointerUp={e => { const p = {x:e.clientX,y:e.clientY}, start = drag.current; end(); if (start && Math.hypot(p.x-start.x,p.y-start.y)>5 && onPaper(p)) onPlace(p); }}
+    onPointerCancel={end} onLostPointerCapture={end}/>;
+}
 
 export function StudyNotebook({ bookId, sizeControl, clip, finishClip, selectedNote, crop, region }: {
   bookId: string;
@@ -86,12 +104,14 @@ export function StudyNotebook({ bookId, sizeControl, clip, finishClip, selectedN
       if (newNoteMenu.current) newNoteMenu.current.open = false;
     } catch(e) { setError(String(e)); } finally { setBusy(false); }
   }
-  async function add(atCaret = false) {
-    if (!clip || busy) return;
+  const inserting = useRef(false);
+  async function add(atCaret = false, point?:Point) {
+    if (!clip || busy || inserting.current) return;
     if (!insert.current) { setError("The note is opening. Try inserting again in a moment."); return; }
     setBusy(true); setError("");
-    try { await insert.current(atCaret ? {...clip,point:undefined} : clip); finishClip(clip.source.id, true); }
-    catch(e) { setError(String(e)); } finally { setBusy(false); }
+    inserting.current = true;
+    try { await insert.current(point ? {...clip,point} : atCaret ? {...clip,point:undefined} : clip); finishClip(clip.source.id, true); }
+    catch(e) { setError(String(e)); } finally { inserting.current = false; setBusy(false); }
   }
   const attempted = useRef("");
   useEffect(() => {
@@ -112,7 +132,9 @@ export function StudyNotebook({ bookId, sizeControl, clip, finishClip, selectedN
       {notebooks?.map(b=><option key={b.id} value={b.id}>{b.title}</option>)}</select></label>
       <button disabled={busy || !notebooks} onClick={()=>void createNote()}>Create note</button></details>
     </div>}
-    {clip && (!clip.point || !note || !editorReady || error) && <div className="study-pending"><q>{clip.text.slice(0,140)}</q><button disabled={!note || busy} onClick={()=>void add(true)}>{error ? "Retry insertion" : "Insert at caret"}</button><button disabled={busy} onClick={() => { setError(""); finishClip(clip.source.id,false); }}>Dismiss</button></div>}
+    {clip && (!clip.point || !note || !editorReady || error) && <div className="study-pending">
+      {clip.file && clip.source.kind === "web" && <StagedImage file={clip.file} disabled={!note || !editorReady || busy} onPlace={point => void add(false,point)}/>}
+      <q>{clip.text.slice(0,140)}</q><button disabled={!note || busy} onClick={()=>void add(true)}>{error ? "Retry insertion" : clip.source.kind === "web" ? "Insert at cursor" : "Insert at caret"}</button><button disabled={busy} onClick={() => { setError(""); finishClip(clip.source.id,false); }}>Dismiss</button></div>}
     {error && <p role="alert">{error}</p>}
     <details className="study-writing-tools"><summary aria-label="Page options" title="Page options"><Ellipsis size={19}/></summary>{sizeControl}</details>
     {note && <div className="note-editor-body">

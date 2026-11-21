@@ -1,0 +1,9 @@
+.meaning-gallery { margin: .65rem 0 1rem; padding: 0; border-block: 1px solid var(--border, #b7b2a7); }
+.meaning-picture { background: #7772; touch-action: pan-y; user-select: none; }
+.meaning-picture img { display: block; width: 100%; height: clamp(88px, 17vh, 148px); object-fit: contain; }
+.meaning-photo-controls, .meaning-image-actions { display: flex; align-items: center; gap: 3px; padding-block: .3rem; }
+.meaning-photo-controls figcaption { flex: 1; min-width: 0; font-size: .8rem; }
+.meaning-photo-controls figcaption a, .meaning-photo-controls figcaption small { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.meaning-photo-controls button { display: grid; place-items: center; min-width: 30px; min-height: 32px; padding: 3px; }
+.meaning-image-actions { flex-wrap: wrap; }
+.study-pending img.study-image-handle { width: 64px; height: 48px; object-fit: contain; touch-action: none; user-select: none; cursor: grab; }

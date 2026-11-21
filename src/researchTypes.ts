@@ -39,7 +39,7 @@ export type ResearchRequest = {
   requestId: string; mode: ResearchMode; question: string; searchQuery?: string;
   sources: SourceRef[]; history: { question: string; answer: string }[];
 };
-export type ResearchResult = { answer: string; sources: SourceRef[]; model: string; comparison?: BookComparison };
+export type ResearchResult = { visualQuery?: string; answer: string; sources: SourceRef[]; model: string; comparison?: BookComparison };
 export type ResearchJob = {
   id: string; threadId: string; request: ResearchRequest; cacheKey: string;
   state: "queued" | "running" | "done" | "error" | "cancelled" | "paused";

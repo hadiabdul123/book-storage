@@ -40,7 +40,7 @@ import { useSearchParams } from "react-router-dom";
 const noMedia: NotebookMedia[] = [];
 const noInk = {drawings:[], strokes:[]};
 
-export type StudyClip = { source: SourceRef; text: string; file?: File; point?: { x: number; y: number } };
+export type StudyClip = { passage?:SourceRef; source: SourceRef; text: string; file?: File; point?: { x: number; y: number } };
 export type StudyInsert = (clip: StudyClip) => Promise<void>;
 export function TopicEditor({ note, toolbarHost, insertHandle, onReady, clipRegion }: { clipRegion?: React.ReactNode; onReady?: (ready: boolean) => void; insertHandle?: React.RefObject<StudyInsert | null>; note: NotebookNote; toolbarHost?: HTMLElement | null }) {
   const [title, setTitle] = useState(note.title), [tags, setTags] = useState(note.tags.join(", "));
@@ -433,7 +433,7 @@ export function TopicEditor({ note, toolbarHost, insertHandle, onReady, clipRegi
       let exists = false;
       editor.state.doc.descendants(node => { if (node.type.name === "citation" && node.attrs.source?.id === source.id) exists = true; });
       const position = point ? editor.view.posAtCoords({ left: point.x, top: point.y })?.pos ?? editor.state.doc.content.size : editor.state.selection.to;
-      if (!exists && !insertQuote(clip.file ? "" : clip.text, source, { position, doc: editor.state.doc }, clip.file ? source.id : undefined))
+      if (!exists && !insertQuote(clip.file && source.kind !== "web" ? "" : clip.text, source, { position, doc: editor.state.doc }, clip.file ? source.id : undefined, clip.passage))
         throw new Error("Place the caret in the note and try again.");
       if (!(await flush())) throw new Error("Could not save the clip. Keep the note open and retry.");
       if (clip.file && !(await get("notebook-image", source.id)))
@@ -445,17 +445,18 @@ export function TopicEditor({ note, toolbarHost, insertHandle, onReady, clipRegi
     onReady?.(true);
     return () => { insertHandle.current = null; onReady?.(false); };
   }, [editor, loaded, insertHandle, note.id, onReady]);
-  function insertQuote(text: string, source: SourceRef, anchor = quoteAnchor, imageAnchor?: string) {
+  function insertQuote(text: string, source: SourceRef, anchor = quoteAnchor, imageAnchor?: string, passage?:SourceRef) {
     if (!editor || editor.isDestroyed || !anchor || editor.state.doc !== anchor.doc) return false;
     const { position } = anchor;
     const { schema } = editor.state;
     const citation = schema.nodeFromJSON(citationNode(source));
+    const citations = passage ? [citation,schema.nodeFromJSON(citationNode(passage))] : [citation];
     const quote = text.match(/[\s\S]{1,50000}/gu)?.map(part => schema.nodeFromJSON(paragraph(part))) || [];
-    const blocks = Fragment.fromArray([...quote, ...(imageAnchor ? [schema.nodes.paragraph.create({ inkAnchor: imageAnchor })] : []), citation]);
+    const blocks = Fragment.fromArray([...quote, ...(imageAnchor ? [schema.nodes.paragraph.create({ inkAnchor: imageAnchor })] : []), ...citations]);
     const tr = closeHistory(editor.state.tr).replaceRange(position, position, new Slice(blocks, 0, 0));
     let after: number | undefined;
     tr.doc.descendants((node, at) => {
-      if (node === citation) after = at + node.nodeSize;
+      if (node === citations[citations.length-1]) after = at + node.nodeSize;
     });
     if (after === undefined) return false;
     if (!tr.doc.resolve(after).nodeAfter?.isTextblock) tr.insert(after, schema.nodes.paragraph.create());
