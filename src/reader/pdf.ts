@@ -104,6 +104,21 @@ export class PdfReader implements ReaderAdapter {
     this.printFace = face;
     if (this.view) await this.setView(this.view.target.zoom,this.view.target.rotation,true);
   }
+  get textViewStartPage() {
+    // The progress label is debounced during scroll. Read the visible sheet
+    // directly when opening Text view, including the selected side of a spread.
+    return this.layingOut ? this.current : this.location().page;
+  }
+  async returnFromTextView(page: number) {
+    this.resizeToHost();
+    let pending: Promise<void>;
+    do {
+      pending = this.viewQueue;
+      await pending;
+      if (this.disposed) return;
+      if (pending === this.viewQueue) await this.goTo(String(page));
+    } while (!this.disposed && pending !== this.viewQueue);
+  }
   async readablePage(n:number, recognize:boolean) {
     const state=this.pages[n-1];
     if (!state) throw Error("This page is unavailable.");
@@ -937,7 +952,7 @@ export class PdfReader implements ReaderAdapter {
     this.host.dataset.navigation = this.layout.navigation;
     if (this.textBoxMode) this.events.onTextBoxLayout?.();
   }
-  private location(): Locator {
+  private location(): Extract<Locator, {type:"pdf"}> {
     const top = this.host.getBoundingClientRect().top;
     let state = this.visiblePage() || this.pages[0];
     const selected = this.pages[this.current - 1];

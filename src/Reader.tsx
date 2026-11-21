@@ -1358,8 +1358,10 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
                       </>
                     )}
                   {book.format === "pdf" && <ComfortSettings {...comfort} textAvailable={opened && !!pdfPageCount} openText={()=>{
-                    if (!opened || !pdfPageCount) return;
-                    setTextViewPage(current?.type === "pdf" ? current.page : 1);
+                    const reader = adapter.current as PdfReader | null;
+                    if (!opened || !pdfPageCount || !reader) return;
+                    setTextViewPage(reader.textViewStartPage);
+                    setPanel("");
                   }} />}
                   <fieldset className="reading-theme-settings">
                     <legend>Page theme</legend>
@@ -1725,7 +1727,12 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
       {book.format==="pdf" && textViewPage !== undefined && pdfPageCount && adapter.current && <PdfTextView
         key={book.id} reader={adapter.current as PdfReader} start={textViewPage} count={pdfPageCount} title={book.title}
         face={paper.textFace} size={paper.textSize} spacing={paper.textSpacing} update={comfort.update}
-        close={page=>{setTextViewPage(undefined); setPanel(""); if (page !== textViewPage) void goTo(String(page));}}/>}
+        close={async page=>{
+          try {
+            if (page !== textViewPage) await (adapter.current as PdfReader | null)?.returnFromTextView(page);
+            setTextViewPage(undefined);
+          } catch (error) { notify(messageOf(error)); }
+        }}/>}
       {editing && (
         <EditAnnotation
           annotation={editing}
