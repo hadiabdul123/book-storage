@@ -56,7 +56,13 @@ test("PDF text box stays on its page through editing, zoom, rotation and a sprea
   await expect(editor).toHaveCSS("font-weight", "300");
   await page.getByRole("combobox", { name: "Weight", exact: true }).selectOption("bold");
   await page.getByRole("button", { name: "Underline", exact: true }).click();
-  await page.getByRole("button", { name: "Save text box", exact: true }).click();
+  const outside = paper.locator(".textLayer span").first();
+  // Tap the page even though the text layer is inert during editing.
+  await outside.scrollIntoViewIfNeeded();
+  const line = (await outside.boundingBox())!;
+  if (info.project.use.hasTouch) await page.touchscreen.tap(line.x + line.width / 2, line.y + line.height / 2);
+  else await page.mouse.click(line.x + line.width / 2, line.y + line.height / 2);
+  await expect(editor).toHaveCount(0);
   await expect(box).toContainText("Second line α.");
   await context.setOffline(false);
   await page.reload();
@@ -88,8 +94,8 @@ test("PDF text box stays on its page through editing, zoom, rotation and a sprea
   await clickTool(page, "Reading mode");
   await expect(page.locator(".reader-header")).toBeHidden();
   await expect(box).toBeVisible();
-  await clickTool(page, "Text box");
-  await box.click();
+  if (info.project.use.hasTouch) await box.tap();
+  else await box.click();
   await expect(editor).toHaveValue(note);
   expect(Math.abs((await cornerGrip.boundingBox())!.width-originalGrip.width)).toBeLessThan(2);
   await editor.fill("Edited margin note.");

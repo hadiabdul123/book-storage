@@ -25,6 +25,15 @@ it("keeps small reversing handwriting curves and scales ink with document coordi
   enlarged.forEach((n, i) => expect(n).toBeCloseTo(original[i] * 2));
   expect(writing.points).toHaveLength(6); expect(writing.width).toBe(2);
 });
+it("keeps sub-pixel pen reversals and the measured end point in direct ink", () => {
+  const points: InkStroke["points"] = [[0,0,.5],[0,.08,.5],[.04,.08,.5],[.04,0,.5]];
+  const path = inkPath({ ...stroke(), input:"direct", width:2, points });
+  const coords = path.slice(2,-2).split(" L ").map(p => p.split(" ").map(Number));
+  // The nib straddles the measured centre at both ends of each segment.
+  for (const [x,y] of [[-1,.08],[1,.08],[.04,1.08],[.04,-.92],[-.96,0],[1.04,0]]) {
+    expect(coords.some(p => Math.abs(p[0]-x)<1e-9 && Math.abs(p[1]-y)<1e-9)).toBe(true);
+  }
+});
 it("undoes only the local stroke while keeping concurrent additions", async () => {
   const history = new InkHistory(); await history.perform(stroke());
   const other = stroke("other-device");

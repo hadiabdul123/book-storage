@@ -135,7 +135,7 @@ export function PdfTextBoxTool({ draft, surface, saved, saving, placing, update,
       style={{ width: draft.width, height: draft.height, transform: boxTransform(draft, surface.viewport),
         "--handle-unit": (1 / Math.hypot(surface.viewport.transform[0],surface.viewport.transform[1])) + "px" } as React.CSSProperties}>
       <textarea ref={input} aria-label={  `Text box on page ${draft.page}` } maxLength={boxTextLimit}
-        value={draft.text} readOnly={saving} placeholder="Type here"
+        value={draft.text} readOnly={saving} placeholder="Type here. Tap outside to save."
         style={{ background: boxPaper(draft), color: boxInk(draft), padding: boxPadding, font: boxFont(draft, true), textDecoration: draft.underline ? "underline" : "none" }}
         onChange={event => update({ ...draft, text: event.target.value })}
         onKeyDown={event => {

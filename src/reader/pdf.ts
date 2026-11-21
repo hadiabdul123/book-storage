@@ -375,7 +375,7 @@ export class PdfReader implements ReaderAdapter {
             clone.className = "pdf-zoom-page"; clone.removeAttribute("data-page"); clone.removeAttribute("aria-label");
             clone.style.background = getComputedStyle(state.element).background;
             clone.style.boxShadow = getComputedStyle(state.element).boxShadow;
-            clone.querySelectorAll(".textLayer,.pdf-text-box-edit,button").forEach(el => el.remove());
+            clone.querySelectorAll(".textLayer,.pdf-text-box-edit,button:not(.pdf-text-box)").forEach(el => el.remove());
             const original = state.element.querySelector("canvas"), copy = clone.querySelector("canvas");
             if (original && copy) {
               const scale = Math.min(1, Math.sqrt(1_500_000 / Math.max(1, visible.length) / (original.width * original.height)));
@@ -1496,14 +1496,11 @@ export class PdfReader implements ReaderAdapter {
     const surface = document.createDocumentFragment();
     for (const box of boxes) {
       if (box.id === this.editingBox) continue;
-      const element = document.createElement("div");
+      const element = document.createElement("button");
+      element.type = "button";
       element.className = "pdf-text-box";
       element.dataset.textBoxId = box.id;
-      if (this.textBoxMode) {
-        element.tabIndex = 0;
-        element.role = "button";
-        element.setAttribute("aria-label", `Edit text box: ${box.text.slice(0, 80)}`);
-      }
+      element.setAttribute("aria-label", "Edit text box: " + box.text.slice(0, 80));
       const { lines } = layoutBoxText(box);
       Object.assign(element.style, {
         width: box.width + "px", height: box.height + "px", transform: boxTransform(box, state.viewport),

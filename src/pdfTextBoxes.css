@@ -2,7 +2,7 @@
 .pdf-text-box, .pdf-text-box-edit {
   position: absolute; inset: 0 auto auto 0; transform-origin: top left; box-sizing: border-box;
 }
-.pdf-text-box { overflow: hidden; white-space: pre; pointer-events: none; text-align: left; }
+.reader-host:is(.drawing-mode,.region-mode) .pdf-page button.pdf-text-box { pointer-events: none; }
 .pdf-text-box-mode .pdf-page { cursor: crosshair; }
 .pdf-text-box-mode .textLayer { pointer-events: none; }
 .pdf-text-box-mode .pdf-text-box { pointer-events: auto; cursor: pointer; }

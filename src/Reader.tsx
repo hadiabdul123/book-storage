@@ -100,6 +100,12 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   const textBoxes = useLiveQuery(async () => (await list("pdf-text-box")).filter(box => box.bookId === id), [id]) || noTextBoxes;
   const [textBoxMode, setTextBoxMode] = useState(false);
   const [textBoxDraft, setTextBoxDraft] = useState<PdfTextBox>();
+  const boxDraftRef = useRef<PdfTextBox | undefined>(undefined);
+  const boxSave = useRef<Promise<boolean> | undefined>(undefined);
+  function updateBoxDraft(box?: PdfTextBox) {
+    boxDraftRef.current = box;
+    setTextBoxDraft(box);
+  }
   const [editingSavedBox, setEditingSavedBox] = useState(false);
   const [savingBox, setSavingBox] = useState(false);
   const pendingBoxPlacement = useRef<object | undefined>(undefined);
@@ -236,19 +242,19 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   const [secondaryActionsHost, setSecondaryActionsHost] = useState<HTMLElement | null>(null);
   const openNotebookRef = useRef<(page: number) => void>(() => {});
   async function flushNotebook() {
-    if (textBoxDraft) { notify("Save or cancel the text box first."); return false; }
+    if (boxDraftRef.current && !(await storeTextBox())) return false;
     if (sideNote.current && !(await flushTopicNote(sideNote.current))) { notify("Your last notebook edit could not be saved. The page is still open for recovery."); return false; }
     return (await notebook.current?.flush()) ?? true;
   }
   function closeTextBoxes() {
     pendingBoxPlacement.current = undefined;
     setPlacingBox(false);
-    setTextBoxDraft(undefined);
+    updateBoxDraft(undefined);
     setEditingSavedBox(false);
     setTextBoxMode(false);
   }
   async function placeTextBox(page?: number, point?: { x: number; y: number }, existingId?: string) {
-    if (!book || book.format !== "pdf" || textBoxDraft || pendingBoxPlacement.current) return;
+    if (!book || book.format !== "pdf" || boxDraftRef.current || pendingBoxPlacement.current) return;
     const pdf = adapter.current as PdfReader | null;
     const initial = pdf?.textBoxSurface(page);
     if (!pdf || !initial) return;
@@ -282,38 +288,53 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
     }
     if (!surface?.ready) { notify("The PDF page is not ready for a text box."); return; }
     const existing = existingId && textBoxes.find(box => box.id === existingId && belongsToPdf(box, book));
-    if (existing) { setEditingSavedBox(true); setTextBoxDraft(existing); return; }
+    if (existing) { setTextBoxMode(true); setEditingSavedBox(true); updateBoxDraft(existing); return; }
     if (existingId) { notify("This text box is no longer available."); return; }
     const { viewport } = surface;
     const [pdfX, pdfY] = clicked || anchor(surface);
     const stamp = now();
     setEditingSavedBox(false);
-    setTextBoxDraft(fitPdfTextBox({
+    updateBoxDraft(fitPdfTextBox({
       id: uid(), bookId: book.id, hash: book.hash, page: pageNumber,
       x: pdfX, y: pdfY, width: 214, height: 82, rotation: viewport.rotation as BoxRotation,
       text: "", fontSize: 16, tint: false, transparent: true, createdAt: stamp, updatedAt: stamp,
     }, viewport.viewBox as import("./model").Rect));
   }
-  async function storeTextBox(remove = false) {
-    if (!textBoxDraft || savingBox) return;
-    const box = { ...textBoxDraft, text: textBoxDraft.text.trimEnd(), updatedAt: now() };
+  async function storeTextBox(remove = false): Promise<boolean> {
+    if (boxSave.current) return boxSave.current;
+    const draft = boxDraftRef.current;
+    if (!draft) return true;
+    if (!remove && textBoxes.includes(draft)) {
+      closeTextBoxes();
+      return true;
+    }
+    if (!remove && !draft.text.trim() && !editingSavedBox) {
+      closeTextBoxes();
+      return true;
+    }
+    let box = { ...draft, text: draft.text.trimEnd(), updatedAt: now() };
     if (!remove) {
-      if (!validPdfTextBox(box)) { notify("Enter some text to save this box."); return; }
+      if (!validPdfTextBox(box)) { notify("Enter some text or delete this box."); return false; }
       const layout = layoutBoxText(box);
+      const bounds = (adapter.current as PdfReader)?.textBoxSurface(box.page)?.bounds;
+      if (bounds && layout.height > box.height)
+        box = fitPdfTextBox({ ...box, height: Math.ceil(layout.height) }, bounds);
       if (!layout.widthFits || layout.height > box.height) {
-        notify("Resize the box or reduce the text size so all the text fits.");
-        return;
+        notify("This text needs more room on the page. Widen the box or reduce the text size.");
+        return false;
       }
     }
     setSavingBox(true);
-    try {
-      await db.transaction("rw", db.rows, db.outbox, db.conflicts, db.meta, async () => {
-        if (editingSavedBox && !(await get("pdf-text-box", box.id))) throw new Error("This text box was removed on another device.");
-        await save("pdf-text-box", box, remove);
-      });
-      closeTextBoxes();
-    } catch (cause) { notify(messageOf(cause)); }
-    finally { setSavingBox(false); }
+    const pending = db.transaction("rw", db.rows, db.outbox, db.conflicts, db.meta, async () => {
+      if (editingSavedBox && !(await get("pdf-text-box", box.id))) throw new Error("This text box was removed on another device.");
+      await save("pdf-text-box", box, remove);
+    }).then(() => {
+      if (boxDraftRef.current?.id === draft.id) closeTextBoxes();
+      return true;
+    }, cause => { notify(messageOf(cause)); return false; });
+    boxSave.current = pending;
+    try { return await pending; }
+    finally { boxSave.current = undefined; setSavingBox(false); }
   }
   async function downloadMarkedPdf() {
     if (!book || book.format !== "pdf") return;
@@ -328,7 +349,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   async function toggleTextBoxes() {
     if (textBoxMode) {
       if (!textBoxDraft) closeTextBoxes();
-      else notify("Save or cancel the text box first.");
+      else await storeTextBox();
       return;
     }
     if (!(await flushNotebook())) return;
@@ -798,11 +819,29 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
       }}
       onClickCapture={(event) => {
         const target = event.target as HTMLElement;
-        const page = textBoxMode && target.closest<HTMLElement>(".reader-host .pdf-page");
-        if (page && !target.closest(".pdf-text-box-edit,button,a,input,textarea,select")) {
+        if (target.closest(".pdf-text-box-edit,.pdf-text-box-tools")) return;
+        const page = target.closest<HTMLElement>(".reader-host .pdf-page");
+        const savedBox = target.closest<HTMLElement>(".pdf-text-box[data-text-box-id]");
+        const pageNumber = Number(page?.dataset.page);
+        if (boxDraftRef.current) {
           event.preventDefault();
-          void placeTextBox(Number(page.dataset.page), { x: event.clientX, y: event.clientY },
-            target.closest<HTMLElement>("[data-text-box-id]")?.dataset.textBoxId);
+          event.stopPropagation();
+          if (boxSave.current) return;
+          const action = target.closest<HTMLElement>("button,a[href]");
+          void storeTextBox().then(ok => {
+            if (!ok) return;
+            if (savedBox && page) void placeTextBox(pageNumber, undefined, savedBox.dataset.textBoxId);
+            else if (action?.isConnected && !action.matches(".reader-text-box-direct,.reader-text-box-overflow"))
+              action.click();
+          });
+          return;
+        }
+        if (page && !drawing && !region && (savedBox || (textBoxMode && !target.closest("button,a,input,textarea,select")))) {
+          event.preventDefault();
+          event.stopPropagation();
+          interactions.current?.dismiss();
+          adapter.current?.clearSelection();
+          void placeTextBox(pageNumber, { x: event.clientX, y: event.clientY }, savedBox?.dataset.textBoxId);
           return;
         }
         const anchor = (event.target as HTMLElement).closest<HTMLAnchorElement>(
@@ -815,13 +854,6 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
             if (ok) location.hash = href;
           });
         }
-      }}
-      onKeyDownCapture={event => {
-        if (!textBoxMode || (event.key !== "Enter" && event.key !== " ")) return;
-        const target = (event.target as HTMLElement).closest<HTMLElement>("[data-text-box-id]");
-        if (!target) return;
-        event.preventDefault();
-        void placeTextBox(Number(target.closest<HTMLElement>(".pdf-page")?.dataset.page), undefined, target.dataset.textBoxId);
       }}
     >
       <button
@@ -956,7 +988,6 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
             aria-label={fullscreen.active || quietFullscreen ? "Exit fullscreen reading" : "Enter fullscreen reading"}
             aria-pressed={fullscreen.active}
             onClick={() => {
-              if (textBoxDraft) { notify("Save or cancel the text box first."); return; }
               closeTextBoxes();
               if (fullscreen.active) { void fullscreen.exit(); return; }
               if (quietFullscreen) { setQuietFullscreen(false); chrome.reveal(); return; }
@@ -982,7 +1013,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
         close={() => setDrawing(false)} exportPdf={() => void downloadMarkedPdf()} /></Suspense>}
       {textBoxMode && <PdfTextBoxTool draft={textBoxDraft}
         surface={textBoxDraft ? (adapter.current as PdfReader | null)?.textBoxSurface(textBoxDraft.page) : undefined}
-        saved={editingSavedBox} saving={savingBox} placing={placingBox} update={setTextBoxDraft}
+        saved={editingSavedBox} saving={savingBox} placing={placingBox} update={updateBoxDraft}
         place={() => void placeTextBox()} save={() => void storeTextBox()} remove={() => void storeTextBox(true)}
         exportPdf={() => void downloadMarkedPdf()} cancel={closeTextBoxes} />}
       <div className="reader-workspace">
@@ -1613,7 +1644,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
             <button
               className="icon-button"
               aria-label="Zoom out"
-              disabled={loading || !!textBoxDraft || zoom <= 1}
+              disabled={loading || savingBox || zoom <= 1}
               onClick={() =>
                 void setPdfView(Math.max(1, zoom - 0.25), rotation)
               }
@@ -1623,7 +1654,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
             <button
               className="text-button"
               aria-label="Reset page zoom"
-              disabled={loading || !!textBoxDraft}
+              disabled={loading || savingBox}
               onClick={() => void setPdfView(1, rotation)}
             >
               {Math.round(zoom * 100)}%
@@ -1631,7 +1662,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
             <button
               className="icon-button"
               aria-label="Zoom in"
-              disabled={loading || !!textBoxDraft || zoom >= 3}
+              disabled={loading || savingBox || zoom >= 3}
               onClick={() =>
                 void setPdfView(Math.min(3, zoom + 0.25), rotation)
               }
@@ -1643,7 +1674,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
         <button
           className="icon-button"
           aria-label="Previous page"
-          disabled={loading || !!textBoxDraft}
+          disabled={loading || savingBox}
           onClick={() =>
             void adapter.current?.previous().catch((e) => notify(messageOf(e)))
           }
@@ -1670,7 +1701,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
         <button
           className="icon-button"
           aria-label="Next page"
-          disabled={loading || !!textBoxDraft}
+          disabled={loading || savingBox}
           onClick={() =>
             void adapter.current?.next().catch((e) => notify(messageOf(e)))
           }
