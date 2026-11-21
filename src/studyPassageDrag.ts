@@ -17,8 +17,10 @@ export function bindStudyPassageDrag(host: HTMLElement, passageAt: (point: DropP
     markStudyDrop();
   }
   const onPaper = (x: number, y: number) => {
-    const hit = document.elementFromPoint(x,y), notebook = hit?.closest(".study-notebook");
-    return notebook && (!notebook.querySelector(".notebook-paper") || hit?.closest(".notebook-paper"));
+    const hit = document.elementFromPoint(x,y);
+    const body = hit?.closest(".reader-panel .panel-body");
+    return !!body?.querySelector(".study-notebook") &&
+      !hit?.closest("button,input,select,textarea,summary,.note-tool-rail");
   };
   let native: Selection | undefined;
   const transfer = "application/x-leafmark-pdf-passage";

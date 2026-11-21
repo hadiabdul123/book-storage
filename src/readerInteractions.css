@@ -196,3 +196,5 @@
     max-height: 55dvh;
   }
 }
+
+.pdf-image-selection { position:absolute; z-index:4; outline:2px solid #3275a4; outline-offset:-1px; pointer-events:none; }

@@ -13,6 +13,20 @@ export function validRichMark(m: any) {
   if (m.type === "link") return !!m.attrs && typeof m.attrs.href === "string" && m.attrs.href.length <= 4000 && /^(https?:\/\/|mailto:)[^\s]+$/i.test(m.attrs.href) && Object.keys(m.attrs).every(k => ["href", "target", "rel", "class", "title"].includes(k)) && (m.attrs.target == null || ["_blank", "_self"].includes(m.attrs.target)) && m.attrs.class == null && (m.attrs.title == null || (typeof m.attrs.title === "string" && m.attrs.title.length <= 200));
   return false;
 }
+// Older native PDF drops can leave transparent glyphs and sub-pixel type in a recovery draft.
+export function repairDroppedTextStyles(node: RichNode) {
+  if (node.type === "text" && node.marks) {
+    node.marks = node.marks.flatMap(mark => {
+      if (mark.type !== "textStyle" || validRichMark(mark)) return [mark];
+      const attrs: Record<string,string> = {};
+      if (safeColor(mark.attrs?.color)) attrs.color = mark.attrs!.color;
+      if (safeNoteFontSize(mark.attrs?.fontSize)) attrs.fontSize = mark.attrs!.fontSize;
+      return Object.keys(attrs).length ? [{type:"textStyle",attrs}] : [];
+    });
+    if (!node.marks.length) delete node.marks;
+  }
+  node.content?.forEach(repairDroppedTextStyles);
+}
 export const emptyDocument = (): RichNode => ({
   type: "doc",
   content: [{ type: "paragraph" }],

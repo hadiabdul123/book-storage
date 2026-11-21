@@ -1,3 +1,4 @@
+import { StudyPaneResize } from "./StudyPaneResize";
 import { ReadingPointerControls, useReadingPointer } from "./ReadingPointer";
 import { bindPageSwipes } from "./reader/swipes";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
@@ -203,6 +204,8 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   }, [book?.id]);
   const [clips, setClips] = useState<StudyClip[]>([]);
   const [paneSize, setPaneSize] = useState(38);
+  const [paneHeight,setPaneHeight] = useState(68);
+  const [mobilePaneSize,setMobilePaneSize] = useState(38);
   const [notebookPlace, setNotebookPlace] = useState({ x: 0.18, y: 0.38 });
   const dragPane = useRef<{ id: number; dx: number; dy: number } | undefined>(undefined);
 
@@ -223,7 +226,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   const openNotebookRef = useRef<(page: number) => void>(() => {});
   async function flushNotebook() {
     if (textBoxDraft) { notify("Save or cancel the text box first."); return false; }
-    if (sideNote.current && !(await flushTopicNote(sideNote.current))) return false;
+    if (sideNote.current && !(await flushTopicNote(sideNote.current))) { notify("Your last notebook edit could not be saved. The page is still open for recovery."); return false; }
     return (await notebook.current?.flush()) ?? true;
   }
   function closeTextBoxes() {
@@ -336,6 +339,10 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
     if (await flushNotebook()) {
       closeTextBoxes();
       setDrawing(false);
+      if (region && name !== "study-notebook") {
+        if (book?.format === "pdf") (adapter.current as PdfReader)?.setRegionMode(false);
+        setRegion(false);
+      }
       setPanel(name);
       chrome.setMenu(false);
     }
@@ -564,6 +571,12 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
             openNotebookRef.current(mark.locator.page);
           else interactions.current?.openAnnotation(markId);
         },
+        onBookImage: (file, locator, label) => {
+          if (cancelled) return;
+          setRegion(false);
+          setClips(queue => [...queue,{file,text:label,source:{id:uid(),kind:"book",bookId:book.id,title:book.title,locator,excerpt:label.slice(0,2400)}}]);
+        },
+        onHint: notify,
         onError: (message) => setError(message),
       });
       adapter.current = reader;
@@ -749,7 +762,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
     <main
       ref={shell}
       data-study-open={panel === "study-notebook" || undefined} data-clipping-region={region || undefined}
-      style={panel === "study-notebook" ? { "--study-size": paneSize + "%", "--study-x": (100 - paneSize) * notebookPlace.x + "%", "--study-y": 24 * notebookPlace.y + "%" } as React.CSSProperties : undefined}
+      style={panel === "study-notebook" ? { "--study-desktop-size": paneSize + "%", "--study-mobile-size": mobilePaneSize + "%", "--study-x": (100 - paneSize) * notebookPlace.x + "%", "--study-top": (1 - paneHeight/100) * notebookPlace.y, "--study-height":paneHeight/100 } as React.CSSProperties : undefined}
       className={`reader-shell reader-side-tools theme-${prefs.theme}${drawing ? " drawing-active" : ""}${textBoxMode ? " pdf-text-box-active" : ""}${chrome.visible ? " controls-visible" : " reading-mode"}${chrome.menu ? " controls-menu-open" : ""}${swipeEnabled ? " swipe-pages" : ""}${hidePageControls ? " hide-page-controls" : ""}${panel ? " panel-open" : ""}`}
       data-original-pdf-colors={pdfOriginalColors}
       data-loading={loading || savedPrefs === null || localView === undefined}
@@ -862,7 +875,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
           <MoreHorizontal size={22} />
         </button>
         <div className="reader-tools">
-          {book.format === "pdf" && <button className="icon-button" aria-label="Study notebook" aria-pressed={panel === "study-notebook"} onClick={() => void changePanel(panel === "study-notebook" ? "" : "study-notebook")}><NotebookPen size={20} /></button>}
+          <button className="icon-button" aria-label="Study notebook" aria-pressed={panel === "study-notebook"} onClick={() => void changePanel(panel === "study-notebook" ? "" : "study-notebook")}><NotebookPen size={20} /></button>
           {book.format === "pdf" && <button className="icon-button reader-text-box-overflow" aria-label="Text box" title="Text box" aria-pressed={textBoxMode} disabled={loading} onClick={() => void toggleTextBoxes()}><Type size={20} /></button>}
           {tools.filter(([name]) => name !== "contents" && name !== "settings").map(([name, Icon, label]) => (
             <button
@@ -1000,6 +1013,9 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
         </div>
         {panel && (
           <aside className={`reader-panel ${panel === "research" ? "research-reader-panel" : ""}`}>
+            {panel === "study-notebook" && <StudyPaneResize height={paneHeight} resize={(w,h,x,y) => {
+              setPaneSize(w); setPaneHeight(h); setNotebookPlace({x,y});
+            }} />}
             <header>
               {panel === "study-notebook" && <button className="study-move" aria-label="Move study notebook" title="Drag to move, or use the arrow keys"
                 onPointerDown={e => {
@@ -1013,7 +1029,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
                   const pane=e.currentTarget.closest("aside")!.getBoundingClientRect();
                   if (!area || !drag || drag.id !== e.pointerId) return;
                   const unit=(n:number)=>Math.min(1,Math.max(0,n));
-                  setNotebookPlace({x:unit((e.clientX-area.left-drag.dx)/Math.max(1,area.width-pane.width)),y:unit((e.clientY-area.top-drag.dy)/Math.max(1,area.height*.24))});
+                  setNotebookPlace({x:unit((e.clientX-area.left-drag.dx)/Math.max(1,area.width-pane.width)),y:unit((e.clientY-area.top-drag.dy)/Math.max(1,pane.height*(100/paneHeight-1)))});
                 }}
                 onLostPointerCapture={() => {dragPane.current=undefined;}}
                 onKeyDown={e => {
@@ -1047,11 +1063,16 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
             </header>
             <div className="panel-body">
               {panel === "study-notebook" && <Suspense fallback={<p>Opening notebook...</p>}>
-                <StudyNotebook key={book.id} bookId={book.id} sizeControl={<label className="study-size">Pane size<input type="range" aria-label="Notebook pane size" min={28} max={65} value={paneSize} onChange={e=>setPaneSize(+e.target.value)} /></label>} clip={clips[0]} selectedNote={sideNote} finishClip={(id, saved) => {
+                <StudyNotebook key={book.id} bookId={book.id} sizeControl={<label className="study-size">Pane size<input type="range" aria-label="Notebook pane size" min={24} max={100} value={matchMedia("(max-width:760px)").matches ? mobilePaneSize : paneSize} onChange={e=>{ if (matchMedia("(max-width:760px)").matches) setMobilePaneSize(Math.min(85,+e.target.value)); else setPaneSize(+e.target.value); }} /></label>} clip={clips[0]} selectedNote={sideNote} finishClip={(id, saved) => {
                     setClips(current => current.filter(item => item.source.id !== id));
-                    if (saved) notify("Inserted with a link to the PDF.");
+                    if (saved) notify("Inserted with a link to the book.");
                   }}
-                  region={region} crop={() => {interactions.current?.dismiss(); (adapter.current as PdfReader)?.setRegionMode(!region); setRegion(!region);}} />
+                  region={region} crop={() => {
+                    if (!region) notify(book.format === "pdf" ? "Tap a picture, or drag a box around a diagram." : "Tap a picture in the book.");
+                    interactions.current?.dismiss();
+                    if (book.format === "pdf") (adapter.current as PdfReader)?.setRegionMode(!region);
+                    setRegion(!region);
+                  }} />
               </Suspense>}
               {panel === "listen" && <div ref={setListenHost} />}
               {panel === "research" && <ResearchPanel book={book} selection={researchSelection} />}
@@ -1634,9 +1655,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
             className="text-button"
             onClick={() => {
               setRegion(false);
-              (
-                adapter.current as import("./reader/pdf").PdfReader
-              ).setRegionMode(false);
+              if (book.format === "pdf") (adapter.current as PdfReader)?.setRegionMode(false);
             }}
           >
             End region mode
@@ -1671,13 +1690,12 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
         ready={!loading}
         suspended={(panel !== "" && panel !== "study-notebook") || drawing}
         onStudy={async (selection, point) => {
-          if (book.format !== "pdf") return;
           if (panel !== "study-notebook" && !(await flushNotebook())) throw Error("Save the open note and retry inserting the passage.");
-          const file = selection.text.startsWith("Region on page ") ? await (adapter.current as PdfReader).captureRegion(selection.locator) : undefined;
+          const file = selection.kind === "image" ? await (adapter.current as PdfReader).captureRegion(selection.locator) : undefined;
           const clip: StudyClip = { text:selection.text, file, point, source:{ id:uid(), kind:"book", title:book.title, bookId:book.id, locator:selection.locator, excerpt:selection.text.slice(0,2400) } };
           setClips(current => [...current, clip]);
           interactions.current?.dismiss(); adapter.current?.clearSelection();
-          if (region) { (adapter.current as PdfReader)?.setRegionMode(false); setRegion(false); }
+          if (region) { if (book.format === "pdf") (adapter.current as PdfReader)?.setRegionMode(false); setRegion(false); }
           setPanel("study-notebook"); chrome.setMenu(false);
         }}
         notify={notify}

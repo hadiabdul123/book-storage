@@ -82,7 +82,7 @@ export function StudyNotebook({ bookId, sizeControl, clip, finishClip, selectedN
     {note && <div className="note-editor-body">
       <div className="note-rail-host" ref={setToolbar} />
       <TopicEditor key={note.id} note={note} toolbarHost={toolbar} insertHandle={insert} onReady={setEditorReady}
-        clipRegion={<button disabled={busy} aria-pressed={region} onClick={crop}>Clip PDF region</button>} />
+        clipRegion={<button disabled={busy} aria-pressed={region} onClick={crop}>Select book image</button>} />
     </div>}
   </section>;
 }

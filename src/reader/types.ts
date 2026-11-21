@@ -11,6 +11,7 @@ export interface SearchHit {
   locator: Locator;
 }
 export interface Selection {
+  kind?: "image";
   locator: Locator;
   text: string;
 }
@@ -40,6 +41,8 @@ export interface ReaderEvents {
   onLocation: (locator: Locator, progress: number) => void;
   onSelection: (selection: Selection | null, source?: SelectionSource) => void;
   onAnnotation: (id: string) => void;
+  onBookImage?: (file: File, locator: Locator, label: string) => void;
+  onHint?: (message: string) => void;
   onError: (message: string) => void;
 }
 export interface ReaderAdapter {

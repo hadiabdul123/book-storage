@@ -1,3 +1,4 @@
+import { bindBookImagePicker } from "./bookImagePicker";
 import { bindTouchSelection, type TouchSelection } from "./touchSelection";
 import { bindNativeSelection } from "./nativeSelection";
 import {
@@ -25,6 +26,7 @@ export class DocxReader implements ReaderAdapter {
     return surroundingText(textNodes(this.article).map(n => n.data).join(""), selection.text);
   }
   private touch?: TouchSelection;
+  private unbindImages?: () => void;
   private unbindNativeSelection?: () => void;
   private article = document.createElement("article");
   private marks: Annotation[] = [];
@@ -52,6 +54,10 @@ export class DocxReader implements ReaderAdapter {
       a.rel = "noopener noreferrer";
     });
     this.host.append(this.article);
+    this.unbindImages = bindBookImagePicker(this.article,this.host,range => {
+      const {start,end} = offsetsForRange(this.article,range);
+      return {v:1,type:"docx",hash:this.book.hash,start,end};
+    },this.events);
     this.touch = bindTouchSelection(this.article, { selected: range => this.readSelection(range, true), cleared: () => this.events.onSelection(null), adjusting: this.events.onSelectionInteraction, scrollHost: this.host });
     this.unbindNativeSelection = bindNativeSelection(this.article, {
       selected: range => range ? this.readSelection(range) : this.events.onSelection(null),
@@ -279,6 +285,7 @@ export class DocxReader implements ReaderAdapter {
     this.touch?.destroy();
     clearTimeout(this.timer);
     this.observer?.disconnect();
+    this.unbindImages?.();
     this.unbindNativeSelection?.();
     this.host.removeEventListener("scroll", this.scroll);
     this.host.removeEventListener("click", this.click);

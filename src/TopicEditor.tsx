@@ -14,7 +14,7 @@ import { NotebookBoxSelection, NoteObjectsStep, writeObjectSteps, selectedObject
 import { db, get, list } from "./db";
 import type { NotebookNote, SourceRef } from "./researchTypes";
 import type { RichNode } from "./model";
-import { paragraph, validRichDocument } from "./richText";
+import { paragraph, repairDroppedTextStyles, validRichDocument } from "./richText";
 import { CitationExtension } from "./Citation";
 import { registerNoteFlusher, saveNotebookNote } from "./notebookStore";
 import { noteFormatting } from "./noteFormatting";
@@ -129,11 +129,12 @@ export function TopicEditor({ note, toolbarHost, insertHandle, onReady, clipRegi
       try {
         while (value.current.revision !== value.current.saved) {
           const snapshot = value.current;
+          const noteToSave = snapshot.note.title.trim() ? snapshot.note : {...snapshot.note,title:"Untitled note"};
           const batch = steps.current.slice();
           const saved = batch.length ? await db.transaction("rw", [db.rows, db.outbox, db.conflicts, db.meta, db.mediaFiles], async () => {
             await writeObjectSteps(batch, originals.current);
-            return saveNotebookNote(snapshot.note, snapshot.note.updatedAt);
-          }) : await saveNotebookNote(snapshot.note, snapshot.note.updatedAt);
+            return saveNotebookNote(noteToSave, snapshot.note.updatedAt);
+          }) : await saveNotebookNote(noteToSave, snapshot.note.updatedAt);
           steps.current.splice(0,batch.length);
           for (const step of batch) for (const media of step.objects.media) originals.current.delete(media.id);
           value.current.saved = snapshot.revision;
@@ -159,7 +160,13 @@ export function TopicEditor({ note, toolbarHost, insertHandle, onReady, clipRegi
       const latest = await get("notebook-note", note.id) || note;
       const savedDraft = recover ? await db.meta.get(draftKey) : undefined;
       let draft: NotebookNote | undefined;
-      try { const candidate = JSON.parse(savedDraft?.value || "null"); if (candidate?.id === note.id && typeof candidate.title === "string" && Array.isArray(candidate.tags) && validRichDocument(candidate.document)) draft = candidate; } catch { /* Ignore malformed recovery data. */ }
+      try {
+        const candidate = JSON.parse(savedDraft?.value || "null");
+        if (candidate?.id === note.id && typeof candidate.title === "string" && Array.isArray(candidate.tags)) {
+          if (!validRichDocument(candidate.document)) repairDroppedTextStyles(candidate.document);
+          if (validRichDocument(candidate.document)) draft = candidate;
+        }
+      } catch { /* Ignore malformed recovery data. */ }
       if (cancelled) return;
       const next = draft || latest;
       value.current = { note: next, revision: draft ? 1 : 0, saved: 0 };
@@ -350,7 +357,25 @@ export function TopicEditor({ note, toolbarHost, insertHandle, onReady, clipRegi
 
   function handleDrop(event: DragEvent<HTMLDivElement>, commit: boolean) {
     const types = event.dataTransfer.types;
-    if (!editor || !loaded || (!types.includes("Files") && !types.includes(mediaDragType))) return;
+    if (!editor || !loaded) return;
+    if (!types.includes("Files") && !types.includes(mediaDragType)) {
+      if (!insertHandle || editor.view.dragging || !types.includes("text/plain")) return;
+      event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = "copy";
+      const destination = dropTarget(event.clientX, event.clientY, event.target as Element);
+      if (!destination) return;
+      if (!commit && paper.current) setDropLine(destination.top - paper.current.getBoundingClientRect().top);
+      if (commit) {
+        setDropLine(undefined);
+        const text = event.dataTransfer.getData("text/plain");
+        if (text.trim()) {
+          const blocks = text.split(/\r?\n/).map(line => editor.schema.nodeFromJSON(paragraph(line)));
+          const tr = editor.state.tr.replaceRange(destination.position, destination.position, new Slice(Fragment.fromArray(blocks), 0, 0));
+          editor.view.dispatch(tr.scrollIntoView());
+          editor.view.focus();
+        }
+      }
+      return;
+    }
     event.preventDefault(); event.stopPropagation();
     event.dataTransfer.dropEffect = types.includes(mediaDragType) ? "move" : "copy";
     const destination = dropTarget(event.clientX, event.clientY, event.target as Element);
@@ -479,14 +504,27 @@ export function TopicEditor({ note, toolbarHost, insertHandle, onReady, clipRegi
         {clipRegion}
       </div>;
       if (name === "Format") return <div className="note-format-grid">
-      <button aria-label="Bold" aria-pressed={editor?.isActive("bold") || false} onClick={() => editor?.chain().focus().toggleBold().run()}><b>B</b></button>
-      <button aria-label="Italic" onClick={() => editor?.chain().focus().toggleItalic().run()}><i>I</i></button>
-      <NoteFormatButtons editor={editor} />
-      <button aria-label="Heading" onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}>H</button>
-      <button aria-label="Bullet list" onClick={() => editor?.chain().focus().toggleBulletList().run()}>• List</button>
-      <button aria-label="Numbered list" onClick={() => editor?.chain().focus().toggleOrderedList().run()}>1. List</button>
-      <button aria-label="Checklist" onClick={() => editor?.chain().focus().toggleTaskList().run()}>☑</button>
-      <button aria-label="Undo" onClick={() => editor?.chain().focus().undo().run()}>↶</button><button aria-label="Redo" onClick={() => editor?.chain().focus().redo().run()}>↷</button>
+        <label className="note-paragraph-style">Paragraph style
+          <select aria-label="Paragraph style" value={editor?.getAttributes("heading").level ?? 0}
+            onChange={e => {
+              const level = Number(e.target.value);
+              if (level === 1 || level === 2 || level === 3) editor?.chain().focus().setHeading({level}).run();
+              else editor?.chain().focus().setParagraph().run();
+            }}>
+            <option value="0">Normal text</option><option value="1">Heading</option>
+            <option value="2">Subheading</option><option value="3">Minor heading</option>
+          </select>
+        </label>
+        <button aria-label="Bold" title="Bold" aria-pressed={editor?.isActive("bold") || false} onClick={() => editor?.chain().focus().toggleBold().run()}><b>B</b></button>
+        <button aria-label="Italic" title="Italic" aria-pressed={editor?.isActive("italic") || false} onClick={() => editor?.chain().focus().toggleItalic().run()}><i>I</i></button>
+        <NoteFormatButtons editor={editor} />
+        <div className="note-list-tools">
+          <button aria-pressed={editor?.isActive("bulletList") || false} onClick={() => editor?.chain().focus().toggleBulletList().run()}>Bullet list</button>
+          <button aria-pressed={editor?.isActive("orderedList") || false} onClick={() => editor?.chain().focus().toggleOrderedList().run()}>Numbered list</button>
+          <button aria-pressed={editor?.isActive("taskList") || false} onClick={() => editor?.chain().focus().toggleTaskList().run()}>Checklist</button>
+        </div>
+        <button onClick={() => editor?.chain().focus().undo().run()}>Undo</button>
+        <button onClick={() => editor?.chain().focus().redo().run()}>Redo</button>
       </div>;
       if (name === "Highlight") return <><strong>Highlight color</strong><div className="note-swatches">
         {Object.entries({ Gold:"#f4cc60", Green:"#a2cfaa", Blue:"#9abedc", Rose:"#ebb3bd", Lavender:"#c9b9de" }).map(([label,color]) =>
@@ -576,6 +614,12 @@ export function TopicEditor({ note, toolbarHost, insertHandle, onReady, clipRegi
               void pasteSelection(editor,note.id,clip,originals.current,objects,allObjects).then(clearPicked,e=>setNotice(e.message));
               return;
             }
+            const images = Array.from(event.clipboardData.files).filter(file => file.type.startsWith("image/"));
+            if (editor && images.length) {
+              event.preventDefault(); event.stopPropagation();
+              addFiles(images, editor.state.selection.to);
+              return;
+            }
             const ids = decodeMediaSelection(event.clipboardData.getData("text/plain"));
             if (ids) { event.preventDefault(); event.stopPropagation(); pasteMedia(ids); }
           }} onDragOverCapture={event => handleDrop(event, false)} onDropCapture={event => handleDrop(event, true)}
@@ -596,6 +640,6 @@ export function TopicEditor({ note, toolbarHost, insertHandle, onReady, clipRegi
       </div>
     </div>
     <label className="note-tags">Tags<input aria-label="Topic note tags" maxLength={500} disabled={!loaded} value={tags} onChange={e => { setTags(e.target.value); change({ tags: e.target.value.split(",").map(t => t.trim()).filter(Boolean) }); }} placeholder="Add tags" /></label>
-    <div className="topic-save-status" data-error={status.startsWith("Could not")}><span role="status">{status}</span><button className="text-button" disabled={!loaded} onClick={() => void flush()}>Save now</button></div>
+    <div className="topic-save-status" data-error={status.startsWith("Could not")}><span role="status">{status}</span>{(!insertHandle || status.startsWith("Could not")) && <button className="text-button" disabled={!loaded} onClick={() => void flush()}>{insertHandle ? "Retry save" : "Save now"}</button>}</div>
   </section>;
 }

@@ -1,3 +1,4 @@
+import { bindBookImagePicker } from "./bookImagePicker";
 import { db } from "../db";
 import { savePageCache } from "../pdfText";
 import { bindTouchSelection, type TouchSelection } from "./touchSelection";
@@ -188,6 +189,10 @@ export class EpubReader implements ReaderAdapter {
       "leafmark-fonts",
     );
     if (this.previewOnly) return;
+    this.cleanups.push(bindBookImagePicker(doc.body,this.host,range => {
+      const cfi = contents.cfiFromRange(range);
+      return {v:1,type:"epub",hash:this.book.hash,cfi,href:this.epub.spine.get(cfi).href};
+    },this.events));
     this.turn.bind(doc, point => {
       const frame = doc.defaultView?.frameElement as HTMLElement;
       const box = frame.getBoundingClientRect();

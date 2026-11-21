@@ -1,3 +1,4 @@
+import type { PdfReader } from "./reader/pdf";
 import { bindStudyPassageDrag, markStudyDrop } from "./studyPassageDrag";
 import { samePassage } from "./reader/passages";
 import {
@@ -10,7 +11,7 @@ import {
   type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
-import { Bookmark as BookmarkIcon, Undo2, Redo2, NotebookPen, X, Eraser, Highlighter, Sparkles, StickyNote, MoreHorizontal } from "lucide-react";
+import { Copy, Bookmark as BookmarkIcon, Undo2, Redo2, NotebookPen, X, Eraser, Highlighter, Sparkles, StickyNote, MoreHorizontal } from "lucide-react";
 import { db } from "./db";
 import {
   colors,
@@ -708,11 +709,31 @@ export const ReaderInteractions = forwardRef<
     if (!ready || !surface || suspended || book.format !== "pdf") return;
     return bindStudyPassageDrag(surface, ({ x, y }) => {
       const selection = latest.current.selected;
-      if (selection && selection.locator.type === "pdf" && !selection.text.startsWith("Region on page ") &&
+      const native = document.getSelection();
+      if (native?.rangeCount && !native.isCollapsed && surface.contains(native.anchorNode)) {
+        const range = native.getRangeAt(0);
+        if (Array.from(range.getClientRects()).some(r => x >= r.left && x <= r.right && y >= r.top && y <= r.bottom)) {
+          const fresh = (adapter.current as PdfReader | null)?.selectionFromRange(range);
+          if (fresh?.text.trim()) return fresh;
+        }
+      }
+      if (latest.current.open && selection && selection.locator.type === "pdf" &&
           adapter.current?.bounds(selection.locator).some(r => x >= r.left && x <= r.right && y >= r.top && y <= r.bottom)) return selection;
     }, (selection, point) => { void studyAction.current(selection, point).catch(error => notify(String(error))); },
     () => adapter.current?.clearSelection());
   }, [host, adapter, ready, suspended, book.id]);
+  function copyImage() {
+    if (!selected || selected.kind !== "image" || !adapter.current) return;
+    if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") {
+      notify("Use Insert into notebook here. This browser cannot copy images."); return;
+    }
+    const png = (adapter.current as PdfReader).captureRegion(selected.locator);
+    void attempt(async () => {
+      await navigator.clipboard.write([new ClipboardItem({"image/png":png})]);
+      if (latest.current.selected === selected) closeSelection();
+      notify("Image copied. Paste it where you want it in your note.");
+    });
+  }
   const clipAction = (compact: boolean) => <button aria-label="Insert into notebook" title="Insert into notebook, or drag to the open note" style={{touchAction:"none"}} disabled={busy}
     onPointerDown={event => {
       event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId);
@@ -870,9 +891,9 @@ export const ReaderInteractions = forwardRef<
           <div className="passage-compact-row" role="toolbar" aria-label="Passage actions">
             <button aria-label="Choose highlight color" disabled={busy} aria-expanded={mode === "colors"} onPointerDown={e => e.preventDefault()} onClick={() => setMode(mode === "colors" ? "tools" : "colors")}><Highlighter size={19} /><i style={{ background: colors[target?.color || "yellow"] }} /></button>
             <button aria-label={selectedBookmark ? "Remove passage bookmark" : "Bookmark passage"} aria-pressed={!!selectedBookmark} onPointerDown={e => e.preventDefault()} onClick={() => void attempt(togglePassage)}><BookmarkIcon size={19} fill={selectedBookmark ? "currentColor" : "none"} /></button>
-            <button aria-label="Explain" title="Explain with Groq" disabled={busy || selected.text.length > 100 || selected.text.startsWith("Region on page")} onPointerDown={e => e.preventDefault()} onClick={() => setMode("meaning")}><Sparkles size={19} /></button>
+            {selected.kind === "image" ? <button aria-label="Copy image" title="Copy image" onPointerDown={e => e.preventDefault()} onClick={copyImage}><Copy size={19}/></button> : <button aria-label="Explain" title="Explain with Groq" disabled={busy || selected.text.length > 100} onPointerDown={e => e.preventDefault()} onClick={() => setMode("meaning")}><Sparkles size={19} /></button>}
             <button aria-label={target?.note ? "Edit note" : "Add note"} disabled={ambiguous} onPointerDown={e => e.preventDefault()} onClick={() => setMode(mode === "note" ? "tools" : "note")}><StickyNote size={19} /></button>
-            {book.format === "pdf" && clipAction(true)}
+            {clipAction(true)}
             <button aria-label="More passage actions" aria-expanded={mode === "more"} onPointerDown={e => e.preventDefault()} onClick={() => setMode(mode === "more" ? "tools" : "more")}><MoreHorizontal size={19} /></button>
           </div>
           <div className="passage-popup-top">
@@ -928,12 +949,13 @@ export const ReaderInteractions = forwardRef<
             </div>
           )}
           <div className="passage-actions">
-            {book.format === "pdf" && clipAction(false)}
-            {!selected.text.startsWith("Region on page") && <button type="button" onPointerDown={e => e.preventDefault()} onClick={() => {
+            {clipAction(false)}
+            {selected.kind === "image" && <button onPointerDown={e => e.preventDefault()} onClick={copyImage}>Copy image</button>}
+            {selected.kind !== "image" && <button type="button" onPointerDown={e => e.preventDefault()} onClick={() => {
               if (!navigator.clipboard) { notify("Clipboard access is unavailable in this browser."); return; }
               void navigator.clipboard.writeText(selected.text).then(() => notify("Copied passage."), () => notify("Copy was blocked. Allow clipboard access and try again."));
             }}>Copy</button>}
-            {!selected.text.startsWith("Region on page") &&
+            {selected.kind !== "image" &&
               selected.text.length <= 100 && (
                 <button
                   aria-pressed={mode === "meaning"}
@@ -945,8 +967,8 @@ export const ReaderInteractions = forwardRef<
                   Explain
                 </button>
               )}
-            {!selected.text.startsWith("Region on page") && <button type="button" disabled={busy} onPointerDown={e => e.preventDefault()} onClick={() => { if (selected) void attempt(() => onResearch(selected)); }}>Research</button>}
-            {!selected.text.startsWith("Region on page") && <button type="button" disabled={busy} onPointerDown={e => e.preventDefault()} onClick={() => void attempt(() => onListen(selected))}>Listen from here</button>}
+            {selected.kind !== "image" && <button type="button" disabled={busy} onPointerDown={e => e.preventDefault()} onClick={() => { if (selected) void attempt(() => onResearch(selected)); }}>Research</button>}
+            {selected.kind !== "image" && <button type="button" disabled={busy} onPointerDown={e => e.preventDefault()} onClick={() => void attempt(() => onListen(selected))}>Listen from here</button>}
             <button
               disabled={ambiguous}
               aria-pressed={mode === "note"}

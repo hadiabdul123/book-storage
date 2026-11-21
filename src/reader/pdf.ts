@@ -37,6 +37,7 @@ import {
 import type { ReaderAdapter, ReaderEvents, SearchHit, Section } from "./types";
 
 type PageState = {
+  imageRects?: Rect[];
   ocrButton: HTMLButtonElement;
   ocrWords?: OcrWord[];
   ocrChecked?: boolean;
@@ -304,6 +305,7 @@ export class PdfReader implements ReaderAdapter {
     for (const name of ["touchstart", "touchend", "touchcancel"] as const) this.host.addEventListener(name, this.touchPause, { capture: true, passive: true });
     this.host.addEventListener("scroll", this.onScroll, { passive: true });
     document.addEventListener("visibilitychange", this.scheduleRecognition);
+    this.host.addEventListener("contextmenu", this.imageMenu);
     this.host.addEventListener("pointerdown", this.pointerDown);
     this.host.addEventListener("pointermove", this.pointerMove);
     this.host.addEventListener("pointerup", this.pointerUp);
@@ -459,10 +461,25 @@ export class PdfReader implements ReaderAdapter {
 
       state.task = state.page.render({
         canvas,
+        recordImages: !state.imageRects,
         viewport: state.viewport,
         transform: ratio === 1 ? undefined : [ratio, 0, 0, ratio, 0, 0],
       });
+      const renderedViewport = state.viewport;
       await state.task.promise;
+      // PDF.js records three normalized image corners in the first rendered orientation.
+      // Keep their bounds in PDF units so zooming or rotating does not move the hit target.
+      const coordinates: ArrayLike<number> | null = state.page.imageCoordinates;
+      if (!state.imageRects && coordinates) {
+        state.imageRects = [];
+        for (let i = 0; i + 5 < coordinates.length; i += 6) {
+          const [ax, ay, bx, by, cx, cy] = Array.from({length:6}, (_, k) => coordinates[i+k]);
+          const corners = [[ax, ay], [bx, by], [cx, cy], [bx+cx-ax, by+cy-ay]]
+            .map(([x,y]) => renderedViewport.convertToPdfPoint(x*renderedViewport.width, y*renderedViewport.height));
+          const xs = corners.map(p => p[0]), ys = corners.map(p => p[1]);
+          state.imageRects.push([Math.min(...xs),Math.min(...ys),Math.max(...xs),Math.max(...ys)]);
+        }
+      }
       if (this.disposed || generation !== state.generation) return;
       layer = document.createElement("div");
       layer.className = "textLayer";
@@ -659,6 +676,10 @@ export class PdfReader implements ReaderAdapter {
     return state.recognizing;
   }
   private readSelection(range: Range, touch = false) {
+    const selected = this.selectionFromRange(range);
+    if (selected) this.events.onSelection(selected, touch ? "touch" : "native");
+  }
+  selectionFromRange(range: Range): import("./types").Selection | undefined {
     if (this.region || this.drawing) return;
     if (
       !this.host.contains(range.startContainer) ||
@@ -704,7 +725,7 @@ export class PdfReader implements ReaderAdapter {
       if (rects.length) regions.push({ page: state.n, rects });
     }
     if (!regions.length) return;
-    this.events.onSelection({
+    return {
       text,
       locator: {
         v: 1,
@@ -715,7 +736,7 @@ export class PdfReader implements ReaderAdapter {
         regions,
         quote: { exact: text, prefix: "", suffix: "" },
       },
-    }, touch ? "touch" : "native");
+    };
   }
   private visiblePage() {
     const bounds = this.host.getBoundingClientRect();
@@ -914,6 +935,39 @@ export class PdfReader implements ReaderAdapter {
       ],
     };
   }
+  private imageAt(page: PageState, x: number, y: number) {
+    let hit: Rect | undefined, smallest = Infinity;
+    for (const candidate of page.imageRects ?? []) {
+      const [left,bottom,right,top] = candidate, area = (right-left)*(top-bottom);
+      if (x >= left && x <= right && y >= bottom && y <= top && area < smallest) {
+        hit = candidate; smallest = area;
+      }
+    }
+    return hit;
+  }
+  private selectImage(page: PageState, rect: Rect) {
+    this.clearSelection();
+    const [left,top,right,bottom] = viewportRect(page.viewport,rect);
+    const outline = document.createElement("div");
+    outline.className = "pdf-image-selection";
+    Object.assign(outline.style,{left:left/page.viewport.width*100+"%", top:top/page.viewport.height*100+"%",
+      width:(right-left)/page.viewport.width*100+"%",height:(bottom-top)/page.viewport.height*100+"%"});
+    page.element.append(outline);
+    this.events.onSelection({ kind:"image", text:`Region on page ${page.n}`,
+      locator: { v:1, type:"pdf", hash:this.book.hash, page:page.n, y:0, regions:[{page:page.n,rects:[rect]}] }
+    });
+  }
+  private imageMenu = (event: MouseEvent) => {
+    if (this.region || this.drawing || this.textBoxMode || this.hasSelection()) return;
+    const element = (event.target as Element).closest<HTMLElement>(".pdf-page");
+    const page = element && this.pages[Number(element.dataset.page)-1];
+    if (!page || !element) return;
+    const r = element.getBoundingClientRect();
+    const [x,y] = page.viewport.convertToPdfPoint((event.clientX-r.left)*page.viewport.width/r.width,
+      (event.clientY-r.top)*page.viewport.height/r.height);
+    const rect = this.imageAt(page,x,y);
+    if (rect) { event.preventDefault(); this.selectImage(page,rect); }
+  };
   private pointerDown = (e: PointerEvent) => {
     if (!this.region) return;
     const element = (e.target as HTMLElement).closest<HTMLElement>(".pdf-page");
@@ -951,22 +1005,22 @@ export class PdfReader implements ReaderAdapter {
     const { page, box } = this.drag,
       r = box.getBoundingClientRect(),
       p = page.element.getBoundingClientRect();
+    const pdfPoint = (x:number,y:number) => page.viewport.convertToPdfPoint(
+      x * page.viewport.width / p.width, y * page.viewport.height / p.height);
+    let rect: Rect | undefined;
     if (r.width > 5 && r.height > 5) {
-      const a = page.viewport.convertToPdfPoint(r.left - p.left, r.top - p.top),
-        b = page.viewport.convertToPdfPoint(r.right - p.left, r.bottom - p.top);
-      this.events.onSelection({
-        text: `Region on page ${page.n}`,
-        locator: {
-          v: 1,
-          type: "pdf",
-          hash: this.book.hash,
-          page: page.n,
-          y: 0,
-          regions: [
-            { page: page.n, rects: [normalizeRect([a[0], a[1], b[0], b[1]])] },
-          ],
-        },
-      });
+      const a = pdfPoint(r.left-p.left,r.top-p.top), b = pdfPoint(r.right-p.left,r.bottom-p.top);
+      rect = normalizeRect([a[0],a[1],b[0],b[1]]);
+    } else {
+      const [x,y] = pdfPoint(this.drag.x,this.drag.y);
+      rect = this.imageAt(page,x,y);
+    }
+    if (rect) {
+      this.selectImage(page,rect);
+    } else {
+      this.events.onHint?.("Drag a box around the illustration to select it.");
+      box.remove(); this.drag = undefined; this.releasePointer();
+      return;
     }
     box.remove();
     this.drag = undefined;
@@ -1447,6 +1501,7 @@ export class PdfReader implements ReaderAdapter {
     return !!this.touch?.hasSelection() || !!(selection && !selection.isCollapsed && this.host.contains(selection.anchorNode) && selection.toString().trim());
   }
   clearSelection() {
+    this.host.querySelector(".pdf-image-selection")?.remove();
     this.touch?.clear();
     const selection = document.getSelection();
     if (selection && this.host.contains(selection.anchorNode)) selection.removeAllRanges();
@@ -1519,6 +1574,7 @@ export class PdfReader implements ReaderAdapter {
     this.resizeObserver?.disconnect();
     this.unbindNativeSelection?.();
     this.host.removeEventListener("scroll", this.onScroll);
+    this.host.removeEventListener("contextmenu", this.imageMenu);
     this.host.removeEventListener("pointerdown", this.pointerDown);
     this.host.removeEventListener("pointermove", this.pointerMove);
     this.host.removeEventListener("pointerup", this.pointerUp);
