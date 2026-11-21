@@ -30,6 +30,7 @@ import {
   Headphones,
   Type,
 } from "lucide-react";
+import { PdfTextView } from "./PdfTextView";
 import { ComfortLayer, ComfortSettings, useReaderComfort } from "./ReaderComfort";
 import { PdfTextBoxTool } from "./PdfTextBoxTool";
 import { belongsToPdf, fitPdfTextBox, layoutBoxText, validPdfTextBox, type BoxRotation, type PdfTextBox } from "./pdfTextBoxes";
@@ -176,6 +177,8 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
   const paginated = book?.format === "pdf" ? pdfLayout.navigation === "paginated" : prefs.flow === "paginated";
   useEffect(() => setSwipeToTurn(effectiveView.swipeToTurn ?? paginated), [id, effectiveView.swipeToTurn, paginated]);
   const comfort = useReaderComfort();
+  const [textViewPage,setTextViewPage] = useState<number>();
+  const paper = comfort.value;
   const [railTip, setRailTip] = useState<{label:string;y:number}>();
   const clearTip = () => setRailTip(undefined);
   const tipFor = (target: EventTarget | null) => {
@@ -499,6 +502,8 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
       setLoading(true);
       setOpenFailed(false);
       setOpened(false);
+      setTextViewPage(undefined);
+      comfort.setOriginal(false);
       setOfferedPosition(undefined);
       position.current = null;
       setError("");
@@ -655,6 +660,10 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
     };
   }, [book?.id, book?.hash, loadAttempt]);
   useEffect(() => {
+    if (opened && book?.format === "pdf") void (adapter.current as PdfReader | null)?.setPrintAppearance(
+      comfort.original ? "original" : paper.printFace).catch(e => notifyRef.current(messageOf(e)));
+  }, [opened,book?.id,book?.format,comfort.original,paper.printFace,paper.clearPrint,prefs.theme,pdfOriginalColors]);
+  useEffect(() => {
     adapter.current?.annotate(annotations);
   }, [annotations, ready]);
   useEffect(() => {
@@ -774,7 +783,10 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
       data-study-open={panel === "study-notebook" || undefined} data-clipping-region={region || undefined}
       style={panel === "study-notebook" ? studyPane.style : undefined}
       className={`reader-shell reader-side-tools theme-${prefs.theme}${drawing ? " drawing-active" : ""}${textBoxMode ? " pdf-text-box-active" : ""}${chrome.visible ? " controls-visible" : " reading-mode"}${chrome.menu ? " controls-menu-open" : ""}${swipeEnabled ? " swipe-pages" : ""}${hidePageControls ? " hide-page-controls" : ""}${panel ? " panel-open" : ""}`}
-      data-original-pdf-colors={pdfOriginalColors}
+      data-original-pdf-colors={pdfOriginalColors || comfort.original}
+      data-clear-print={book.format==="pdf" && !comfort.original && paper.clearPrint || undefined}
+      data-paper-edge={!comfort.original && book.format==="pdf" ? paper.paperEdge : undefined}
+      data-sheet-texture={comfort.original ? "plain" : paper.texture}
       data-loading={loading || savedPrefs === null || localView === undefined}
       onPointerMoveCapture={(event) => {
         if (
@@ -1016,6 +1028,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
           <div
             ref={host}
             className={`reader-host ${book.format === "pdf" ? "pdf-reader" : book.format === "docx" ? "docx-reader" : ""} ${region ? "region-mode" : ""} ${jumped ? "passage-arrived" : ""}`}
+            style={book.format==="pdf" && !comfort.original && /^#[a-f0-9]{6}$/i.test(paper.surround) ? {backgroundColor:paper.surround} : undefined}
             aria-label="Book content"
             tabIndex={0}
           />
@@ -1344,7 +1357,10 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
                         </p>
                       </>
                     )}
-                  {book.format === "pdf" && <ComfortSettings {...comfort} />}
+                  {book.format === "pdf" && <ComfortSettings {...comfort} textAvailable={opened && !!pdfPageCount} openText={()=>{
+                    if (!opened || !pdfPageCount) return;
+                    setTextViewPage(current?.type === "pdf" ? current.page : 1);
+                  }} />}
                   <fieldset className="reading-theme-settings">
                     <legend>Page theme</legend>
                     <div className="theme-options">
@@ -1543,8 +1559,7 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
                         Rotate page
                       </button>
                       <p className="muted">
-                        PDF pages retain their original typography. Highlight
-                        text or use region mode for scans and diagrams.
+                        Highlight text or use region mode for scans and diagrams.
                       </p>
                       <button
                         className={region ? "primary" : "secondary"}
@@ -1707,6 +1722,10 @@ export function Reader({ notify }: { notify: (message: string) => void }) {
       {imagePicker && <SaveResearch notebookOnly image={{id:imagePicker.source.id,file:imagePicker.file}}
         text={imagePicker.text} sources={imagePicker.passage ? [imagePicker.source,imagePicker.passage] : [imagePicker.source]}
         onClose={() => setImagePicker(undefined)}/>}
+      {book.format==="pdf" && textViewPage !== undefined && pdfPageCount && adapter.current && <PdfTextView
+        key={book.id} reader={adapter.current as PdfReader} start={textViewPage} count={pdfPageCount} title={book.title}
+        face={paper.textFace} size={paper.textSize} spacing={paper.textSpacing} update={comfort.update}
+        close={page=>{setTextViewPage(undefined); setPanel(""); if (page !== textViewPage) void goTo(String(page));}}/>}
       {editing && (
         <EditAnnotation
           annotation={editing}

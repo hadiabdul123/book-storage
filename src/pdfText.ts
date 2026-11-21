@@ -60,6 +60,40 @@ export function pageText(book: Edition, page: PDFPageProxy): Promise<TextContent
   return task;
 }
 export const hasPageText = (text: TextContent) => text.items.some(item => "str" in item && !!item.str.trim());
+type ReadingLine = { text: string; x: number; y: number; height: number };
+
+// Follow extraction order. Larger baseline gaps, column changes and first-line
+// indents start paragraphs. Ordinary wrapped lines share a paragraph.
+export function readableParagraphs(content: TextContent | OcrWord[]): string {
+  const lines: ReadingLine[] = [];
+  const runs = Array.isArray(content)
+    ? content.map(({ text, rect }) => ({ text, x: rect[0], y: rect[1], height: rect[3] - rect[1] }))
+    : content.items.flatMap(item => "str" in item ? [{
+        text: item.str, x: item.transform[4], y: item.transform[5], height: item.height,
+      }] : []);
+  for (const run of runs) {
+    if (!run.text.trim()) continue;
+    const previous = lines.at(-1);
+    if (previous && Math.abs(previous.y - run.y) < Math.max(1, run.height * .4)) {
+      previous.text += " " + run.text.trim();
+    } else {
+      lines.push({ ...run, text: run.text.trim() });
+    }
+  }
+  let result = "";
+  lines.forEach((line, i) => {
+    const previous = lines[i - 1];
+    if (previous) {
+      const height = Math.max(previous.height, line.height, 1);
+      const distance = previous.y - line.y;
+      const paragraph = distance < 0 || distance > height * 1.75 ||
+        line.x - previous.x > height || Math.abs(line.height - previous.height) > height * .22;
+      result += paragraph ? "\n\n" : " ";
+    }
+    result += line.text;
+  });
+  return result;
+}
 const recognizing = new Map<string, Promise<OcrWord[] | undefined>>();
 /** A library job and an opening reader share any page already in flight. */
 export function preparePageText(book: Edition, page: PDFPageProxy, ocr: PageOcr,

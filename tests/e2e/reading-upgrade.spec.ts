@@ -1,7 +1,7 @@
 import { showHighlightFilters } from "./controls";
 import { test, expect, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
-import { PDFDocument, PDFName, PDFString } from "pdf-lib";
+import { PDFDocument, PDFName, PDFString, StandardFonts, rgb } from "pdf-lib";
 import { numberedPdf } from "../helpers/numbered-pdf";
 import { textPdf } from "../helpers/text-pdf";
 import { clickTool, showPassageAction } from "./controls";
@@ -512,4 +512,67 @@ test("outside taps close Explain and all passage icons without removing the high
     await expect(page.locator(".pdf-selection-handle")).toHaveCount(0);
     await expect(page.locator(".pdf-highlight")).toHaveCount(1);
   }
+});
+
+test("paper and print preserve the PDF while text view follows the page", async ({page}) => {
+  const pdf=await PDFDocument.create(), font=await pdf.embedFont(StandardFonts.TimesRoman);
+  const lines=["Every walk begins with a little curiosity.","The path leads past the village and the trees.","A quiet afternoon gives us time to read."];
+  for(let n=0;n<2;n++) {
+    const sheet=pdf.addPage([420,560]);
+    if(n===1) sheet.drawRectangle({x:60,y:310,width:60,height:30,color:rgb(.2,.5,.8)});
+    lines.forEach((s,i)=>sheet.drawText(s,{x:40,y:465-17*i,size:12,font}));
+  }
+  const scan=pdf.addPage([420,560]);
+  const dot=await pdf.embedPng(Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQI12P4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==","base64"));
+  scan.drawImage(dot,{x:0,y:0,width:420,height:560});
+  await page.goto("/"); await page.locator("input[type=file]").setInputFiles({name:"Walks.pdf",mimeType:"application/pdf",buffer:Buffer.from(await pdf.save())});
+  await expect(page.locator(".book-card")).toHaveCount(1);
+  await page.evaluate(async()=>{
+    const {db,list}=await import("/src/db.ts"), [book]=await list("book");
+    await db.meta.put({key:"ocr-v2:"+book.id+":"+book.hash+":3",value:JSON.stringify([{text:"Recognized page",rect:[10,20,100,40]}])});
+  });
+  await page.locator(".book-cover-link").click();
+  await expect(page.locator('.pdf-page[data-page="1"] .textLayer span').first()).toBeVisible();
+  await clickTool(page,"Reading settings");
+  const shell=page.locator(".reader-shell"), host=page.locator(".reader-host"), paper=page.locator('.pdf-page[data-page="1"] > canvas');
+  await page.getByRole("button",{name:"Paper preset",exact:true}).click();
+  await expect(shell).toHaveAttribute("data-paper-edge","torn");
+  await expect(host).toHaveCSS("background-color","rgb(199, 194, 185)");
+  await expect(page.getByLabel("Clear print",{exact:true})).toBeChecked();
+  const raster = () => paper.evaluate(async el => {
+    const canvas = el as HTMLCanvasElement;
+    const pixels = canvas.getContext("2d")!.getImageData(0, 0, canvas.width, canvas.height);
+    return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", pixels.data))).join(".");
+  });
+  await page.getByLabel("PDF typeface").selectOption("serif");
+  await expect(paper).toHaveAttribute("data-print-face","serif",{timeout:15000});
+  const previewRaster = await raster();
+  await page.getByRole("button",{name:"Preview original PDF",exact:true}).click();
+  await expect(paper).not.toHaveAttribute("data-print-face","serif");
+  expect(await raster()).not.toBe(previewRaster);
+  await expect(shell).not.toHaveAttribute("data-clear-print","true");
+  await page.getByRole("button",{name:"Preview",exact:true}).click();
+  await expect(paper).toHaveAttribute("data-print-face","serif");
+  expect(await raster()).toBe(previewRaster);
+  await page.getByRole("button",{name:"Open text view"}).click();
+  const dialog=page.getByRole("dialog",{name:"Text view"});
+  await expect(dialog).toContainText(lines[0]);
+  await dialog.getByRole("button",{name:"Next",exact:true}).click();
+  await dialog.getByRole("button",{name:"Back to PDF"}).click();
+  const diagram = page.locator('.pdf-page[data-page="2"] > canvas');
+  await expect(diagram).toBeVisible();
+  expect(await diagram.getAttribute("data-print-face")).toBeNull();
+  expect(await diagram.evaluate(el => {
+    const c = el as HTMLCanvasElement;
+    return Array.from(c.getContext("2d")!.getImageData(c.width * 90/420, c.height * 235/560, 1, 1).data);
+  })).toEqual([51, 128, 204, 255]);
+  await clickTool(page,"Reading settings");
+  await page.getByRole("button",{name:"Open text view"}).click();
+  await expect(dialog).toContainText("Page 2 of 3");
+  await dialog.getByRole("button",{name:"Next",exact:true}).click();
+  await expect(dialog).toContainText("Recognized page");
+  await dialog.getByRole("button",{name:"Back to PDF"}).click();
+  await expect(page.locator(".reader-progress")).toContainText("Page 3");
+  await page.reload(); await expect(shell).toHaveAttribute("data-paper-edge","torn");
+  await expect(host).toHaveCSS("background-color","rgb(199, 194, 185)");
 });

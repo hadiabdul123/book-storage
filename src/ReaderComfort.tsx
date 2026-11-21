@@ -2,7 +2,10 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "./db";
 
-const defaults = { brightness: 100, warmth: 0, texture: "plain", strength: 14, edge: false };
+export type PrintFace = "original" | "serif" | "sans";
+const surrounds = { "Warm gray":"#c7c2b9", "Muted taupe":"#ad9f90", Charcoal:"#373a3d" };
+const defaults = { paperEdge:"straight", surround:"", clearPrint:false, printFace:"original" as PrintFace,
+  textFace:"serif" as PrintFace, textSize:20, textSpacing:1.65, brightness: 100, warmth: 0, texture: "plain", strength: 14, edge: false };
 type Comfort = typeof defaults;
 const storageKey = "leafmark-reader-comfort-v1";
 function load(): Comfort {
@@ -11,8 +14,10 @@ function load(): Comfort {
 }
 export function useReaderComfort() {
   const [value, setValue] = useState(load);
+  const [original, setOriginal] = useState(false);
   const current = useRef(value);
   const update = (patch: Partial<Comfort>) => {
+    setOriginal(false);
     current.current = { ...current.current, ...patch };
     setValue(current.current);
   };
@@ -25,10 +30,10 @@ export function useReaderComfort() {
     window.addEventListener("pagehide", save);
     return () => { window.removeEventListener("pagehide", save); save(); };
   }, []);
-  return { value, update };
+  return { value, update, original, setOriginal };
 }
 type Controls = ReturnType<typeof useReaderComfort>;
-export function ComfortSettings({ value, update }: Controls) {
+export function ComfortSettings({ value, update, original, setOriginal, openText, textAvailable }: Controls & {openText:()=>void; textAvailable:boolean}) {
   const [error, setError] = useState("");
   const texture = useLiveQuery(() => db.meta.get("reader-custom-paper"), []);
   async function importTexture(file?: File) {
@@ -44,7 +49,26 @@ export function ComfortSettings({ value, update }: Controls) {
       update({ texture:"custom" }); setError("");
     } catch(e) { setError(e instanceof Error ? e.message : "Could not load this image."); }
   }
-  return <fieldset className="comfort-settings"><legend>Reading comfort</legend>
+  return <fieldset className="comfort-settings"><legend>Paper &amp; print</legend>
+    <div className="paper-comparison" role="group" aria-label="Compare PDF appearance">
+      <button type="button" aria-label="Preview original PDF" aria-pressed={original} onClick={() => setOriginal(true)}>Original</button>
+      <button type="button" aria-pressed={!original} onClick={() => setOriginal(false)}>Preview</button>
+      <button type="button" onClick={() => update({paperEdge:"torn",surround:surrounds["Warm gray"],clearPrint:true,printFace:"original"})}>Paper preset</button>
+    </div>
+    <label>Paper edges<select value={value.paperEdge} onChange={e=>update({paperEdge:e.target.value})}>
+      <option value="straight">Straight</option><option value="torn">Soft torn edge</option><option value="fold">Folded corner</option>
+    </select></label>
+    <label>Behind the pages<select value={!value.surround || Object.values(surrounds).includes(value.surround) ? value.surround : "custom"}
+      onChange={e=>update({surround:e.target.value === "custom" ? "#a2aaa5" : e.target.value})}>
+      <option value="">Use reader theme</option>{Object.entries(surrounds).map(([name,hex])=><option key={hex} value={hex}>{name}</option>)}<option value="custom">Custom color</option>
+    </select></label>
+    <label>Custom background color <input type="color" value={value.surround || surrounds["Warm gray"]} onChange={e=>update({surround:e.target.value})}/></label>
+    <label><input type="checkbox" checked={value.clearPrint} onChange={e=>update({clearPrint:e.target.checked})}/> Clear print</label>
+    <label>PDF typeface<select value={value.printFace} onChange={e=>update({printFace:e.target.value as PrintFace})}>
+      <option value="original">Original</option><option value="serif">Book serif</option><option value="sans">Sans serif</option>
+    </select></label>
+    {value.printFace !== "original" && <small>Applies to matching body text. Scans and complex layouts keep their printed type.</small>}
+    <button type="button" className="secondary" disabled={!textAvailable} onClick={openText}>Open text view</button>
     {(["brightness","warmth","strength"] as const).filter(k => k !== "strength" || value.texture !== "plain").map(k => <label key={k}>
       {k === "brightness" ? "Page brightness" : k === "warmth" ? "Warmth" : "Texture intensity"} <output>{value[k]}%</output>
       <input type="range" aria-label={k === "brightness" ? "Page brightness" : k === "warmth" ? "Warmth" : "Texture intensity"} min={k === "brightness" ? 25 : 0} max="100" value={value[k]} onChange={e => update({ [k]:+e.target.value })} /></label>)}
@@ -54,7 +78,7 @@ export function ComfortSettings({ value, update }: Controls) {
     {error && <p role="alert">{error}</p>}
   </fieldset>;
 }
-export function ComfortLayer({ value, update, host, enabled }: Controls & { host: RefObject<HTMLDivElement | null>; enabled:boolean }) {
+export function ComfortLayer({ value, update, original, host, enabled }: Controls & { host: RefObject<HTMLDivElement | null>; enabled:boolean }) {
   const custom = useLiveQuery(() => value.texture === "custom" ? db.meta.get("reader-custom-paper") : undefined,[value.texture]);
   const latest = useRef({value,update}); latest.current = {value,update};
   useEffect(() => {
@@ -80,9 +104,16 @@ export function ComfortLayer({ value, update, host, enabled }: Controls & { host
     el.addEventListener("touchend",end);el.addEventListener("touchcancel",end);
     return ()=>{el.removeEventListener("touchstart",start,true);el.removeEventListener("touchmove",move,true);el.removeEventListener("touchend",end);el.removeEventListener("touchcancel",end);};
   },[host,enabled,value.edge]);
-  return <div className="reader-comfort-layer" aria-hidden="true">
-    {value.texture !== "plain" && <div data-paper={value.texture} style={{opacity:value.strength/230,backgroundImage:custom ? 'url('+custom.value+')' : undefined}} />}
-    {!!value.warmth && <div style={{background:"#ffab48",opacity:value.warmth/375,mixBlendMode:"multiply"}} />}
-    {value.brightness<100 && <div style={{background:"black",opacity:1-value.brightness/100}} />}
-  </div>;
+  useEffect(() => {
+    const shell = host.current?.closest<HTMLElement>(".reader-shell");
+    if (!shell) return;
+    const css = shell.style;
+    css.setProperty("--pdf-grain-opacity",String(original ? 0 : value.strength/230));
+    css.setProperty("--pdf-paper-dim",String(original ? 0 : 1-value.brightness/100));
+    css.setProperty("--pdf-paper-warm",String(original ? 0 : value.warmth/375));
+    if (custom && !original) css.setProperty("--pdf-custom-grain","url("+custom.value+")");
+    else css.removeProperty("--pdf-custom-grain");
+    return () => { for (const key of ["--pdf-grain-opacity","--pdf-paper-dim","--pdf-paper-warm","--pdf-custom-grain"]) css.removeProperty(key); };
+  },[host,original,custom,value.strength,value.warmth,value.brightness]);
+  return null;
 }

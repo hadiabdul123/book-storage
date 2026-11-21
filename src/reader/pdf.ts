@@ -1,3 +1,5 @@
+import { applyPrintFace } from "./pdfPrint";
+import type { PrintFace } from "../ReaderComfort";
 import { bindPdfZoom } from "./pdfZoom";
 import { ViewIntent, abortable } from "./viewIntent";
 import { PageTurn } from "./pageTurn";
@@ -7,7 +9,7 @@ import { defaultInkStyle, type InkStroke, type InkStyle } from "../inkTypes";
 import { belongsToPdf, boxFont, boxInk, boxPadding, boxPaper, boxTransform, layoutBoxText, validPdfTextBox, type PdfTextBox } from "../pdfTextBoxes";
 import { blankLeaf, canvasImage, disposeSurfaces, surfaceCache, type TurnDirection, type TurnPreview, type TurnSpread } from "./turnSurfaces";
 import { db } from "../db";
-import { pageText, savedOcr, preparePageText, hasPageText, type OcrWord } from "../pdfText";
+import { pageText, savedOcr, preparePageText, hasPageText, readableParagraphs, type OcrWord } from "../pdfText";
 import { PageOcr } from "./ocr";
 import { surroundingText } from "../sourceIndex";
 import { bindPdfTouch } from "./pdfTouch";
@@ -94,6 +96,23 @@ export class PdfReader implements ReaderAdapter {
   private turn: PageTurn;
   private effect: Preferences["pageTurnEffect"] = "curl";
   private preferenceKey = "";
+  private printFace: PrintFace = "original";
+  async setPrintAppearance(face:PrintFace) {
+    this.turn.invalidate();
+    this.clearSurfaces();
+    if (this.printFace === face) return;
+    this.printFace = face;
+    if (this.view) await this.setView(this.view.target.zoom,this.view.target.rotation,true);
+  }
+  async readablePage(n:number, recognize:boolean) {
+    const state=this.pages[n-1];
+    if (!state) throw Error("This page is unavailable.");
+    const content=await pageText(this.book,state.page);
+    if (hasPageText(content)) return readableParagraphs(content);
+    if (recognize) await this.recognizePage(state,true);
+    const words = state.ocrWords ?? await savedOcr(this.book,n);
+    return words ? readableParagraphs(words) : null;
+  }
   private surfaceRevision = 0;
   private surfaces = new Map<number, { spread: TurnSpread; cache: HTMLElement }>();
   private clearSurfaces() { this.surfaceRevision++; for (const item of this.surfaces.values()) disposeSurfaces(item.cache); this.surfaces.clear(); }
@@ -487,6 +506,15 @@ export class PdfReader implements ReaderAdapter {
       state.element.append(layer);
       const text = await abortable(pageText(this.book, state.page), controller.signal);
       if (this.disposed || generation !== state.generation) return;
+      if (this.printFace !== "original") {
+        // Cached text can belong to another PDF.js document instance. The active
+        // instance owns the font objects used to validate printed body text.
+        try {
+          const native = await state.page.getTextContent();
+          await applyPrintFace(canvas, state.page, state.viewport, native, this.printFace, this.lib.OPS, controller.signal);
+        } catch { /* A print preview is optional. Keep the rendered PDF available. */ }
+        if (controller.signal.aborted || this.disposed || generation !== state.generation) return;
+      }
       state.textTask = new this.lib.TextLayer({
         textContentSource: text,
         container: layer,
@@ -1224,6 +1252,7 @@ export class PdfReader implements ReaderAdapter {
             image.style.filter = getComputedStyle(canvas).filter;
             const content = document.createElement("div");
             Object.assign(content.style, { position: "absolute", width: `${w}px`, height: `${h}px`, left: `${(width - w * scale) / 2}px`, top: "0", transform: `scale(${scale})`, transformOrigin: "0 0" });
+            content.className = "pdf-turn-content";
             content.append(image);
             for (const highlight of page.element.querySelectorAll<HTMLElement>(".pdf-highlight,.pdf-ink-layer,.pdf-text-box-layer")) {
               const clone = highlight.cloneNode(true) as HTMLElement, css = getComputedStyle(highlight);

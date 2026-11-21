@@ -115,9 +115,11 @@
 .reader-shell .reader-panel input[type="range"] { min-height: 44px; }
 .reader-shell[data-loading="true"] .reader-host { visibility: hidden; }
 .reader-shell .docx-content :not(img):not(svg):not(path) { color: inherit; background-color: transparent; }
-.reader-shell.theme-sepia .pdf-page canvas { filter: brightness(0.93) sepia(0.24); }
-.reader-shell.theme-dark .pdf-page canvas { filter: invert(0.88) hue-rotate(180deg); }
-.reader-shell[data-original-pdf-colors="true"] .pdf-page canvas { filter: none; }
+.reader-shell[data-clear-print=true] { --pdf-clear-filter:brightness(.88) contrast(1.32); }
+.reader-shell .pdf-page canvas { filter:var(--pdf-clear-filter,none); }
+.reader-shell.theme-sepia .pdf-page canvas { filter:var(--pdf-clear-filter,brightness(1)) brightness(0.93) sepia(0.24); }
+.reader-shell.theme-dark .pdf-page canvas { filter:var(--pdf-clear-filter,brightness(1)) invert(0.88) hue-rotate(180deg); }
+.reader-shell[data-original-pdf-colors="true"] .pdf-page canvas { filter:var(--pdf-clear-filter,none); }
 .reader-shell.theme-dark:not([data-original-pdf-colors="true"]) .pdf-highlights,
 .reader-shell.theme-dark .docx-highlights { mix-blend-mode: screen; }
 .reader-shell.theme-dark .pdf-highlight { opacity: 0.45; }
