@@ -56,12 +56,12 @@ test("PDF text box stays on its page through editing, zoom, rotation and a sprea
   await expect(editor).toHaveCSS("font-weight", "300");
   await page.getByRole("combobox", { name: "Weight", exact: true }).selectOption("bold");
   await page.getByRole("button", { name: "Underline", exact: true }).click();
-  const outside = paper.locator(".textLayer span").first();
-  // Tap the page even though the text layer is inert during editing.
-  await outside.scrollIntoViewIfNeeded();
-  const line = (await outside.boundingBox())!;
-  if (info.project.use.hasTouch) await page.touchscreen.tap(line.x + line.width / 2, line.y + line.height / 2);
-  else await page.mouse.click(line.x + line.width / 2, line.y + line.height / 2);
+  if (await more.isVisible()) await more.click();
+  // Use a blank area well below the box and the mobile formatting popover.
+  const sheet = (await paper.boundingBox())!;
+  const outside = { position: { x: sheet.width * .82, y: sheet.height * .82 } };
+  if (info.project.use.hasTouch) await paper.tap(outside);
+  else await paper.click(outside);
   await expect(editor).toHaveCount(0);
   await expect(box).toContainText("Second line α.");
   await context.setOffline(false);
