@@ -34,7 +34,14 @@ export function CategoryBoard({ category, cards, filings, open }: {category:stri
   useEffect(() => {
     if (fitted.current || !size.w || !size.h || !cards.length || !positions.has(cards[0].id)) return;
     fitted.current = true;
-    fit();
+    // Keep saved positions when they already fit at the initial zoom.
+    // Reframe only when a card would open outside the visible board.
+    const visible = cards.every(card => {
+      const p = positions.get(card.id);
+      return p && p.x + 16 >= 0 && p.y + 16 >= 0 &&
+        p.x + 16 + tile.w <= size.w && p.y + 16 + tile.h <= size.h;
+    });
+    if (!visible) fit();
   }, [size, cards, filings]);
   const zoom=(factor:number)=>setCamera(c=>{const z=Math.max(.05,Math.min(3,c.z*factor));return {z,x:size.w/2+(c.x-size.w/2)*z/c.z,y:size.h/2+(c.y-size.h/2)*z/c.z};});
   return <section aria-label="Category board"><div className="board-tools"><button onClick={()=>zoom(.8)} aria-label="Zoom out board">−</button><span>{Math.round(camera.z*100)}%</span><button onClick={()=>zoom(1.25)} aria-label="Zoom in board">+</button><button onClick={fit}>Fit cards</button></div>

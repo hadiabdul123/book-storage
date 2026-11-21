@@ -108,16 +108,14 @@ test("phone swipe preference persists and avoids selection, vertical scrolling a
   await expect(page.locator(".reader-progress")).toContainText("Page 1");
   await stroke(page, x, y, 0, -100);
   await expect(page.locator(".reader-progress")).toContainText("Page 1");
-  await page
-    .locator(".textLayer span")
-    .first()
-    .evaluate((el) => {
-      const range = document.createRange();
-      range.selectNodeContents(el);
-      const selection = document.getSelection()!;
-      selection.removeAllRanges();
-      selection.addRange(range);
-    });
+  // Exercise the tablet's word selection before swiping the active passage.
+  const word = await page.locator('.pdf-page[data-page="1"] .textLayer span').first().evaluate(el => {
+    const node = el.firstChild!, match = /\w+/.exec(node.textContent!)!;
+    const r = document.createRange(); r.setStart(node,match.index); r.setEnd(node,match.index + match[0].length);
+    const box = r.getBoundingClientRect();
+    return {x:box.left+box.width/2,y:box.top+box.height/2};
+  });
+  await stroke(page,word.x,word.y,0,0,650);
   await expect(page.locator(".passage-popup")).toBeVisible();
   await stroke(page, x, y, -170, 0);
   await expect(page.locator(".reader-progress")).toContainText("Page 1");
